@@ -3,12 +3,7 @@
   "hooks": {
     "beforeSubmitPrompt": [
       {
-        "command": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=cursor"
-      }
-    ],
-    "stop": [
-      {
-        "command": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=cursor"
+        "command": "& { $OutputEncoding = [System.Text.Encoding]::GetEncoding(1252); $input | python scripts/_run_hook.py --tool=cursor }"
       }
     ]
   }
