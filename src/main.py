@@ -19,10 +19,23 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AI20K Agent",
-    description="AI Agent built with LangGraph",
+    title="MediPay Agent API",
+    description=(
+        "Backend API for BHYT questions, hospital fee analysis, and payment guidance. "
+        "Built with FastAPI and LangGraph."
+    ),
     version="1.0.0",
     lifespan=lifespan,
+    openapi_tags=[
+        {
+            "name": "Agent",
+            "description": "Chat, analysis, and status endpoints for MediPay Agent.",
+        },
+        {
+            "name": "System",
+            "description": "Application health and readiness endpoints.",
+        },
+    ],
 )
 
 settings = get_settings()
@@ -37,12 +50,22 @@ app.add_middleware(
 app.include_router(router, prefix="/api/v1")
 
 
-@app.get("/health")
+@app.get(
+    "/health",
+    tags=["System"],
+    summary="Check API liveness",
+    description="Return immediately when the API process is running.",
+)
 async def health():
     return {"status": "ok", "env": settings.app_env}
 
 
-@app.get("/ready")
+@app.get(
+    "/ready",
+    tags=["System"],
+    summary="Check API readiness",
+    description="Check whether the API can reach its configured database.",
+)
 async def readiness():
     database_ready = await check_database()
     return {"status": "ready" if database_ready else "degraded", "database": database_ready}
