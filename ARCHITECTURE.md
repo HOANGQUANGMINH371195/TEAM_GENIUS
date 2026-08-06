@@ -1,110 +1,143 @@
-# Architecture Document
+# MediPay Agent Architecture
 
 ## System Overview
 
-[Tóm tắt 2-3 câu về kiến trúc hệ thống]
+MediPay Agent dùng FastAPI backend trong `src`, LangGraph để điều phối GraphRAG, và Supabase PostgreSQL với `pgvector` để lưu dữ liệu nghiệp vụ, chunks, embeddings, entities và relations. Docker local chỉ chạy backend; frontend Next.js sẽ đặt tại `web/` ở giai đoạn tiếp theo. LLM và embedding provider để dạng adapter/interface vì team chưa chốt model local.
 
 ## Architecture Diagram
 
 ```mermaid
 graph TB
-    subgraph Frontend
-        UI[React/Next.js UI]
-    end
+    User([User]) --> Web[Next.js app / web]
+    Web -->|REST /api/v1| API[FastAPI / src/api]
+    API --> Service[ChatService]
+    Service --> Graph[LangGraph GraphRAG]
+    Graph --> Extract[Entity & relation extraction]
+    Graph --> Retrieve[Vector retrieval + graph expansion]
+    Graph --> Generate[Provider-neutral generation]
+    Retrieve --> DB[(Supabase PostgreSQL + pgvector)]
+    Extract --> DB
+    Generate --> Response[Grounded response + citations]
+    Response --> Web
+```
 
-    subgraph Backend[FastAPI Backend]
-        API[API Routes]
-        Agent[LangGraph Agent]
-        LLM[LLM Service]
-        Tools[Agent Tools]
-    end
+## Repository Boundaries
 
-    subgraph Data[Data Layer]
-        DB[(Database)]
-        Vector[Vector Store]
-    end
+```text
+src/
+├── main.py
+├── config.py
+├── api/              # HTTP validation, dependencies, error mapping
+├── agents/           # LangGraph state, nodes and tools
+├── db/               # SQLAlchemy async session, models, repositories
+├── graph_rag/        # chunking, extraction, retrieval, ingestion
+├── integrations/     # LLM/embedding protocols and telemetry adapters
+├── models/           # Pydantic API and graph DTOs
+└── services/         # application use cases
+web/                  # Next.js frontend, future scope
+supabase/migrations/  # SQL schema managed by Supabase
+```
 
-    UI -->|HTTP/REST| API
-    API --> Agent
-    Agent --> LLM
-    Agent --> Tools
-    Agent --> Vector
-    Tools --> DB
-    API --> DB
+Routes do not execute SQL, call LLMs, build prompts, or orchestrate graph nodes directly. Services own use cases. Repositories own DB queries. Graph nodes own workflow steps.
+
+## GraphRAG Flow
+
+```mermaid
+graph LR
+    Start((START)) --> Intake[Intake]
+    Intake --> Entities[Extract entities]
+    Entities --> Vectors[Retrieve semantic chunks]
+    Vectors --> Expand[Expand graph neighbors]
+    Expand --> Context[Assemble grounded context]
+    Context --> Generate[Generate answer]
+    Generate --> Guardrail[Guardrail + citations]
+    Guardrail --> End((END))
+```
+
+Query path:
+
+1. Validate query in API with Pydantic.
+2. Extract query entities through provider-neutral graph extractor.
+3. Embed query when embedding adapter is configured.
+4. Search `document_chunks.embedding` using pgvector.
+5. Traverse bounded `relations` around matched entities.
+6. Merge chunks, graph facts and provenance into context.
+7. Generate answer through selected local model adapter.
+8. Return answer and citations; never return chain-of-thought.
+
+Ingestion path:
+
+```text
+Document → chunk → optional embedding → entity/relation extraction
+→ documents/document_chunks/entities/relations in Supabase
 ```
 
 ## Components
 
-### 1. Frontend (React/Next.js)
-- **Purpose:** [mô tả]
-- **Key Features:** [danh sách]
-- **State Management:** [approach]
+### Frontend: `web/`
 
-### 2. Backend (FastAPI)
-- **Purpose:** [mô tả]
-- **API Design:** RESTful
-- **Authentication:** [JWT/None]
+Next.js App Router frontend. `app/` owns pages/layout; `components/` owns UI; `lib/` owns typed FastAPI client and environment helpers. Frontend implementation is outside current backend GraphRAG scope.
 
-### 3. AI Agent (LangGraph)
-- **Agent Type:** [ReAct / Plan-and-Execute / Custom]
-- **State:** [mô tả state schema]
-- **Nodes:** [danh sách nodes]
-- **Tools:** [danh sách tools]
-- **Flow:**
+### Backend: `src/`
 
-```mermaid
-graph LR
-    START --> A[Node A]
-    A --> B{Decision}
-    B -->|Yes| C[Node C]
-    B -->|No| D[Node D]
-    C --> E[END]
-    D --> E
+- `src/api`: REST endpoints `/health`, `/api/v1/chat`, `/api/v1/status`; request validation and safe error mapping.
+- `src/services`: chat and GraphRAG application use cases.
+- `src/agents`: LangGraph workflow and typed `AgentState`.
+- `src/graph_rag`: chunking, extraction contracts, retrieval and ingestion logic.
+- `src/integrations`: provider-neutral LLM/embedding protocols; model runtime remains unselected.
+- `src/db`: SQLAlchemy async engine, models and repositories.
+- `src/config.py`: environment settings, pool, retrieval and chunk parameters.
+
+### Database: Supabase PostgreSQL
+
+Supabase is selected for shared PostgreSQL and `pgvector`. Current schema script defines:
+
+- `documents`: source metadata and content hash.
+- `document_chunks`: chunk text, source and nullable vector embedding.
+- `entities`: extracted graph nodes.
+- `relations`: directed graph edges between entities.
+- `conversations`, `messages`: chat history.
+
+Schema lives in `supabase/migrations/0001_initial_graphrag.sql` and runs through Supabase SQL Editor/CLI. No Alembic folder.
+
+Embedding vector dimension remains uncommitted until local embedding model selection. Migration keeps embedding column flexible; add dimension-specific index after model decision and reindex existing chunks.
+
+### LLM and embeddings
+
+`src/integrations/llm.py` and `src/integrations/embeddings.py` expose protocols and safe unconfigured adapters. No OpenAI, Ollama, llama.cpp or other local runtime is selected yet. Missing configuration returns explicit setup error instead of silently calling external API.
+
+## Docker Local
+
+`docker-compose.yml` runs only `backend` and loads Supabase connection settings from `.env`. PostgreSQL does not run in local compose; backend connects to Supabase using `DATABASE_URL` and must use Supabase hostname, not `localhost` inside container.
+
+```bash
+cp .env.example .env
+# Fill DATABASE_URL and SUPABASE_URL.
+docker compose up --build
 ```
 
-### 4. Database
-- **Type:** [PostgreSQL / SQLite]
-- **Tables:** [danh sách]
-- **Migrations:** Alembic
-
-### 5. Vector Store
-- **Type:** [ChromaDB / FAISS / Pinecone]
-- **Embeddings:** [model]
-- **Purpose:** [RAG / similarity search]
-
-## Data Flow
-
-1. User gửi request từ Frontend
-2. API route nhận và validate input
-3. Agent xử lý qua LangGraph pipeline
-4. LLM generate response
-5. Tools thực thi actions (nếu cần)
-6. Response trả về Frontend
-
-## Deployment Architecture
-
-```mermaid
-graph LR
-    subgraph Docker
-        FE[Frontend Container]
-        BE[Backend Container]
-        DB_C[Database Container]
-    end
-    FE --> BE --> DB_C
-```
+Production deployment, Vercel setup and CI/CD expansion are outside this change.
 
 ## Security
 
-- API keys stored in `.env` (never commit)
-- Input validation via Pydantic
-- Rate limiting on API endpoints
-- CORS configured for frontend domain
+- Keep `.env` out of Git.
+- Use Supabase secret/database URL only in server environment.
+- Keep CORS allowlist explicit.
+- Validate payloads with Pydantic.
+- Return generic internal errors from API; log details server-side.
+- Apply Supabase RLS policies before exposing user/document data.
+- Avoid storing unnecessary patient-identifying data and never expose chain-of-thought.
+- Rotate any credential that was previously committed in example files.
 
 ## Design Decisions
 
 | Decision | Choice | Reason |
-|----------|--------|--------|
-| Framework | FastAPI | Async, auto-docs, type-safe |
-| Agent | LangGraph | Flexible state management |
-| Database | [choice] | [reason] |
-| Frontend | Next.js | [reason] |
+|---|---|---|
+| Backend | FastAPI + Python 3.11 | Existing scaffold, async API and typing |
+| Agent | LangGraph | Explicit stateful GraphRAG workflow |
+| Database | Supabase PostgreSQL | Shared managed DB, SQL and auth/storage ecosystem |
+| Vector search | PostgreSQL `pgvector` | Vector and graph facts share one data boundary |
+| Graph store | PostgreSQL entity/relation tables | No second graph database before scale requires it |
+| Frontend | Next.js under `web/` | Keeps Python backend `src` boundary clean |
+| LLM/embedding | Provider-neutral interfaces | Local model runtime not selected yet |
+| Schema migration | Supabase SQL migrations | Matches managed Supabase workflow; no Alembic |

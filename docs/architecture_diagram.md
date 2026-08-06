@@ -1,38 +1,41 @@
-# Architecture Diagram
+# MediPay GraphRAG Architecture
 
 ## System Overview
 
 ```mermaid
 graph TB
-    User([User]) --> UI[Frontend<br/>React/Next.js]
-    UI -->|REST API| API[FastAPI Backend]
-    API --> Agent[LangGraph Agent]
-    Agent --> LLM[LLM Service<br/>GPT-4o / Gemini]
-    Agent --> Tools[Agent Tools]
-    Tools --> DB[(Database)]
-    Agent --> VS[Vector Store<br/>ChromaDB]
+    User([User]) --> Web[Next.js app / web]
+    Web -->|REST| API[FastAPI / src/api]
+    API --> Agent[LangGraph GraphRAG]
+    Agent --> DB[(Supabase PostgreSQL + pgvector)]
+    Agent --> Model[Unconfigured local model adapter]
+    Agent --> Answer[Grounded answer + citations]
 ```
 
 ## Agent Flow
 
 ```mermaid
 graph LR
-    START((Start)) --> Input[Parse Input]
-    Input --> Analyze[Analyze Query]
-    Analyze --> Decide{Need Tool?}
-    Decide -->|Yes| CallTool[Call Tool]
-    CallTool --> Analyze
-    Decide -->|No| Generate[Generate Response]
-    Generate --> END((End))
+    START((START)) --> Intake[Intake]
+    Intake --> Entities[Extract entities]
+    Entities --> Vector[Vector retrieval]
+    Vector --> Graph[Graph expansion]
+    Graph --> Context[Assemble evidence]
+    Context --> Generate[Generate]
+    Generate --> Guardrail[Guardrail]
+    Guardrail --> END((END))
 ```
 
-## Component Details
+## Components
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| Frontend | React/Next.js | User interface |
-| Backend | FastAPI | API server |
-| Agent | LangGraph | AI agent orchestration |
-| LLM | OpenAI/Gemini | Language model |
-| Database | PostgreSQL/SQLite | Data persistence |
-| Vector Store | ChromaDB | RAG / embeddings |
+| Frontend | Next.js in `web/` | Future user interface |
+| Backend | FastAPI in `src/` | API and application services |
+| Agent | LangGraph | GraphRAG orchestration |
+| Database | Supabase PostgreSQL | Shared relational persistence |
+| Vector | PostgreSQL `pgvector` | Semantic chunk retrieval |
+| Graph | PostgreSQL entity/relation tables | Graph neighborhood retrieval |
+| Models | Provider-neutral adapters | Local LLM/embedding decision pending |
+
+Schema SQL lives in `supabase/migrations/0001_initial_graphrag.sql`. Docker runs backend only and connects to Supabase.

@@ -1,28 +1,36 @@
 from langgraph.graph import END, StateGraph
 
-from src.agents.nodes.example_node import analyze_node, respond_node
+from src.agents.nodes.graphrag_nodes import (
+    assemble_context_node,
+    extract_entities_node,
+    generate_node,
+    guardrail_node,
+    intake_node,
+    retrieve_vectors_node,
+)
 from src.agents.state import AgentState
 
 
 def should_continue(state: AgentState) -> str:
-    """Route based on whether an error occurred during analysis."""
-    if state.get("error"):
-        return END
-    return "respond"
+    return END if state.get("error") else "extract_entities"
 
 
-def build_graph() -> StateGraph:
+def build_graph():
     graph = StateGraph(AgentState)
+    graph.add_node("intake", intake_node)
+    graph.add_node("extract_entities", extract_entities_node)
+    graph.add_node("retrieve_vectors", retrieve_vectors_node)
+    graph.add_node("assemble_context", assemble_context_node)
+    graph.add_node("generate", generate_node)
+    graph.add_node("guardrail", guardrail_node)
 
-    # Add nodes
-    graph.add_node("analyze", analyze_node)
-    graph.add_node("respond", respond_node)
-
-    # Add edges
-    graph.set_entry_point("analyze")
-    graph.add_conditional_edges("analyze", should_continue)
-    graph.add_edge("respond", END)
-
+    graph.set_entry_point("intake")
+    graph.add_conditional_edges("intake", should_continue)
+    graph.add_edge("extract_entities", "retrieve_vectors")
+    graph.add_edge("retrieve_vectors", "assemble_context")
+    graph.add_edge("assemble_context", "generate")
+    graph.add_edge("generate", "guardrail")
+    graph.add_edge("guardrail", END)
     return graph.compile()
 
 
