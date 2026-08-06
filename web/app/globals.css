@@ -1,0 +1,16 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  font-family: Arial, sans-serif;
+}
+
+main {
+  margin: 0 auto;
+  max-width: 960px;
+  padding: 4rem 1.5rem;
+}

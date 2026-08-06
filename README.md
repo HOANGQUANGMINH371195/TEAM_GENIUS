@@ -31,6 +31,36 @@ Dự án được xây dựng trong khuôn khổ chương trình **VinUni AI20K 
   * **Langfuse:** Giám sát chất lượng phản hồi AI, theo dõi độ trễ (Latency) & quản lý chi phí token.
 * **DevOps & Infrastructure:** Docker Multi-stage, GitHub Actions CI/CD.
 
+### Cấu trúc dự án hiện tại và hướng phát triển
+
+Backend và GraphRAG nằm trong `src`. Frontend Next.js sẽ đặt tại `web/` ở giai đoạn tiếp theo. Supabase quản lý PostgreSQL + `pgvector`; schema dùng SQL trong `supabase/migrations`, không dùng Alembic. Provider LLM/embedding chưa chốt để hỗ trợ model local.
+
+```text
+.
+├── src/                              # FastAPI backend và application logic
+│   ├── main.py                       # FastAPI app, lifespan, CORS
+│   ├── config.py                     # Supabase DB + GraphRAG settings
+│   ├── api/                          # REST routes và dependencies
+│   ├── agents/                       # LangGraph state, graph, nodes, tools
+│   ├── db/                           # SQLAlchemy session, models, repositories
+│   ├── graph_rag/                    # chunking, extraction, retrieval, ingestion
+│   ├── integrations/                 # LLM/embedding interfaces, telemetry
+│   ├── models/                       # API và graph schemas
+│   └── services/                     # chat và GraphRAG use cases
+├── web/                              # Next.js frontend (giai đoạn tiếp theo)
+│   ├── app/                          # App Router pages/layout
+│   ├── components/                   # Chat/document/shared UI
+│   └── lib/                          # Typed API client, env helpers
+├── supabase/
+│   └── migrations/                   # SQL schema cho PostgreSQL + pgvector
+├── docker-compose.yml                # Chạy backend, kết nối Supabase
+├── Dockerfile                        # FastAPI image
+├── requirements.txt                  # Python dependencies
+└── ARCHITECTURE.md                   # Chi tiết kiến trúc
+```
+
+Xem [ARCHITECTURE.md](ARCHITECTURE.md) để biết GraphRAG flow, data model và ranh giới module.
+
 ---
 
 

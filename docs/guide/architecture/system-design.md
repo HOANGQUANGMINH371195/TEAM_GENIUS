@@ -1,71 +1,59 @@
 ---
 title: "System Design"
-description: "Tổng quan kiến trúc hệ thống"
+description: "Kiến trúc MediPay GraphRAG"
 weight: 1
 ---
 
 ## System Architecture
 
-### Overview Diagram
-
 ```mermaid
 graph TB
-    User([User]) --> UI[Frontend<br/>React/Next.js]
-    UI -->|REST API| API[FastAPI Backend]
-    API --> Agent[LangGraph Agent]
-    Agent --> LLM[LLM Service<br/>GPT-4o / Gemini]
-    Agent --> Tools[Agent Tools]
-    Tools --> DB[(Database)]
-    Agent --> VS[Vector Store<br/>ChromaDB]
+    User([User]) --> Web[Next.js / web]
+    Web --> API[FastAPI / src]
+    API --> Agent[LangGraph GraphRAG]
+    Agent --> Extract[Entity relation extraction]
+    Agent --> Retrieve[pgvector + graph traversal]
+    Retrieve --> DB[(Supabase PostgreSQL)]
+    Agent --> Local[Provider-neutral local model adapter]
+    Agent --> Response[Grounded response + citations]
 ```
 
 ## Components
 
-### 1. Frontend (React/Next.js)
+### Frontend: `web/`
 
-- **Purpose:** User interface cho sản phẩm
-- **Key Features:** Responsive, dark mode, realtime
-- **State Management:** React hooks / Zustand
+Next.js App Router frontend. Frontend chưa nằm trong scope implementation hiện tại.
 
-### 2. Backend (FastAPI)
+### Backend: `src/`
 
-- **Purpose:** API server xử lý business logic
-- **API Design:** RESTful endpoints
-- **Auth:** JWT (nếu cần)
+FastAPI routes gọi services. Services gọi GraphRAG workflow. `src/db` quản lý SQLAlchemy async session và repositories. `src/agents` chỉ chứa state, nodes và tools.
 
-### 3. AI Agent (LangGraph)
+### Database: Supabase PostgreSQL
 
-- **Agent Type:** ReAct / Plan-and-Execute / Custom
-- **State:** TypedDict schema
-- **Nodes:** Xử lý từng bước trong pipeline
-- **Tools:** Search, calculate, API calls
+Supabase là PostgreSQL managed, dùng `pgvector` cho chunks và bảng `entities`/`relations` cho graph. Schema quản lý bằng SQL tại `supabase/migrations`; không dùng SQLite hay Alembic.
 
-### 4. Database
+### Model runtime
 
-- **Type:** PostgreSQL (production) / SQLite (dev)
-- **ORM:** SQLAlchemy (nếu cần)
-- **Migrations:** Alembic (nếu cần)
-
-### 5. Vector Store
-
-- **Type:** ChromaDB (local) / Pinecone (cloud)
-- **Embeddings:** OpenAI embeddings
-- **Purpose:** RAG / similarity search
+LLM và embedding chưa chốt. `src/integrations/llm.py` và `src/integrations/embeddings.py` định nghĩa interface để gắn model local sau.
 
 ## Data Flow
 
-1. User gửi request từ Frontend
-2. API route nhận và validate input (Pydantic)
-3. Agent xử lý qua LangGraph pipeline
-4. LLM generate response
-5. Tools thực thi actions (nếu cần)
-6. Response trả về Frontend qua API
+1. API nhận và validate query.
+2. GraphLang extract entities.
+3. Embedding adapter tìm chunks gần nhất khi được cấu hình.
+4. Repository mở rộng graph neighbors trong Supabase.
+5. Context builder hợp nhất evidence và provenance.
+6. Model adapter tạo grounded response.
+7. API trả response và citations.
 
 ## Design Decisions
 
 | Decision | Choice | Reason |
-|----------|--------|--------|
+|---|---|---|
 | Framework | FastAPI | Async, auto-docs, type-safe |
-| Agent | LangGraph | Flexible state machine |
-| Database | SQLite→PostgreSQL | Dev dễ, prod mạnh |
-| Frontend | Next.js | Full-stack ready |
+| Agent | LangGraph | Stateful workflow |
+| Database | Supabase PostgreSQL | Shared managed PostgreSQL |
+| Vector | pgvector | Vector search cùng DB |
+| Graph | Entity/relation tables | Đủ cho GraphRAG hiện tại |
+| Frontend | Next.js trong `web/` | Tách boundary khỏi Python `src` |
+| Migration | Supabase SQL | Không thêm Alembic |

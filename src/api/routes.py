@@ -6,17 +6,26 @@ from src.models.schemas import ChatRequest, ChatResponse
 router = APIRouter()
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
-    """Chat với AI agent."""
+async def run_chat(message: str) -> ChatResponse:
     try:
-        result = await agent.ainvoke({"query": request.message})
+        result = await agent.ainvoke({"query": message})
         return ChatResponse(
             response=result.get("response", ""),
             analysis=result.get("analysis", ""),
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Internal agent error") from exc
+
+
+# API router
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest) -> ChatResponse:
+    """Chat với AI agent."""
+    return await run_chat(request.message)
 
 
 @router.get("/status")

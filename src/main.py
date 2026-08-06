@@ -5,13 +5,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes import router
 from src.config import get_settings
+from src.db.session import check_database, dispose_database
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    settings.validate_chunk_settings()
     print(f"Starting {settings.app_name} in {settings.app_env} mode")
     yield
+    await dispose_database()
     print("Shutting down...")
 
 
@@ -37,3 +40,9 @@ app.include_router(router, prefix="/api/v1")
 @app.get("/health")
 async def health():
     return {"status": "ok", "env": settings.app_env}
+
+
+@app.get("/ready")
+async def readiness():
+    database_ready = await check_database()
+    return {"status": "ready" if database_ready else "degraded", "database": database_ready}
