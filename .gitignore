@@ -29,9 +29,14 @@ env/
 Thumbs.db
 
 # Data (never commit large data)
-data/
+data/*
+!data/raw/
+!data/raw/**
 *.db
 *.sqlite3
+
+# Rebuildable pipeline artifacts; keep raw authority CSVs versioned.
+/data/clean/
 
 # Logs
 logs/
