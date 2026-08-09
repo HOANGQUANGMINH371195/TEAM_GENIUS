@@ -41,6 +41,10 @@ export default function HomePage() {
             <span className="nav-icon">◌</span>
             Thủ tục
           </a>
+          <a className="nav-item" href="/admin/review">
+            <span className="nav-icon">⌘</span>
+            Duyệt tri thức
+          </a>
           <a className="nav-item" href="#tro-giup">
             <span className="nav-icon">?</span>
             Trợ giúp
