@@ -71,7 +71,7 @@ Chạy backend ở thư mục gốc:
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-FastAPI tự cung cấp giao diện Swagger tại [http://localhost:8000/docs](http://localhost:8000/docs), ReDoc tại [http://localhost:8000/redoc](http://localhost:8000/redoc), và OpenAPI JSON tại [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json).
+FastAPI tự cung cấp giao diện Swagger tại [http://localhost:8000/docs](http://localhost:8000/docs)
 
 | Method | Path | Mô tả |
 | :--- | :--- | :--- |
