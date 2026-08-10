@@ -1,7 +1,8 @@
 # BHYT / viện phí: hướng dẫn từ đầu đến cuối
 
 Thư mục này chứa dữ liệu nguồn và pipeline đưa dữ liệu BHYT/viện phí vào
-Supabase. Không có dữ liệu bệnh nhân hay dữ liệu khách hàng.
+database. Không có dữ liệu bệnh nhân hay dữ liệu khách hàng. Knowledge graph
+được import riêng vào [`database/neo4j`](../neo4j).
 
 ## Làm nhanh
 
@@ -11,13 +12,14 @@ Chạy theo đúng thứ tự sau.
 
 1. Tạo một project mới tại Supabase.
 2. Mở **SQL Editor → New query**.
-3. Mở file [supabase/schema.sql](../schema.sql), copy toàn bộ nội dung vào
+3. Mở file [database/schema.sql](../schema.sql), copy toàn bộ nội dung vào
    SQL Editor và bấm **Run**.
 4. Vào **Table Editor**. Nếu thấy các bảng `datasets`, `documents`, `chunks`
-   và `relationships`, phần database đã sẵn sàng.
+   và `legal_units`, phần PostgreSQL đã sẵn sàng. Relationships nằm trong Neo4j.
 
-Schema đã bật `pgvector`, giữ raw HTML, legal unit, PageIndex, relationship
-graph, lexical search và vector search.
+Schema đã bật `pgvector`, giữ raw HTML, legal unit, PageIndex, lexical search
+và vector search. Relationship graph được lưu trong Neo4j, không nằm trong
+schema PostgreSQL.
 
 ### 2. Cấu hình máy chạy pipeline
 
@@ -46,10 +48,10 @@ PGDATABASE=postgres
 PGUSER=postgres.<project-ref>
 PGPASSWORD=<mat-khau>
 
-EMBEDDING_MODEL=huyydangg/DEk21_hcmute_embedding_v2
-EMBEDDING_DIMENSIONS=768
-EMBEDDING_DEVICE=cuda:0
-EMBEDDING_BATCH_SIZE=8
+OPENAI_API_KEY=<openai-key>
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=1536
+EMBEDDING_BATCH_SIZE=256
 ```
 
 Lấy các giá trị này tại **Supabase Dashboard → Connect → Session pooler**.
@@ -61,42 +63,40 @@ hoặc mật khẩu lên Git.
 
 ```bash
 cd /home/minh/projects/team-Vin-genius
-export PYTHONPATH="$PWD/supabase/pipeline"
+export PYTHONPATH="$PWD/database/pipeline"
 
-python supabase/pipeline/scripts/build_page_index.py --source-dir data/raw \
+python database/pipeline/scripts/build_page_index.py --source-dir data/raw \
   --output-dir data/clean/page_index
-python supabase/pipeline/scripts/extract_tables.py --source-dir data/raw \
+python database/pipeline/scripts/extract_tables.py --source-dir data/raw \
   --output-dir data/clean/tables
-python supabase/pipeline/scripts/build_facets.py --source-dir data/raw \
+python database/pipeline/scripts/build_facets.py --source-dir data/raw \
   --output-dir data/clean/facets
-python supabase/pipeline/scripts/ingest_snapshot.py --source-dir data/raw
+python database/pipeline/scripts/ingest_snapshot.py --source-dir data/raw
 ```
 
 Lệnh cuối in ra một `dataset_id`, ví dụ `snapshot-...`. Dùng dataset đó để
 chạy embedding:
 
 ```bash
-python supabase/pipeline/scripts/embed_dataset.py snapshot-... --batch-size 8
+python database/pipeline/scripts/embed_dataset.py snapshot-... --batch-size 256
 ```
 
-Worker sẽ embed bằng GPU CUDA, kiểm tra tokenizer hard cap/provenance, ghi
-vector vào Supabase và chỉ publish dataset nếu toàn bộ kiểm tra đạt.
-
-Với RTX 4050 6GB, batch `8` đã chạy được. Nếu thiếu VRAM, dùng `4` hoặc `2`.
+Worker gọi OpenAI theo batch, kiểm tra provenance, ghi vector vào Supabase và
+chỉ publish dataset nếu toàn bộ kiểm tra đạt.
 
 ### 4. Kiểm tra
 
 ```bash
-python -m unittest discover -s supabase/pipeline/tests -p 'test_*.py' -q
-python -m compileall -q supabase/pipeline/data_pipeline supabase/pipeline/scripts
+python3 -m unittest discover -s database/pipeline/tests -p 'test_*.py' -q
+python3 -m compileall -q database/pipeline/data_pipeline database/pipeline/scripts
 ```
 
 ## Chạy embedding offline
 
-Nếu chưa có credential Supabase, vẫn có thể kiểm tra GPU và tạo artifact local:
+Nếu chưa muốn ghi vào Supabase, vẫn có thể tạo artifact embedding local qua OpenAI:
 
 ```bash
-python supabase/pipeline/scripts/embed_snapshot_gpu.py \
+python3 database/pipeline/scripts/embed_snapshot.py \
   --source-dir data/raw \
   --output-dir data/clean/embeddings \
   --batch-size 8
@@ -104,7 +104,7 @@ python supabase/pipeline/scripts/embed_snapshot_gpu.py \
 
 Artifact này không tự upload lên Supabase.
 
-## Lưu embedding cho người không có GPU
+## Lưu embedding artifact
 
 Không nên commit file `.npy` vào Git. Sau khi tạo artifact, hãy lưu ba file
 trong một bucket **private** của Supabase Storage, ví dụ bucket
@@ -120,15 +120,15 @@ Tạo bucket tại **Supabase Dashboard → Storage → New bucket**. Không dù
 `anon key` để upload; thao tác upload cần service role key hoặc dashboard và
 service role key không được commit.
 
-Máy không có GPU chỉ cần tải thư mục artifact về rồi chạy:
+Máy khác chỉ cần tải thư mục artifact về rồi chạy:
 
 ```bash
-python supabase/pipeline/scripts/load_embedding_artifact.py snapshot-... \
+python3 database/pipeline/scripts/load_embedding_artifact.py snapshot-... \
   data/clean/embeddings/snapshot-...
 ```
 
-Lệnh này kiểm tra manifest, số dòng, số chiều và nạp vector vào `pgvector`;
-nó không tải model và không cần CUDA. Storage là bản lưu/phân phối, còn
+Lệnh này kiểm tra manifest, số dòng, số chiều và nạp vector vào `pgvector`.
+Storage là bản lưu/phân phối, còn
 `chunks.embedding` là bản dùng trực tiếp để truy vấn.
 
 ## Có nên push CSV và `.npy` lên Git không?
@@ -142,8 +142,8 @@ nó không tải model và không cần CUDA. Storage là bản lưu/phân phố
 
 Khuyến nghị: commit `data/raw/*.csv` nếu đây là bộ dữ liệu chính thức
 của team; không commit `data/clean/` và `.npy`. Nếu muốn lưu embedding để không
-phải chạy lại GPU, dùng Git LFS, Supabase Storage hoặc object storage riêng.
+phải gọi lại API, dùng Git LFS, Supabase Storage hoặc object storage riêng.
 
-Chunk hiện tại dùng legal unit → paragraph/sentence → gom mục tiêu 144 tokens
-trong khoảng 120–160 → hard cap theo tokenizer. Dataset hiện có 15.485
+Chunk hiện tại dùng legal unit → paragraph/sentence → gom mục tiêu 144 tokens.
+Dataset hiện có 15.471
 passages, 646 tables và 26.079 cells.

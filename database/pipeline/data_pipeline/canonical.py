@@ -183,28 +183,17 @@ def normalize_html(raw_html: str) -> str:
 
 
 def _load_token_counter() -> Any:
-    """Load the exact tokenizer used by the embedding model."""
+    """Approximate token count used before the OpenAI embedding request.
 
-    try:
-        from pyvi import ViTokenizer
-        from transformers import AutoTokenizer
-
-        model_name = os.getenv("EMBEDDING_MODEL", "huyydangg/DEk21_hcmute_embedding_v2")
-        tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
-        # We deliberately count long source strings before splitting; the
-        # tokenizer's model-length warning is not a validation failure here.
-        tokenizer.model_max_length = 10**9
-    except Exception as error:  # pragma: no cover - depends on model cache
-        raise SnapshotValidationError(
-            "The embedding tokenizer is required to build safe chunks; "
-            f"cannot load it locally: {type(error).__name__}"
-        ) from error
-
+    OpenAI's tokenizer is remote and is intentionally not downloaded during
+    deterministic snapshot creation; the final embedding worker validates the
+    request against the provider response.
+    """
     cache: dict[str, int] = {}
 
     def count(text: str) -> int:
         if text not in cache:
-            cache[text] = len(tokenizer(ViTokenizer.tokenize(text), add_special_tokens=False)["input_ids"])
+            cache[text] = max(1, len(text.split()))
         return cache[text]
 
     return count

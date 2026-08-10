@@ -7,9 +7,18 @@ graph TB
     User([User]) --> Web[Next.js app / web]
     Web -->|REST| API[FastAPI / src/api]
     API --> Agent[LangGraph GraphRAG]
-    Agent --> DB[(Supabase PostgreSQL + pgvector)]
-    Agent --> Model[Unconfigured local model adapter]
-    Agent --> Answer[Grounded answer + citations]
+    Agent --> Retrieve[Multi-store retrieval]
+    Retrieve --> LV[(Lexical + Vector DB\nSupabase PostgreSQL + pgvector)]
+    Retrieve --> PI[(PageIndex index\nSupabase legal_units + spans)]
+    Retrieve --> G[(Graph DB\nNeo4j Aura)]
+    LV --> Union[Candidate union + dedupe]
+    PI --> Union
+    G --> Union
+    Union --> RRF[Weighted RRF]
+    RRF --> Rerank[Deterministic rerank + diversity]
+    Rerank --> Evidence[Hydrate Supabase text + citations]
+    Evidence --> Answer[Grounded answer]
+    Agent --> Model[Configured LLM adapter]
 ```
 
 ## Agent Flow
@@ -17,11 +26,15 @@ graph TB
 ```mermaid
 graph LR
     START((START)) --> Intake[Intake]
-    Intake --> Entities[Extract entities]
-    Entities --> Vector[Vector retrieval]
-    Vector --> Graph[Graph expansion]
-    Graph --> Context[Assemble evidence]
-    Context --> Generate[Generate]
+    Intake --> Plan[Build query plan]
+    Plan --> Channels[Exact + lexical + semantic]
+    Channels --> Graph[Bounded Neo4j expansion]
+    Channels --> Page[PageIndex hierarchy/spans]
+    Channels --> Context[Candidate union]
+    Graph --> Context
+    Page --> Context
+    Context --> RRF[RRF + deterministic rerank]
+    RRF --> Generate[Generate]
     Generate --> Guardrail[Guardrail]
     Guardrail --> END((END))
 ```
@@ -33,9 +46,11 @@ graph LR
 | Frontend | Next.js in `web/` | Future user interface |
 | Backend | FastAPI in `src/` | API and application services |
 | Agent | LangGraph | GraphRAG orchestration |
-| Database | Supabase PostgreSQL | Shared relational persistence |
+| Database | Supabase PostgreSQL | Documents, chunks, PageIndex, lexical and semantic indexes |
 | Vector | PostgreSQL `pgvector` | Semantic chunk retrieval |
-| Graph | PostgreSQL entity/relation tables | Graph neighborhood retrieval |
-| Models | Provider-neutral adapters | Local LLM/embedding decision pending |
+| Graph | Neo4j | Graph neighborhood retrieval |
+| Models | OpenAI embeddings + configured LLM adapter | `text-embedding-3-small`, 1536 dimensions |
 
-Schema SQL lives in `supabase/migrations/0001_initial_graphrag.sql`. Docker runs backend only and connects to Supabase.
+Schema SQL lives in `database/schema.sql`; `legal_units` is the PageIndex
+structure store inside Supabase, while Neo4j stores the knowledge graph. Docker
+runs backend only and connects to both services.

@@ -11,10 +11,18 @@ graph TB
     User([User]) --> Web[Next.js / web]
     Web --> API[FastAPI / src]
     API --> Agent[LangGraph GraphRAG]
-    Agent --> Extract[Entity relation extraction]
-    Agent --> Retrieve[pgvector + graph traversal]
-    Retrieve --> DB[(Supabase PostgreSQL)]
-    Agent --> Local[Provider-neutral local model adapter]
+    Agent --> Exact[Exact identifiers]
+    Agent --> Lexical[Lexical PostgreSQL]
+    Agent --> Semantic[Semantic pgvector]
+    Agent --> PageIndex[PageIndex / legal units]
+    Semantic --> Graph[Neo4j bounded traversal]
+    Exact --> Fusion[RRF + provenance]
+    Lexical --> Fusion
+    Semantic --> Fusion
+    PageIndex --> Fusion
+    Graph --> Fusion
+    Fusion --> DB[(Supabase evidence)]
+    Agent --> Model[Configured LLM adapter]
     Agent --> Response[Grounded response + citations]
 ```
 
@@ -30,7 +38,10 @@ FastAPI routes gọi services. Services gọi GraphRAG workflow. `src/db` quản
 
 ### Database: Supabase PostgreSQL
 
-Supabase là PostgreSQL managed, dùng `pgvector` cho chunks và bảng `entities`/`relations` cho graph. Schema quản lý bằng SQL tại `supabase/migrations`; không dùng SQLite hay Alembic.
+Supabase là PostgreSQL managed, dùng full-text search và `pgvector` cho chunks.
+`legal_units`/PageIndex giữ cấu trúc và source spans. Neo4j lưu document graph
+và predicates có hướng. Schema PostgreSQL quản lý bằng SQL tại
+`database/schema.sql`; không dùng SQLite hay Alembic.
 
 ### Model runtime
 
@@ -39,10 +50,10 @@ LLM và embedding chưa chốt. `src/integrations/llm.py` và `src/integrations/
 ## Data Flow
 
 1. API nhận và validate query.
-2. GraphLang extract entities.
-3. Embedding adapter tìm chunks gần nhất khi được cấu hình.
-4. Repository mở rộng graph neighbors trong Supabase.
-5. Context builder hợp nhất evidence và provenance.
+2. Tạo query plan và chạy exact/lexical/semantic retrieval.
+3. Dùng PageIndex/legal units để giữ hierarchy và citation spans.
+4. Neo4j mở rộng graph có giới hạn từ document seeds.
+5. Context builder RRF hợp nhất evidence và provenance.
 6. Model adapter tạo grounded response.
 7. API trả response và citations.
 
@@ -54,6 +65,6 @@ LLM và embedding chưa chốt. `src/integrations/llm.py` và `src/integrations/
 | Agent | LangGraph | Stateful workflow |
 | Database | Supabase PostgreSQL | Shared managed PostgreSQL |
 | Vector | pgvector | Vector search cùng DB |
-| Graph | Entity/relation tables | Đủ cho GraphRAG hiện tại |
+| Graph | Neo4j Aura/local | Directed predicates và graph traversal native |
 | Frontend | Next.js trong `web/` | Tách boundary khỏi Python `src` |
 | Migration | Supabase SQL | Không thêm Alembic |

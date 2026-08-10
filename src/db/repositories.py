@@ -2,19 +2,20 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import DocumentChunk
-from src.models.graph import Relation as RelationDTO
+from src.integrations.neo4j import Neo4jGraphStore
 from src.models.graph import RetrievalResult
 
 
 class GraphRepository:
-    """Persistence boundary for Supabase vector and graph queries."""
+    """Persistence boundary: vectors in Supabase, graph traversal in Neo4j."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, graph_store: Neo4jGraphStore | None = None):
         self.session = session
+        self.graph_store = graph_store
 
     async def search_vectors(
         self, embedding: Sequence[float], limit: int = 5
@@ -44,25 +45,6 @@ class GraphRepository:
     ) -> list[RelationDTO]:
         if not entity_names or hops < 1:
             return []
-        query = text(
-            """
-            SELECT source.name AS source_name, r.relation_type,
-                   target.name AS target_name, r.description
-            FROM relations r
-            JOIN entities source ON source.id = r.source_entity_id
-            JOIN entities target ON target.id = r.target_entity_id
-            WHERE source.name = ANY(:entity_names)
-               OR target.name = ANY(:entity_names)
-            LIMIT :limit
-            """
-        )
-        rows = (await self.session.execute(query, {"entity_names": entity_names, "limit": limit})).mappings()
-        return [
-            RelationDTO(
-                source=row["source_name"],
-                target=row["target_name"],
-                relation_type=row["relation_type"],
-                description=row["description"] or "",
-            )
-            for row in rows
-        ]
+        if self.graph_store is None:
+            return []
+        return await self.graph_store.expand(entity_names, hops=hops, limit=limit)

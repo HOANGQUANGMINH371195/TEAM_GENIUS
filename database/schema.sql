@@ -1,8 +1,6 @@
--- BHYT / viện phí graph for Supabase PostgreSQL + pgvector.
+-- BHYT / viện phí document store for Supabase PostgreSQL + pgvector.
 -- Apply once in Supabase SQL Editor.
--- The default local embedding model produces 768 dimensions.  If the team
--- selects another model, change this dimension and rebuild the embedding index
--- before ingesting a new dataset.
+-- Knowledge-graph nodes and edges are stored in Neo4j (see neo4j/), not here.
 
 create schema if not exists extensions;
 create extension if not exists vector with schema extensions;
@@ -102,20 +100,6 @@ create table if not exists table_cells (
         references document_tables(dataset_id, table_id) on delete cascade
 );
 
-create table if not exists relationships (
-    dataset_id text not null,
-    edge_key text not null,
-    source_id text not null,
-    target_id text not null,
-    relationship_type text not null default '',
-    payload jsonb not null,
-    primary key (dataset_id, edge_key),
-    foreign key (dataset_id, source_id)
-        references documents(dataset_id, id) on delete cascade,
-    foreign key (dataset_id, target_id)
-        references documents(dataset_id, id) on delete cascade
-);
-
 create table if not exists chunks (
     dataset_id text not null,
     chunk_id text not null,
@@ -127,7 +111,7 @@ create table if not exists chunks (
     section_title text not null default '',
     embedding_input_text text not null default '',
     embedding_input_sha256 text not null default '',
-    embedding extensions.vector(768),
+    embedding extensions.vector(1536),
     embedding_model text,
     embedding_dimensions integer,
     embedding_preprocessor text,
@@ -146,10 +130,6 @@ create table if not exists chunks (
 
 create index if not exists dataset_nodes_title_idx
     on documents (dataset_id, title);
-create index if not exists dataset_rel_source_idx
-    on relationships (dataset_id, source_id);
-create index if not exists dataset_rel_target_idx
-    on relationships (dataset_id, target_id);
 create index if not exists dataset_chunks_document_idx
     on chunks (dataset_id, document_id, chunk_order);
 create index if not exists dataset_chunks_search_idx
@@ -207,13 +187,6 @@ join dataset_state runtime on runtime.singleton
 join datasets r on r.dataset_id = runtime.active_dataset_id
 where u.dataset_id = runtime.active_dataset_id;
 
-create or replace view active_graph_relationships WITH (security_invoker = true) AS
-select e.*, r.fingerprint as dataset_version
-from relationships e
-join dataset_state runtime on runtime.singleton
-join datasets r on r.dataset_id = runtime.active_dataset_id
-where e.dataset_id = runtime.active_dataset_id;
-
 create or replace view active_graph_chunks WITH (security_invoker = true) AS
 select c.*, r.fingerprint as dataset_version
 from chunks c
@@ -231,7 +204,7 @@ begin
     foreach table_name in array ARRAY[
         'datasets', 'dataset_state', 'documents',
         'legal_units', 'document_tables', 'table_cells',
-        'relationships', 'chunks'
+        'chunks'
     ] loop
         execute format('alter table public.%I enable row level security', table_name);
         execute format('drop policy if exists public_read on public.%I', table_name);

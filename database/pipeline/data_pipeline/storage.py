@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from psycopg.types.json import Jsonb
+from psycopg import sql
 
 from data_pipeline.facets import build_facets
 from data_pipeline.tables import extract_html_tables
@@ -329,21 +330,6 @@ def create_dataset_schema(conn: Any) -> None:
         )
         """,
         """
-        CREATE TABLE IF NOT EXISTS relationships (
-            dataset_id TEXT NOT NULL,
-            edge_key TEXT NOT NULL,
-            source_id TEXT NOT NULL,
-            target_id TEXT NOT NULL,
-            relationship_type TEXT NOT NULL DEFAULT '',
-            payload JSONB NOT NULL,
-            PRIMARY KEY (dataset_id, edge_key),
-            FOREIGN KEY (dataset_id, source_id)
-                REFERENCES documents(dataset_id, id) ON DELETE CASCADE,
-            FOREIGN KEY (dataset_id, target_id)
-                REFERENCES documents(dataset_id, id) ON DELETE CASCADE
-        )
-        """,
-        """
         CREATE TABLE IF NOT EXISTS chunks (
             dataset_id TEXT NOT NULL,
             chunk_id TEXT NOT NULL,
@@ -390,8 +376,6 @@ def create_dataset_schema(conn: Any) -> None:
         "CREATE UNIQUE INDEX IF NOT EXISTS dataset_chunks_source_key_idx ON chunks (dataset_id, source_key)",
         "CREATE UNIQUE INDEX IF NOT EXISTS dataset_chunks_id_idx ON chunks (id)",
         "CREATE INDEX IF NOT EXISTS dataset_nodes_title_idx ON documents (dataset_id, title)",
-        "CREATE INDEX IF NOT EXISTS dataset_rel_source_idx ON relationships (dataset_id, source_id)",
-        "CREATE INDEX IF NOT EXISTS dataset_rel_target_idx ON relationships (dataset_id, target_id)",
         "CREATE INDEX IF NOT EXISTS dataset_chunks_document_idx ON chunks (dataset_id, document_id, chunk_order)",
         "CREATE INDEX IF NOT EXISTS dataset_chunks_search_idx ON chunks USING GIN (search_vector)",
         """
@@ -456,14 +440,6 @@ def create_dataset_schema(conn: Any) -> None:
         WHERE u.dataset_id = runtime.active_dataset_id
         """,
         """
-        CREATE OR REPLACE VIEW active_graph_relationships WITH (security_invoker = true) AS
-        SELECT e.*, r.fingerprint AS dataset_version
-        FROM relationships e
-        JOIN dataset_state runtime ON runtime.singleton
-        JOIN datasets r ON r.dataset_id = runtime.active_dataset_id
-        WHERE e.dataset_id = runtime.active_dataset_id
-        """,
-        """
         CREATE OR REPLACE VIEW active_graph_chunks WITH (security_invoker = true) AS
         SELECT c.*, r.fingerprint AS dataset_version
         FROM chunks c
@@ -479,7 +455,6 @@ def create_dataset_schema(conn: Any) -> None:
         for view_name in (
             "active_document_nodes", "active_document_content", "active_document_html", "active_document_tables",
             "active_table_cells", "active_document_categories", "active_legal_units",
-            "active_graph_relationships",
             "active_graph_chunks",
         ):
             cur.execute(f"DROP VIEW IF EXISTS {view_name} CASCADE")
@@ -576,13 +551,6 @@ def stage_graph_dataset(conn: Any, dataset_id: str, dataset: DatasetLike) -> Non
               float(r.get("parse_confidence", 0.0)), str(r.get("parser_version", "")), _payload(r)) for r in getattr(dataset, "legal_units", ())],
         )
         cur.executemany(
-            """INSERT INTO relationships
-               (dataset_id, edge_key, source_id, target_id, relationship_type, payload)
-               VALUES (%s, %s, %s, %s, %s, %s)""",
-            [(dataset_id, _edge_key(r), str(r["source_id"]), str(r["target_id"]),
-              str(r.get("relationship_type", "")), _payload(r)) for r in dataset.relationships],
-        )
-        cur.executemany(
             """INSERT INTO chunks
                (dataset_id, chunk_id, id, source_key, document_id, chunk_order, text, section_title, embedding_input_text,
                 embedding_input_sha256, payload) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
@@ -603,19 +571,8 @@ def validate_staged_dataset(
 
     validate_dataset_id(dataset_id)
     checks = {
-        # Relationship endpoints can include external references that are not
-        # part of the canonical metadata corpus.  The manifest count is for
-        # canonical documents only; external nodes are still required so graph
-        # edges remain complete and citable.
         "documents": "SELECT count(*) FROM documents WHERE dataset_id = %s AND is_external = FALSE",
         "chunks": "SELECT count(*) FROM chunks WHERE dataset_id = %s",
-        "relationships": "SELECT count(*) FROM relationships WHERE dataset_id = %s",
-        "orphan_relationships": """
-            SELECT count(*) FROM relationships e
-            LEFT JOIN documents s ON (s.dataset_id, s.id) = (e.dataset_id, e.source_id)
-            LEFT JOIN documents t ON (t.dataset_id, t.id) = (e.dataset_id, e.target_id)
-            WHERE e.dataset_id = %s AND (s.id IS NULL OR t.id IS NULL)
-        """,
     }
     result: dict[str, int] = {}
     with conn.cursor() as cur:
@@ -648,7 +605,7 @@ def validate_staged_dataset(
             (dataset_id,),
         )
         result["missing_chunk_provenance"] = int(cur.fetchone()[0])
-    for name, actual in (("documents", result["documents"]), ("chunks", result["chunks"]), ("relationships", result["relationships"])):
+    for name, actual in (("documents", result["documents"]), ("chunks", result["chunks"])):
         expected_count = expected.get(name)
         if expected_count is not None and int(expected_count) != actual:
             raise ValueError(f"Release {name} count {actual} does not match manifest {expected_count}")
@@ -659,8 +616,6 @@ def validate_staged_dataset(
         raise ValueError("Manifest reports invalid retrieval chunks")
     if result["documents"] == 0 or result["chunks"] == 0:
         raise ValueError("A release needs at least one document and one chunk")
-    if result["orphan_relationships"]:
-        raise ValueError(f"Release has {result['orphan_relationships']} orphan relationships")
     if result["missing_chunk_provenance"]:
         raise ValueError(f"Release has {result['missing_chunk_provenance']} chunks without source provenance")
     if require_embeddings and result["missing_embeddings"]:
@@ -737,15 +692,31 @@ def ensure_dataset_vector_collection(conn: Any, dataset_id: str, *, dimensions: 
         cur.execute("CREATE SCHEMA IF NOT EXISTS extensions")
         cur.execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions")
         cur.execute("ALTER EXTENSION vector SET SCHEMA extensions")
-        cur.execute(
-            f"ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding extensions.vector({dimensions})"
-        )
+        cur.execute(f"ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding extensions.vector({dimensions})")
+        cur.execute("""SELECT format_type(a.atttypid, a.atttypmod)
+            FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+            WHERE c.relname = 'chunks' AND a.attname = 'embedding' AND a.attnum > 0""")
+        current_type = cur.fetchone()
+        if not current_type or current_type[0] != f"vector({dimensions})":
+            cur.execute("SELECT indexname FROM pg_indexes WHERE tablename = 'chunks' AND indexdef ILIKE '%embedding%'")
+            for (old_index_name,) in cur.fetchall():
+                cur.execute(sql.SQL("DROP INDEX IF EXISTS {} CASCADE").format(sql.Identifier(old_index_name)))
+            cur.execute("DROP VIEW IF EXISTS active_graph_chunks CASCADE")
+            # Existing deployments may have a vector column from the previous
+            # local model. Changing dimensions requires a full rebuild.
+            cur.execute(f"ALTER TABLE chunks ALTER COLUMN embedding TYPE extensions.vector({dimensions}) USING NULL")
         index_name = f"dataset_chunks_embedding_hnsw_{hashlib.sha256(dataset_id.encode()).hexdigest()[:12]}"
         cur.execute(
             f"CREATE INDEX IF NOT EXISTS {index_name} "
             "ON chunks USING hnsw (embedding extensions.vector_cosine_ops) "
             "WHERE dataset_id = '" + dataset_id + "'"
         )
+        cur.execute("""CREATE OR REPLACE VIEW active_graph_chunks WITH (security_invoker = true) AS
+            SELECT c.*, r.fingerprint AS dataset_version
+            FROM chunks c
+            JOIN dataset_state runtime ON runtime.singleton
+            JOIN datasets r ON r.dataset_id = runtime.active_dataset_id
+            WHERE c.dataset_id = runtime.active_dataset_id""")
     conn.commit()
     return collection
 

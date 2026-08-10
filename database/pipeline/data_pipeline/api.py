@@ -4,8 +4,8 @@ Run locally with::
 
     python -m uvicorn data_pipeline.api:app --host 0.0.0.0 --port 8000
 
-Importing this module does not import Torch or load the embedding model.  The
-model is loaded lazily on the first search request.
+Importing this module does not call OpenAI or connect to Neo4j. Embedding and
+graph access are requested lazily by the relevant retrieval adapter.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ class LazyGraphEmbeddingProvider:
         self._encode_lock = Lock()
 
     def embed_query(self, query: str) -> Sequence[float]:
-        # One local model/GPU is shared by all request threads in this process.
+        # Embedding requests use the configured OpenAI embedding provider.
         with self._encode_lock:
             return embed_query(query)
 

@@ -20,14 +20,15 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     cors_origins: str = "http://localhost:3000"
 
-    # LLM / embeddings are intentionally provider-neutral until local runtime is chosen.
+    # LLM / embeddings
     llm_provider: str = ""
     model_name: str = ""
     openai_api_key: str = ""
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    embedding_provider: str = ""
-    embedding_model: str = ""
-    embedding_dimensions: int | None = Field(default=None, ge=1)
+    embedding_provider: str = "openai"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = Field(default=1536, ge=1)
+    embedding_api_key: str = ""
 
     # Supabase PostgreSQL
     database_url: str = ""
@@ -37,6 +38,12 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(default=10, ge=0)
     db_pool_timeout: int = Field(default=30, ge=1)
     db_pool_recycle: int = Field(default=1800, ge=60)
+
+    # Neo4j knowledge graph
+    neo4j_uri: str = ""
+    neo4j_username: str = "neo4j"
+    neo4j_password: str = ""
+    neo4j_database: str = "neo4j"
 
     # GraphRAG
     retrieval_top_k: int = Field(default=5, ge=1, le=50)
@@ -66,8 +73,6 @@ class Settings(BaseSettings):
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("CHUNK_OVERLAP must be smaller than CHUNK_SIZE")
 
-    # Deprecated: retained only so older imports fail safely without Chroma runtime.
-    chroma_persist_dir: str = ""
 
 
 @lru_cache
