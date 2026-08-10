@@ -1,43 +1,48 @@
 ---
 title: "GraphRAG Pattern"
-description: "GraphRAG trên Supabase PostgreSQL"
+description: "GraphRAG với PageIndex, Supabase PostgreSQL và Neo4j"
 weight: 1
 ---
 
 ## GraphRAG
 
-MediPay dùng semantic retrieval và graph traversal trong cùng Supabase PostgreSQL + `pgvector`.
+MediPay kết hợp exact, lexical, semantic retrieval, PageIndex provenance và
+Neo4j graph traversal.
 
 ### Query flow
 
 ```text
 Query
-→ Extract entities
-→ Embed query (provider-neutral adapter)
-→ Search document_chunks bằng pgvector
-→ Expand relations quanh entities
-→ Merge context + provenance
-→ Local LLM generate grounded answer
+→ Build query plan
+→ Exact + PostgreSQL lexical + `text-embedding-3-small` semantic search
+→ Seed bounded relationships in Neo4j
+→ PageIndex/legal-unit provenance + RRF fusion
+→ Configured LLM generate grounded answer
 → Citations + guardrail
 ```
 
 ### Boundaries
 
-- `src/graph_rag/retrieval.py`: phối hợp vector result và graph result.
+- `src/graph_rag/retrieval.py`: phối hợp exact/lexical/semantic result và graph result.
 - `src/db/repositories.py`: SQL query, không chứa prompt hay LLM logic.
-- `src/integrations/embeddings.py`: interface embedding, model chưa chốt.
-- `src/integrations/llm.py`: interface generation, model chưa chốt.
+- `src/integrations/embeddings.py`: OpenAI `text-embedding-3-small`, 1536 dimensions.
+- `src/integrations/neo4j.py`: bounded graph traversal trên Neo4j Aura/local.
+- `src/integrations/llm.py`: interface generation của backend.
 - `src/agents/nodes/`: workflow nodes.
 
-### Provider-neutral adapter
+### Embedding adapter
 
 ```python
 class EmbeddingModel(Protocol):
     async def embed_query(self, text: str) -> Sequence[float]: ...
 ```
 
-Khi team chọn Ollama, llama.cpp, vLLM hoặc runtime khác, thêm adapter implement protocol và cấu hình env. Không hardcode OpenAI embedding.
+Query và passage phải dùng cùng model/dimensions. Không tự ý đổi model,
+truncate vector hoặc fallback sang model local nếu chưa tạo release mới.
 
 ### Supabase schema
 
-`supabase/migrations/0001_initial_graphrag.sql` tạo `documents`, `document_chunks`, `entities`, `relations`, `conversations`, `messages`. Dimension vector và index vector chỉ chốt sau khi chọn embedding model.
+`database/schema.sql` tạo documents, chunks, legal units, tables và pgvector.
+PageIndex được sinh từ dữ liệu raw và ánh xạ vào legal units. Knowledge graph
+được lưu trong Neo4j; embedding dùng `text-embedding-3-small` với vector 1536
+chiều. Text dùng làm citation luôn phải lấy lại từ Supabase.

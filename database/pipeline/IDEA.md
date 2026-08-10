@@ -56,14 +56,14 @@ Không triển khai claim/rule graph, similarity graph hoặc community graph.
   giá trị cell.
 - Embedding worker dùng tokenizer thật của model để fail fast nếu vượt giới
   hạn.
-- Embedding chạy local bằng SentenceTransformer trên GPU khi `EMBEDDING_DEVICE`
-  là `cuda:*`; Supabase chỉ nhận vector sau khi release đã stage và validate.
+- Embedding dùng OpenAI `text-embedding-3-small` (1536 chiều); Supabase chỉ
+  nhận vector sau khi release đã stage và validate.
 
 ## Retrieval contract
 
 - Exact: số hiệu, tiêu đề, Điều/Khoản/Điểm.
 - Lexical: PostgreSQL `tsvector`/`tsquery` và rank deterministic.
-- Semantic: local SentenceTransformer + pgvector cosine.
+- Semantic: OpenAI embedding + pgvector cosine.
 - Legal graph: seed từ evidence hit, expand directed edge depth 1, giữ edge
   provenance và áp dụng date/jurisdiction filter trước expansion.
 - Fusion: exact/lexical/semantic là evidence channels riêng; RRF chỉ xếp hạng,

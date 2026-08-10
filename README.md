@@ -33,7 +33,7 @@ Dự án được xây dựng trong khuôn khổ chương trình **VinUni AI20K 
 
 ### Cấu trúc dự án hiện tại và hướng phát triển
 
-Backend và GraphRAG nằm trong `src`. Frontend Next.js sẽ đặt tại `web/` ở giai đoạn tiếp theo. Supabase quản lý PostgreSQL + `pgvector`; schema dùng SQL trong `supabase/migrations`, không dùng Alembic. Provider LLM/embedding chưa chốt để hỗ trợ model local.
+Backend và GraphRAG nằm trong `src`. Frontend Next.js sẽ đặt tại `web/`. Supabase quản lý PostgreSQL + `pgvector` cho document/chunk; Neo4j quản lý knowledge graph; Firebase được chuẩn bị cho đăng nhập. Embedding dùng `text-embedding-3-small` (1536 chiều).
 
 ```text
 .
@@ -51,8 +51,9 @@ Backend và GraphRAG nằm trong `src`. Frontend Next.js sẽ đặt tại `web/
 │   ├── app/                          # App Router pages/layout
 │   ├── components/                   # Chat/document/shared UI
 │   └── lib/                          # Typed API client, env helpers
-├── supabase/
-│   └── migrations/                   # SQL schema cho PostgreSQL + pgvector
+├── database/                         # PostgreSQL, pipeline, Neo4j và Firebase
+│   ├── neo4j/                         # Knowledge graph và importer
+│   └── firebase/                      # Firebase Authentication scaffold
 ├── docker-compose.yml                # Chạy backend, kết nối Supabase
 ├── Dockerfile                        # FastAPI image
 ├── requirements.txt                  # Python dependencies
@@ -114,4 +115,3 @@ pytest tests/ -v --tb=short
 ```
 
 ---
-

@@ -365,42 +365,9 @@ class PsycopgReadRepository:
         reference_date: str | None = None,
         jurisdiction: str | None = None,
     ) -> SearchPage | None:
-        seeds = [str(value) for value in document_ids if str(value)]
-        if not seeds:
-            return None
-        with self._connection_factory() as conn, conn.cursor(row_factory=dict_row) as cur:
-            dataset = self._active_dataset(cur)
-            if dataset is None:
-                return None
-            cur.execute(
-                """
-                SELECT c.chunk_id, c.document_id, 0.25::double precision AS score, c.text,
-                       c.payload AS chunk_payload, n.title, n.is_external,
-                       n.payload AS node_payload, e.relationship_type,
-                       e.source_id AS relationship_source_id, e.target_id AS relationship_target_id
-                FROM active_graph_relationships e
-                JOIN active_graph_chunks c ON c.document_id = e.target_id
-                JOIN active_document_nodes n ON n.id = c.document_id
-                WHERE e.source_id = ANY(%s)
-                  AND (%s IS NULL OR COALESCE(n.payload -> 'metadata' ->> 'pham_vi', '') ILIKE %s)
-                  AND (
-                    %s IS NULL
-                    OR NULLIF(n.payload -> 'metadata' ->> 'ngay_co_hieu_luc', '') IS NULL
-                    OR to_date(n.payload -> 'metadata' ->> 'ngay_co_hieu_luc', 'DD/MM/YYYY') <= to_date(%s, 'YYYY-MM-DD')
-                  )
-                  AND (
-                    %s IS NULL
-                    OR NULLIF(n.payload -> 'metadata' ->> 'ngay_het_hieu_luc', '') IS NULL
-                    OR to_date(n.payload -> 'metadata' ->> 'ngay_het_hieu_luc', 'DD/MM/YYYY') >= to_date(%s, 'YYYY-MM-DD')
-                  )
-                ORDER BY e.relationship_type, e.target_id, c.chunk_order, c.chunk_id
-                LIMIT %s
-                """,
-                (seeds, reference_date, f"%{jurisdiction}%" if jurisdiction else None,
-                 reference_date, reference_date, reference_date, reference_date, limit),
-            )
-            hits = [_search_hit(row) for row in cur.fetchall()]
-        return SearchPage(dataset_version=dataset.dataset_version, hits=hits)
+        # Graph expansion is intentionally served by Neo4j. The PostgreSQL
+        # release reader must never fall back to a legacy relationship table.
+        return None
 
     def lexical_search(
         self,
@@ -538,39 +505,7 @@ class PsycopgReadRepository:
             dataset = self._active_dataset(cur)
             if dataset is None:
                 return None
-            cur.execute(
-                "SELECT 1 FROM documents WHERE dataset_id = %s AND id = %s",
-                (dataset.dataset_id, document_id),
-            )
-            if cur.fetchone() is None:
-                return None
-
-            if direction is RelationshipDirection.INBOUND:
-                predicate = "e.target_id = %s"
-                predicate_params: list[Any] = [document_id]
-            elif direction is RelationshipDirection.OUTBOUND:
-                predicate = "e.source_id = %s"
-                predicate_params = [document_id]
-            else:
-                predicate = "(e.source_id = %s OR e.target_id = %s)"
-                predicate_params = [document_id, document_id]
-            cur.execute(
-                f"""
-                SELECT e.edge_key, e.source_id, e.target_id, e.relationship_type,
-                       e.payload, source.title AS source_title, target.title AS target_title
-                FROM relationships e
-                JOIN documents source
-                  ON (source.dataset_id, source.id) = (e.dataset_id, e.source_id)
-                JOIN documents target
-                  ON (target.dataset_id, target.id) = (e.dataset_id, e.target_id)
-                WHERE e.dataset_id = %s AND {predicate}
-                ORDER BY e.relationship_type, e.source_id, e.target_id, e.edge_key
-                LIMIT %s
-                """,
-                [dataset.dataset_id, *predicate_params, limit],
-            )
-            items = [_relationship_item(row) for row in cur.fetchall()]
-        return RelationshipPage(dataset_version=dataset.dataset_version, items=items)
+        return RelationshipPage(dataset_version=dataset.dataset_version, items=[])
 
     def stats(self) -> StatsResponse | None:
         with self._connection_factory() as conn, conn.cursor(row_factory=dict_row) as cur:
@@ -587,16 +522,8 @@ class PsycopgReadRepository:
                      WHERE c.dataset_id = r.dataset_id AND c.content_available) AS available_content,
                     (SELECT COALESCE(sum(cardinality(c.categories)), 0) FROM documents c
                      WHERE c.dataset_id = r.dataset_id) AS category_rows,
-                    (SELECT count(*) FROM relationships e
-                     WHERE e.dataset_id = r.dataset_id) AS relationship_rows,
-                    (SELECT count(*) FROM relationships e
-                     WHERE e.dataset_id = r.dataset_id
-                       AND COALESCE(
-                           (e.payload -> 'metadata' ->> 'relationship_is_adverse')::boolean,
-                           (e.payload ->> 'relationship_is_adverse')::boolean,
-                           FALSE
-                       ))
-                        AS adverse_edges,
+                    0 AS relationship_rows,
+                    0 AS adverse_edges,
                     (SELECT count(*) FROM chunks c
                      WHERE c.dataset_id = r.dataset_id) AS chunk_rows
                 FROM dataset_state runtime
