@@ -18,7 +18,6 @@ export function ReviewDetail({ review, onDecision }: ReviewDetailProps) {
   return <div className="admin-review-detail">
     <header className="admin-detail-header">
       <div>
-        <div className="admin-breadcrumb"><span>Admin</span><span>/</span><span>Duyệt tri thức</span><span>/</span><span>{review.id}</span></div>
         <div className="admin-detail-title-row"><span className={`admin-domain-mark large ${review.domain === "legal_document" ? "is-law" : "is-ocr"}`}>{review.domain === "legal_document" ? "§" : "⌁"}</span><div><p className="admin-eyebrow">{review.domain === "legal_document" ? "Văn bản pháp quy" : "Bảng kê viện phí · OCR"}</p><h1>{review.title}</h1></div><span className={`admin-status-label is-${review.status}`}>{review.status === "pending" ? "Chờ duyệt" : review.status === "accepted" ? "Đã chấp nhận" : "Đã từ chối"}</span></div>
         <p className="admin-detail-summary">{review.summary}</p>
       </div>

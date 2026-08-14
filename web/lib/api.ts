@@ -14,6 +14,11 @@ export type ChatResponse = {
   citations: ChatCitation[];
 };
 
+export type ChatHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 type ApiError = {
   code?: string;
   message?: string;
@@ -21,12 +26,13 @@ type ApiError = {
 
 export async function sendChatMessage(
   message: string,
+  chatHistory: ChatHistoryMessage[] = [],
   signal?: AbortSignal,
 ): Promise<ChatResponse> {
   const response = await fetch(`${apiUrl}/api/v1/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, chat_history: chatHistory }),
     signal,
   });
 
