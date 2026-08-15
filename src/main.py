@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from src.api.routes import router
 from src.config import get_settings
 from src.db.session import dispose_database
+from src.integrations.langfuse import configure_langfuse, flush_langfuse, tracing_enabled
 from src.models.schemas import ErrorResponse, ReadinessResponse
 from src.services.chat import get_runtime
 
@@ -22,8 +23,11 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     settings = get_settings()
     settings.validate_chunk_settings()
-    print(f"Starting {settings.app_name} in {settings.app_env} mode")
+    configure_langfuse()
+    tracing = "enabled" if tracing_enabled() else "disabled"
+    print(f"Starting {settings.app_name} in {settings.app_env} mode (langfuse {tracing})")
     yield
+    flush_langfuse()
     await get_runtime().close()
     await dispose_database()
     print("Shutting down...")

@@ -59,6 +59,8 @@ class GraphRepository:
                 JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
                 WHERE c.dataset_id = :dataset_id
                   AND c.embedding IS NOT NULL
+                  AND c.semantic_eligible IS TRUE
+                  AND c.semantic_eligible
                   AND 1.0 - (c.embedding <=> CAST(:embedding AS extensions.vector)) >= :similarity_threshold
                 ORDER BY c.embedding <=> CAST(:embedding AS extensions.vector), c.chunk_id
                 LIMIT :limit

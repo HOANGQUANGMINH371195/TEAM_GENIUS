@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class ChatHistoryMessage(ApiModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=5000)
 
 
 class ChatRequest(ApiModel):
@@ -16,6 +21,10 @@ class ChatRequest(ApiModel):
         max_length=5000,
         description="Câu hỏi của người dùng về BHYT hoặc viện phí.",
         examples=["Quyền lợi BHYT khi khám trái tuyến là gì?"],
+    )
+    chat_history: list[ChatHistoryMessage] = Field(
+        default_factory=list,
+        description="Lịch sử hội thoại từ frontend. Hiện chưa đưa vào GraphRAG.",
     )
 
     @field_validator("message")

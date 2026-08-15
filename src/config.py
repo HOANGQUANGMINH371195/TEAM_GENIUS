@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = ""
+    langfuse_base_url: str = ""
 
     @property
     def embeddings_configured(self) -> bool:
@@ -73,6 +74,14 @@ class Settings(BaseSettings):
     @property
     def database_configured(self) -> bool:
         return bool(self.database_url)
+
+    @property
+    def langfuse_configured(self) -> bool:
+        return bool(
+            self.langfuse_public_key
+            and self.langfuse_secret_key
+            and (self.langfuse_base_url or self.langfuse_host)
+        )
 
     def validate_chunk_settings(self) -> None:
         if self.chunk_overlap >= self.chunk_size:
