@@ -34,4 +34,14 @@ def build_graph():
     return graph.compile()
 
 
-agent = build_graph()
+_agent = None
+
+
+def get_agent():
+    global _agent
+    if _agent is None:
+        _agent = build_graph()
+    return _agent
+
+
+agent = get_agent()

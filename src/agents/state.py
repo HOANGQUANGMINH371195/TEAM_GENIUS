@@ -9,14 +9,12 @@ class AgentState(TypedDict, total=False):
     """State passed between GraphRAG LangGraph nodes."""
 
     query: str
-    conversation_id: str
     entities: list[Entity]
-    relations: list[Relation]
     vector_results: list[RetrievalResult]
     graph_results: list[Relation]
+    retrieved_evidence: list[RetrievalResult]
     citations: list[Citation]
     context: str
-    analysis: str
     response: str
     error: str
     metadata: dict

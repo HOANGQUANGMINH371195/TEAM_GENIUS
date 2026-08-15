@@ -14,17 +14,26 @@ class Relation(BaseModel):
     target: str
     relation_type: str
     description: str = ""
+    source_id: str = ""
+    target_id: str = ""
 
 
 class RetrievalResult(BaseModel):
     chunk_id: str
+    document_id: str
     content: str
     source: str = ""
+    title: str = ""
+    section_title: str = ""
     score: float = 0.0
     entities: list[str] = Field(default_factory=list)
+    channels: list[str] = Field(default_factory=list)
 
 
 class Citation(BaseModel):
-    source: str
-    chunk_id: str = ""
+    document_id: str
+    chunk_id: str
+    title: str = ""
+    section_title: str = ""
     quote: str = ""
+    channels: list[str] = Field(default_factory=list)
