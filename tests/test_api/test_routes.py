@@ -43,6 +43,23 @@ async def test_chat_success(client):
 
 
 @pytest.mark.asyncio
+async def test_chat_accepts_frontend_history(client):
+    result = {"response": "Xin chào", "citations": []}
+    with patch("src.api.routes.get_agent") as get_agent:
+        get_agent.return_value.ainvoke = AsyncMock(return_value=result)
+        response = await client.post(
+            "/api/v1/chat",
+            json={
+                "message": "xin chào",
+                "chat_history": [{"role": "user", "content": "xin chào"}],
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["response"] == "Xin chào"
+
+
+@pytest.mark.asyncio
 async def test_chat_rejects_empty_agent_response(client):
     with patch("src.api.routes.get_agent") as get_agent:
         get_agent.return_value.ainvoke = AsyncMock(

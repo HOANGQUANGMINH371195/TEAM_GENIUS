@@ -12,6 +12,7 @@ from src.config import get_settings
 from src.db.repositories import GraphRepository
 from src.db.session import session_scope
 from src.integrations.embeddings import EmbeddingModel, get_embedding_model
+from src.integrations.langfuse import llm_invoke_config, trace_span
 from src.integrations.neo4j import Neo4jGraphStore
 from src.services.llm import get_llm
 
@@ -42,30 +43,94 @@ class GraphRagRuntime:
         return self._graph_store
 
     async def retrieve(self, query: str) -> tuple[list, list]:
+        async with trace_span(
+            "retrieve-context",
+            as_type="retriever",
+            input={"query": query},
+        ) as span:
+            evidence, relations = await self._retrieve(query)
+            if span is not None:
+                span.update(
+                    output={
+                        "evidence_count": len(evidence),
+                        "relation_count": len(relations),
+                        "chunk_ids": [item.chunk_id for item in evidence[:20]],
+                    }
+                )
+            return evidence, relations
+
+    async def _retrieve(self, query: str) -> tuple[list, list]:
         settings = get_settings()
         try:
             embeddings = self._get_embeddings()
             graph_store = self._get_graph_store()
-            await asyncio.wait_for(graph_store.verify_connectivity(), timeout=5)
-            vector = await embeddings.embed_query(query)
+            async with trace_span("neo4j-connectivity") as span:
+                await asyncio.wait_for(graph_store.verify_connectivity(), timeout=5)
+                if span is not None:
+                    span.update(output={"ok": True})
+            async with trace_span(
+                "embedding-query",
+                as_type="embedding",
+                input={"query_length": len(query)},
+                metadata={"model": settings.embedding_model},
+            ) as span:
+                vector = await embeddings.embed_query(query)
+                if span is not None:
+                    span.update(
+                        output={
+                            "query_length": len(query),
+                            "embedding_dimensions": len(vector),
+                        }
+                    )
             async with session_scope() as session:
                 repository = GraphRepository(session, graph_store)
-                dataset_id = await repository.current_dataset()
+                async with trace_span("get-current-dataset") as span:
+                    dataset_id = await repository.current_dataset()
+                    if span is not None:
+                        span.update(output={"dataset_id": dataset_id})
                 if dataset_id is None:
                     raise GraphRagUnavailableError("No active dataset is available")
-                vector_results = await repository.search_vectors(
-                    vector,
-                    limit=settings.retrieval_top_k,
-                    dataset_id=dataset_id,
-                    similarity_threshold=settings.semantic_similarity_threshold,
-                )
+                async with trace_span(
+                    "pgvector-search",
+                    as_type="retriever",
+                    metadata={
+                        "dataset_id": dataset_id,
+                        "similarity_threshold": settings.semantic_similarity_threshold,
+                    },
+                ) as span:
+                    vector_results = await repository.search_vectors(
+                        vector,
+                        limit=settings.retrieval_top_k,
+                        dataset_id=dataset_id,
+                        similarity_threshold=settings.semantic_similarity_threshold,
+                    )
+                    if span is not None:
+                        span.update(
+                            output={
+                                "result_count": len(vector_results),
+                                "top_k": settings.retrieval_top_k,
+                            }
+                        )
                 document_ids = list(dict.fromkeys(item.document_id for item in vector_results))
-                graph_results = await repository.expand_entities(
-                    document_ids,
-                    dataset_id=dataset_id,
-                    hops=settings.graph_hops,
-                    limit=settings.graph_neighbor_limit,
-                )
+                async with trace_span(
+                    "neo4j-expand",
+                    as_type="retriever",
+                    metadata={"dataset_id": dataset_id},
+                ) as span:
+                    graph_results = await repository.expand_entities(
+                        document_ids,
+                        dataset_id=dataset_id,
+                        hops=settings.graph_hops,
+                        limit=settings.graph_neighbor_limit,
+                    )
+                    if span is not None:
+                        span.update(
+                            output={
+                                "relation_count": len(graph_results),
+                                "document_count": len(document_ids),
+                                "hops": settings.graph_hops,
+                            }
+                        )
                 related_ids = list(
                     dict.fromkeys(
                         item_id
@@ -74,11 +139,19 @@ class GraphRagRuntime:
                         if item_id
                     )
                 )
-                graph_evidence = await repository.hydrate_documents(
-                    related_ids[: settings.graph_evidence_limit],
-                    dataset_id=dataset_id,
-                    chunks_per_document=settings.max_chunks_per_document,
-                )
+                hydrate_ids = related_ids[: settings.graph_evidence_limit]
+                async with trace_span(
+                    "hydrate-documents",
+                    as_type="retriever",
+                    metadata={"dataset_id": dataset_id},
+                ) as span:
+                    graph_evidence = await repository.hydrate_documents(
+                        hydrate_ids,
+                        dataset_id=dataset_id,
+                        chunks_per_document=settings.max_chunks_per_document,
+                    )
+                    if span is not None:
+                        span.update(output={"evidence_count": len(graph_evidence)})
             return _limit_evidence(
                 _merge_evidence(vector_results, graph_evidence),
                 settings.max_llm_evidence,
@@ -104,7 +177,8 @@ class GraphRagRuntime:
                                 f"Evidence và graph relations được phép sử dụng:\n{context}"
                             )
                         ),
-                    ]
+                    ],
+                    config=llm_invoke_config() or None,
                 ),
                 timeout=settings.llm_timeout_seconds,
             )
