@@ -9,17 +9,24 @@ python-dotenv>=1.0.0
 langchain>=0.3.0
 langchain-openai>=0.3.0
 langgraph>=0.2.0
+langfuse>=3.6.0
 
-# Database (uncomment as needed)
-# sqlalchemy>=2.0.0
-# alembic>=1.14.0
-# psycopg2-binary>=2.9.0
+# Database / Supabase PostgreSQL
+SQLAlchemy>=2.0.36,<3
+asyncpg>=0.30.0,<1
+pgvector>=0.3.6,<1
+neo4j>=5.28.0,<6
+openai>=1.68.0,<2
 
-# Vector Store (uncomment as needed)
-# chromadb>=0.5.0
+# GraphRAG utilities
+langchain-text-splitters>=0.3.0,<1
 
 # Dev tools
 ruff>=0.8.0
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
 httpx>=0.28.0
+
+# BHYT / viện phí release pipeline
+numpy>=1.26,<3
+psycopg[binary]>=3.2,<4

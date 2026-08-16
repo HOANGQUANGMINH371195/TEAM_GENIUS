@@ -10,6 +10,7 @@ build/
 # Virtual environments
 venv/
 .venv/
+.eval-ragas-venv/
 env/
 
 # Environment variables
@@ -29,9 +30,14 @@ env/
 Thumbs.db
 
 # Data (never commit large data)
-data/
+data/*
+!data/raw/
+!data/raw/**
 *.db
 *.sqlite3
+
+# Rebuildable pipeline artifacts; keep raw authority CSVs versioned.
+/data/clean/
 
 # Logs
 logs/
@@ -58,3 +64,7 @@ out/
 # AI logs — tracked structure, ignored content
 .ai-log/*.jsonl
 .ai-log/archive/
+
+# Local project guidance and status
+/DESIGN_SKILL.md
+/local_project_status.md

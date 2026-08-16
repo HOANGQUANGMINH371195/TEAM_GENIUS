@@ -1,85 +1,48 @@
 ---
-title: "RAG Pattern"
-description: "Retrieval-Augmented Generation pattern"
+title: "GraphRAG Pattern"
+description: "GraphRAG với PageIndex, Supabase PostgreSQL và Neo4j"
 weight: 1
 ---
 
-## RAG (Retrieval-Augmented Generation)
+## GraphRAG
 
-### Flow
+MediPay kết hợp exact, lexical, semantic retrieval, PageIndex provenance và
+Neo4j graph traversal.
 
+### Query flow
+
+```text
+Query
+→ Build query plan
+→ Exact + PostgreSQL lexical + `text-embedding-3-small` semantic search
+→ Seed bounded relationships in Neo4j
+→ PageIndex/legal-unit provenance + RRF fusion
+→ Configured LLM generate grounded answer
+→ Citations + guardrail
 ```
-Query → Embed → Search Vector DB → Retrieve Top-K → Context + Query → LLM → Response
-```
 
-### Implementation
+### Boundaries
+
+- `src/graph_rag/retrieval.py`: phối hợp exact/lexical/semantic result và graph result.
+- `src/db/repositories.py`: SQL query, không chứa prompt hay LLM logic.
+- `src/integrations/embeddings.py`: OpenAI `text-embedding-3-small`, 1536 dimensions.
+- `src/integrations/neo4j.py`: bounded graph traversal trên Neo4j Aura/local.
+- `src/integrations/llm.py`: interface generation của backend.
+- `src/agents/nodes/`: workflow nodes.
+
+### Embedding adapter
 
 ```python
-# Node: Retrieve context từ vector store
-async def retrieve_node(state: AgentState) -> dict:
-    query = state.get("query", "")
-
-    # Embed query
-    embeddings = OpenAIEmbeddings()
-    query_embedding = await embeddings.aembed_query(query)
-
-    # Search vector store
-    docs = vector_store.similarity_search_by_vector(query_embedding, k=3)
-    context = "\n---\n".join([d.page_content for d in docs])
-
-    return {"context": context}
+class EmbeddingModel(Protocol):
+    async def embed_query(self, text: str) -> Sequence[float]: ...
 ```
 
-### Graph với RAG
+Query và passage phải dùng cùng model/dimensions. Không tự ý đổi model,
+truncate vector hoặc fallback sang model local nếu chưa tạo release mới.
 
-```python
-def build_rag_graph():
-    graph = StateGraph(AgentState)
-    graph.add_node("retrieve", retrieve_node)
-    graph.add_node("generate", generate_node)
-    graph.set_entry_point("retrieve")
-    graph.add_edge("retrieve", "generate")
-    graph.add_edge("generate", END)
-    return graph.compile()
-```
+### Supabase schema
 
-## Streaming Response
-
-```python
-from fastapi.responses import StreamingResponse
-
-@router.post("/chat/stream")
-async def chat_stream(request: ChatRequest):
-    async def generate():
-        async for chunk in agent.astream({"query": request.message}):
-            yield f"data: {json.dumps(chunk)}\n\n"
-    return StreamingResponse(generate(), media_type="text/event-stream")
-```
-
-## Pydantic Settings Pattern
-
-```python
-from pydantic_settings import BaseSettings
-
-class Settings(BaseSettings):
-    api_key: str = ""  # Required in .env
-    model: str = "gpt-4o-mini"  # Default
-
-    model_config = {"env_file": ".env"}
-```
-
-## FastAPI Lifespan Pattern
-
-```python
-from contextlib import asynccontextmanager
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    print("Starting app...")
-    yield
-    # Shutdown
-    print("Shutting down...")
-
-app = FastAPI(lifespan=lifespan)
-```
+`database/schema.sql` tạo documents, chunks, legal units, tables và pgvector.
+PageIndex được sinh từ dữ liệu raw và ánh xạ vào legal units. Knowledge graph
+được lưu trong Neo4j; embedding dùng `text-embedding-3-small` với vector 1536
+chiều. Text dùng làm citation luôn phải lấy lại từ Supabase.
