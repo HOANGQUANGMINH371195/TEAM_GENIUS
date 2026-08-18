@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_settings
 from src.integrations.neo4j import Neo4jGraphStore
 from src.models.graph import DocumentCandidate, Relation, RetrievalResult
+from src.services.retrieval import normalize_identifier
 
 
 class GraphRepository:
@@ -50,7 +51,8 @@ class GraphRepository:
 
     async def find_documents(self, query: str, *, dataset_id: str | None = None, limit: int = 5) -> list[DocumentCandidate]:
         """Find a legal instrument by number/title without loading a vector model."""
-        needle = query.strip()
+        needle = normalize_identifier(query)
+        compact_needle = needle.replace("-", "").replace("/", "")
         if not needle:
             return []
         dataset_id = dataset_id or await self.current_dataset()
@@ -71,15 +73,24 @@ class GraphRepository:
                   AND NOT d.is_external
                   AND (
                       COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') ILIKE :exact_needle
+                      OR regexp_replace(
+                          COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', ''),
+                          '[-/]', '', 'g'
+                      ) ILIKE :compact_needle
                       OR d.title ILIKE :contains_needle
                   )
                 ORDER BY
-                    CASE WHEN COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') ILIKE :exact_needle THEN 0 ELSE 1 END,
+                    CASE WHEN COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') ILIKE :exact_needle
+                              OR regexp_replace(COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', ''), '[-/]', '', 'g') ILIKE :compact_needle
+                         THEN 0 ELSE 1 END,
                     d.title, d.id
                 LIMIT :limit
                 """
             ),
-            {"dataset_id": dataset_id, "exact_needle": needle, "contains_needle": f"%{needle}%", "limit": limit},
+            {
+                "dataset_id": dataset_id, "exact_needle": needle, "compact_needle": compact_needle,
+                "contains_needle": f"%{needle}%", "limit": limit,
+            },
         )
         return [
             DocumentCandidate(

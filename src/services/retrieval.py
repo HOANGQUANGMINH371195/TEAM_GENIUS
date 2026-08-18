@@ -12,8 +12,13 @@ _DOCUMENT_NUMBER = re.compile(r"\b\d{1,4}/\d{4}/[A-ZĐ0-9-]+\b", re.IGNORECASE)
 _LEGAL_LABEL = re.compile(r"\b(?:điều|khoản)\s+\d+[a-zđ]?|\b[a-zđ]\)", re.IGNORECASE)
 
 
+def normalize_identifier(value: str) -> str:
+    """Normalize legacy Vietnamese character corruption in legal signatures."""
+    return value.replace("Ð", "Đ").replace("ð", "đ").strip().upper()
+
+
 def extract_document_numbers(query: str) -> list[str]:
-    return sorted({match.group(0).upper() for match in _DOCUMENT_NUMBER.finditer(query)})
+    return sorted({normalize_identifier(match.group(0)) for match in _DOCUMENT_NUMBER.finditer(query)})
 
 
 def extract_legal_labels(query: str) -> list[str]:
@@ -53,6 +58,8 @@ def policy_response(query: str) -> str | None:
         return "Không gửi thông tin định danh, OTP, CVV hoặc hồ sơ bệnh án. Tôi có thể hướng dẫn quy trình chung nếu bạn đã ẩn dữ liệu cá nhân."
     if any(token in lowered for token in ("kê đơn", "uống thuốc", "chẩn đoán bệnh", "liều thuốc")):
         return "Tôi không thể chẩn đoán hoặc kê đơn. Với triệu chứng hay liều dùng, hãy liên hệ bác sĩ hoặc cơ sở y tế; tôi chỉ hỗ trợ thông tin chính sách và viện phí có nguồn."
+    if any(token in lowered for token in ("claim đã được duyệt", "yêu cầu đã được duyệt", "đã được phê duyệt")):
+        return "Tôi không thể xác nhận tình trạng duyệt claim khi không có nguồn trạng thái chính thức. Hãy kiểm tra kênh của cơ quan bảo hiểm hoặc cơ sở tiếp nhận."
     if "viện phí" in lowered and any(token in lowered for token in ("bao nhiêu", "ước tính", "tổng tiền")):
         return "Để đối chiếu viện phí an toàn, cần bảng kê chi tiết, nơi khám, tuyến/chuyển tuyến, mức hưởng BHYT và thời điểm điều trị. Không nên kết luận số tiền khi thiếu các đầu vào này."
     return None
