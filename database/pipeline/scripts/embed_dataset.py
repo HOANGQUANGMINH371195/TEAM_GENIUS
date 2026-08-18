@@ -15,8 +15,8 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 load_dotenv()
 
-from data_pipeline.embedding import PREPROCESSOR, dimensions, embed_batch, model_name
-from data_pipeline.storage import ensure_dataset_vector_collection, publish_dataset
+from data_pipeline.embedding import PREPROCESSOR, dimensions, embed_batch, model_name  # noqa: E402
+from data_pipeline.storage import ensure_dataset_vector_collection, publish_dataset  # noqa: E402
 
 
 def connection() -> psycopg.Connection:
@@ -35,7 +35,7 @@ def sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def embed_dataset(dataset_id: str, *, batch_size: int) -> int:
+def embed_dataset(dataset_id: str, *, batch_size: int, publish: bool = False) -> int:
     if batch_size <= 0:
         raise ValueError("batch size must be positive")
     with connection() as conn:
@@ -45,7 +45,13 @@ def embed_dataset(dataset_id: str, *, batch_size: int) -> int:
             row = cur.fetchone()
             if row is None or row[0] != "staging":
                 raise ValueError(f"release must exist and be staging, found {row!r}")
-            cur.execute("SELECT id, section_title, text FROM chunks WHERE dataset_id = %s AND text <> '' AND embedding IS NULL ORDER BY document_id, chunk_order", (dataset_id,))
+            cur.execute(
+                """SELECT id, section_title, text FROM chunks
+                   WHERE dataset_id = %s AND semantic_eligible
+                     AND text <> '' AND embedding IS NULL
+                   ORDER BY document_id, chunk_order""",
+                (dataset_id,),
+            )
             rows = cur.fetchall()
         for start in range(0, len(rows), batch_size):
             batch = rows[start:start + batch_size]
@@ -55,13 +61,15 @@ def embed_dataset(dataset_id: str, *, batch_size: int) -> int:
                 updates = []
                 for (chunk_id, _, _), input_text, vector in zip(batch, inputs, vectors, strict=True):
                     digest = sha256(input_text)
-                    updates.append((input_text, digest, vector_literal(vector), model_name(), dimensions(), PREPROCESSOR, digest, dataset_id, chunk_id))
-                cur.executemany("""UPDATE chunks SET embedding_input_text=%s, embedding_input_sha256=%s,
+                    updates.append((digest, vector_literal(vector), model_name(), dimensions(), PREPROCESSOR, digest, dataset_id, chunk_id))
+                cur.executemany("""UPDATE chunks SET embedding_input_sha256=%s,
                     embedding=%s::extensions.vector, embedding_model=%s, embedding_dimensions=%s,
                     embedding_preprocessor=%s, embedding_normalized=TRUE, embedded_input_sha256=%s,
-                    embedding_created_at=now() WHERE dataset_id=%s AND id=%s""", updates)
+                    embedding_created_at=now()
+                    WHERE dataset_id=%s AND id=%s AND semantic_eligible""", updates)
             conn.commit()
-        publish_dataset(conn, dataset_id, require_embeddings=True)
+        if publish:
+            publish_dataset(conn, dataset_id, require_embeddings=True)
     return len(rows)
 
 
@@ -69,5 +77,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("dataset_id")
     parser.add_argument("--batch-size", type=int, default=int(os.getenv("EMBEDDING_BATCH_SIZE", "32")))
+    parser.add_argument(
+        "--publish",
+        action="store_true",
+        help="Publish only after the matching Neo4j release and parity gates have already passed.",
+    )
     args = parser.parse_args()
-    print(f"Embedded and published {args.dataset_id}: {embed_dataset(args.dataset_id, batch_size=args.batch_size)} passages")
+    count = embed_dataset(args.dataset_id, batch_size=args.batch_size, publish=args.publish)
+    state = "embedded and published" if args.publish else "embedded; still staging"
+    print(f"{state} {args.dataset_id}: {count} passages")

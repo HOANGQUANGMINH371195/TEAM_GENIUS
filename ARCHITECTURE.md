@@ -27,7 +27,7 @@ semantic:
 | Lớp | Nguồn hiện có | Nhiệm vụ duy nhất |
 |---|---|---|
 | Hybrid recall | lexical: `chunks.search_vector` + `documents.payload`; semantic: `chunks.embedding` + pgvector | tìm passage trực tiếp bằng exact/keyword và gần nghĩa |
-| PageIndex | `legal_units` và `chunks.payload.unit_id` | resolve/expand cấu trúc và citation span |
+| PageIndex | `legal_units` và cột `chunks.unit_id`/source offsets | resolve/expand cấu trúc và citation span |
 | Graph | Neo4j `Document` + relationship có hướng | tìm văn bản liên quan và reasoning path |
 
 Không xây thêm ontology graph, fact graph, memory graph hoặc community graph.
@@ -57,20 +57,92 @@ production path.
 
 | Khả năng | Hiện trạng trong code | Trạng thái kiến trúc |
 |---|---|---|
-| Versioned dataset, active views, hashes | đã có | dùng nguyên trạng |
-| Legal-unit-aware chunks và PageIndex tree | đã build và lưu | dùng nguyên trạng |
+| Versioned dataset, active views, hashes | production active: `snapshot-c94d7b75195a67fa` | đã cutover; giữ immutable release contract |
+| Legal-unit-aware chunks và PageIndex tree | 28.301 units / 37.288 passages đã active và qua offset gate | production data-ready; online hierarchy expansion còn cần nối vào service |
 | Lexical search | đã có, chỉ index `chunks.text` | cần exact-hint query và field boost |
 | Semantic pgvector | đã có; `candidate_limit` được tính nhưng SQL vẫn dùng `limit` | cần overfetch/iterative scan khi có metadata filter |
 | RRF | đã có bản unweighted | cần provenance theo channel và query-aware weights |
-| Neo4j import | đã có theo `dataset_id` | dùng nguyên trạng |
-| Neo4j online expansion | `graph_expand()` đang trả `None` | chưa triển khai |
+| Neo4j import | active graph: 1.901 nodes, 5.810 legal edges + 7 aliases; old releases đã xóa sau backup | parity với active PostgreSQL dataset ID |
+| Neo4j online expansion | one-hop bounded expansion, rồi re-retrieve passage PostgreSQL; chỉ đọc cạnh `approved_evidence` | production live; graph outage degrade an toàn |
 | PageIndex online resolve/expand | mới có `get_legal_unit(unit_id)` | chưa triển khai |
 | Evidence rerank/verification | chưa có | chưa triển khai |
 | `src/db` production repository | schema UUID/`document_chunks` không khớp | phải migrate hoặc loại khỏi request path |
 | Release read isolation | base-table `public_read` hiện là `USING (true)` | app role chỉ được thấy active release/view |
 
-Do đó các sơ đồ bên dưới là **target architecture**, không phải tuyên bố rằng
-mọi node đã hoạt động trong code hiện tại.
+Do đó các sơ đồ bên dưới chủ yếu là **target architecture**; riêng bounded
+Neo4j expansion và re-retrieve passage đã hoạt động trong production path.
+
+### Data readiness audit và baseline production cutover — 2026-08-13
+
+Dữ liệu không được gọi là “hoàn hảo”: trạng thái pháp lý chỉ được kết luận khi
+có nguồn chính thức; graph-derived status luôn là candidate. Release production
+hiện tại được dựng tại `data/clean/medical_active_v12_final`:
+
+| Gate | Kết quả |
+|---|---:|
+| Input document union | 690 |
+| Canonical documents sau alias collapse | 683 |
+| Content HTML không rỗng | 683 / 683 |
+| Web recovery qua identity gates | 4 |
+| Source record bị loại nhưng giữ alias | `143848 → 157394` |
+| Alias legal identity | 7 |
+| Legal relationships sau evidence enrichment/dedup | 5.810 |
+| Reference-only graph nodes | 1.211 |
+| Core / broad-KCB / graph-context | 432 / 165 / 86 |
+| Answer-ready cho current-law claim | 294 |
+| Tavily canonical backlog đã audit | 414 tasks |
+| Tavily canonical requests thành công / lỗi rate-limit còn ghi nhận | 261 / 153 |
+| Official target references bổ sung qua Tavily | 79 |
+| Strict model-grounded canonical edges | 47 |
+| Grounded edges resolve sang legacy references | 51 |
+| Grounded edges có official target bổ sung | 97 |
+| Temporal status candidate (không ghi đè official status) | 52 edges / 43 documents |
+| Encoding warning | 4 |
+| Edge chỉ có provenance từ active export | 2.892 |
+| Synthetic release benchmark | exact 100/100; graph evidence 100/100; semantic Recall@10 82,5% |
+
+Toàn bộ 689 giá trị `content_text` trong active JSON bị bỏ; 427 dòng sai không
+phải do lệch thứ tự ghép row mà do projection đã bị gán sai document. Text của
+release mới luôn được sinh lại từ HTML đã chọn. Bốn source HTML thiếu/hỏng được
+phục hồi với URL, retrieval time và SHA-256; nguồn HTML bên thứ ba chỉ được nhận
+sau khi số/ký hiệu, cơ quan, năm ban hành và title khớp nguồn chính thức.
+
+Canonical gate hiện pass với 683 content, 5.810 edges, 28.301 legal units và
+37.288 retrieval passages. Chỉ 14.406 prose passages được embed mặc định;
+12.534 table-row passages dùng lexical/structured retrieval để tránh tốn vector
+cho các giá trị số gần nhau. Còn hai warning không chặn release: 4 table có CSS
+selector + raw-fragment hash chính xác nhưng normalized-text offset chỉ về parent,
+và 6 passage dưới 20 ký tự. Chi tiết máy đọc nằm ở
+`data/clean/medical_active_v12_final/canonical_validation.json`. Benchmark là
+synthetic grounded regression set, chưa phải gold set được chuyên gia pháp lý
+adjudicate; không được dùng con số đó để tuyên bố độ chính xác pháp lý tuyệt đối.
+
+### Serving-quality hotfix sau cutover — 2026-08-13
+
+Sau khi bật graph runtime, một test thực tế phát hiện collision nguy hiểm: quyết
+định Cà Mau bãi bỏ một quyết định `25/2015/QĐ-UBND` có thể bị nối nhầm với
+document cùng số ở Ninh Thuận. Vì vậy toàn bộ 5.810 cạnh vẫn được giữ trong
+Neo4j cho audit, nhưng API chỉ phục vụ cạnh có evidence và target resolution
+đủ chặt:
+
+| Gate graph runtime | Kết quả |
+|---|---:|
+| Cạnh legal vẫn giữ cho audit | 5.810 |
+| Cạnh được phép online expansion/API quan hệ | 187 |
+| Cạnh legacy không có grounded evidence (audit-only) | 5.616 |
+| Cạnh model evidence bị chặn do target signature mơ hồ | 4 |
+| Cạnh bị chặn do địa phương trong quote mâu thuẫn target | 3 |
+| Temporal candidate sau gate (không ghi đè official status) | 45 edges / 37 documents |
+| Document có `legal_status_verified=true` | 314 / 683 |
+
+Gate canonical signature không tự động được tin nếu quote nêu địa phương/cơ
+quan khác target. Ví dụ Cà Mau → Ninh Thuận hiện bị chặn cả ở `graph_expand`
+và endpoint relationships. Ngoài ra, retry Tavily bằng key mới đã tiêu 151
+credit, trả về 151 response và chỉ còn 2 network timeout; một official status
+cho `58187` được xác nhận “Hết hiệu lực” từ Công báo. Source audit của hotfix
+là `data/clean/medical_active_v22_production_hotfix_source`; runtime hotfix chỉ
+thay metadata status và các property graph phục vụ, không re-embed hay nhân đôi
+release trong Supabase Free.
 
 ## 4. System architecture
 
@@ -127,8 +199,8 @@ flowchart TB
 
 | Store | Dữ liệu | Quyền quyết định |
 |---|---|---|
-| Supabase PostgreSQL | datasets, documents, raw HTML, chunks, legal units, tables/cells, lexical/vector indexes | source text, metadata, release và citation |
-| Neo4j | release-scoped `Document` nodes và relationships từ `relationships.csv` | navigation/path giữa documents, không phải source text |
+| Supabase PostgreSQL | datasets, canonical documents, aliases, raw HTML, chunks, legal units, tables/cells, lexical/vector indexes | source text, metadata, identity resolution, release và citation; không lưu graph relationships/reference-only stubs |
+| Neo4j | release-scoped canonical/reference/alias `Document` nodes và relationships từ `relationships.csv` | navigation/path giữa documents, không phải source text |
 | LangGraph state | query plan, candidates, evidence, warnings | request-scoped orchestration, không phải database |
 
 Graph candidate chỉ là một `document_id + path`. Nó chỉ trở thành **content
@@ -140,10 +212,11 @@ evidence, không được gán tùy tiện chunk đầu tiên làm evidence.
 
 ## 5. Release-safe ingestion
 
-Target publish flow:
+Target publish flow trên database đủ dung lượng:
 
 ```text
-authority CSV
+curated CSV + active JSON membership + reviewed web recovery
+  → reconciled authority CSV + aliases + provenance + explicit crawl backlog
   → canonical snapshot + fingerprint
   → legal_units + tables + legal-unit-aware chunks
   → stage PostgreSQL release
@@ -157,20 +230,44 @@ Supabase và Neo4j không có distributed transaction. Supabase `dataset_state`
 là control plane duy nhất; request graph luôn phải filter đúng active
 `dataset_id`. Readiness chỉ đạt khi cả hai store có cùng release.
 
-Parity ở đây không có nghĩa mọi PostgreSQL document đều phải có Neo4j node,
-vì importer chỉ cần endpoints của `relationships.csv`. Gate activation phải
-chứng minh: edge count/type/direction/adverse flag khớp manifest; mọi endpoint
-map được tới canonical hoặc external-stub document trong PostgreSQL; mọi
-`graph_id` có dạng `dataset_id:document_id`; và không có cross-release edge.
+Parity ở đây không có nghĩa mọi Neo4j node phải thành PostgreSQL row. Supabase
+chỉ giữ 683 canonical documents và 7 alias mappings; 1.132 reference-only
+endpoints sống ở Neo4j cho đến khi có metadata/content thật. Gate activation
+phải chứng minh: edge count/type/direction/adverse flag khớp manifest; mọi
+endpoint ở Neo4j là canonical, alias hoặc `reference_only`; mọi `graph_id` có
+dạng `dataset_id:document_id`; và không có cross-release edge.
 
-Hiện `embed_dataset.py` publish trước khi Neo4j import. Production flow phải
-tách `embed` khỏi `publish`, import/validate graph trước, rồi mới đổi active
-pointer. Nếu Neo4j tạm unavailable:
+`embed_dataset.py` và artifact loader mặc định chỉ embed/load rồi giữ trạng thái
+`staging`; cờ `--publish` chỉ được dùng sau khi Neo4j parity gate đã pass. Nếu
+Neo4j tạm unavailable:
 
 - direct/structural query có thể degraded sang lexical + semantic + PageIndex
   kèm warning;
 - query hỏi quan hệ, sửa đổi, thay thế, bãi bỏ hoặc chuỗi hiệu lực phải fail
   closed nếu graph là evidence bắt buộc.
+
+### Supabase Free deployment profile
+
+Cutover Free ngày 2026-08-13 đã backup release cũ ra local, xóa release
+`snapshot-0a74fbdbc635cd71` và HNSW tương ứng, rồi `VACUUM FULL`. Database giảm
+từ 494.242.963 xuống 13.069.459 bytes trước ingest. Release mới
+`snapshot-c94d7b75195a67fa` hiện active với 683 documents, 37.288 chunks và
+14.406 embeddings; `pg_database_size` sau publish là 442.772.627 bytes, còn
+81.515.373 bytes dưới quota 500 MiB. PostgreSQL chỉ còn một dataset release.
+
+Khoảng trống này không đủ để giữ đồng thời old active + new staging release.
+Vì vậy có hai profile tách biệt:
+
+1. **Paid/đủ dung lượng:** dùng immutable dual-release flow phía trên, zero
+   downtime rồi prune superseded release sau retention window.
+2. **Free:** build + validate + embed artifact offline; backup release hiện tại;
+   maintenance window; xoá old release để cascade-reclaim data/index; ingest
+   candidate; import/validate Neo4j cùng dataset ID; cuối cùng activate traffic.
+
+Không được bắt đầu staging trên Free nếu capacity preflight chưa chứng minh đủ
+chỗ cho text, table cells, vectors và HNSW. Nếu yêu cầu rollback tức thời/zero
+downtime thì phải nâng quota; không thể vừa giữ hai full releases vừa bảo đảm
+500 MiB bằng cách “tối ưu SQL” đơn thuần.
 
 ## 6. Query plan
 
@@ -709,6 +806,7 @@ bằng chứng.
 | Answer | claim-evidence coverage, unsupported claim rate, abstention precision |
 | Operation | p50/p95 latency, token cost, channel failure/degraded rate |
 | Release | zero mixed-version evidence, zero invalid source offsets/hashes |
+| Data readiness | content identity coverage, status freshness, unresolved references, edge provenance coverage, alias collisions |
 
 ### Required ablations
 
@@ -744,6 +842,19 @@ weights/hop caps → diversity → verifier threshold. Không tune generation pr
 để che lỗi retrieval.
 
 ## 14. Lộ trình triển khai
+
+### P-1 — Data foundation và quota
+
+Đã hoàn tất: audit CSV/JSON/live stores; bỏ toàn bộ derived `content_text` lỗi;
+recover 4 HTML; reject/alias `143848`; collapse 6 duplicate identities; dựng
+candidate 683 documents/5.616 edges; chuyển graph ownership hoàn toàn sang
+Neo4j; dọn Supabase xuống dưới Free quota; thêm alias/provenance/eligibility
+contract; canonical offset gate pass.
+
+Còn lại trước production cutover: xử lý 1.546 crawl tasks theo degree/risk,
+đặc biệt 371 status chưa kiểm chứng và 43 content identity reviews; tạo embedding
+artifact; chạy Neo4j parity gate; capacity preflight và maintenance cutover theo
+Free profile.
 
 ### P0 — Làm contract hiện tại đúng
 

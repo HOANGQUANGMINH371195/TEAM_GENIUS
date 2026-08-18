@@ -65,24 +65,31 @@ hoặc mật khẩu lên Git.
 cd /home/minh/projects/team-Vin-genius
 export PYTHONPATH="$PWD/database/pipeline"
 
-python database/pipeline/scripts/build_page_index.py --source-dir data/raw \
+python database/corpus/build_active_corpus.py --offline
+python database/corpus/validate_candidate.py
+
+python database/pipeline/scripts/build_page_index.py --source-dir data/clean/medical_active_v2 \
   --output-dir data/clean/page_index
-python database/pipeline/scripts/extract_tables.py --source-dir data/raw \
+python database/pipeline/scripts/extract_tables.py --source-dir data/clean/medical_active_v2 \
   --output-dir data/clean/tables
-python database/pipeline/scripts/build_facets.py --source-dir data/raw \
+python database/pipeline/scripts/build_facets.py --source-dir data/clean/medical_active_v2 \
   --output-dir data/clean/facets
-python database/pipeline/scripts/ingest_snapshot.py --source-dir data/raw
+python database/pipeline/scripts/ingest_snapshot.py --source-dir data/clean/medical_active_v2
 ```
 
-Lệnh cuối in ra một `dataset_id`, ví dụ `snapshot-...`. Dùng dataset đó để
-chạy embedding:
+Lệnh cuối in ra một `dataset_id`, ví dụ `snapshot-...`. Worker chỉ embed các
+prose passage có `semantic_eligible=true` và mặc định giữ
+release ở `staging`:
 
 ```bash
 python database/pipeline/scripts/embed_dataset.py snapshot-... --batch-size 256
+python database/neo4j/scripts/import_relationships.py \
+  --source-dir data/clean/medical_active_v2 --dataset-id snapshot-...
+# Sau khi edge/type/direction/provenance parity đã pass:
+python database/pipeline/scripts/embed_dataset.py snapshot-... --publish
 ```
 
-Worker gọi OpenAI theo batch, kiểm tra provenance, ghi vector vào Supabase và
-chỉ publish dataset nếu toàn bộ kiểm tra đạt.
+Table rows dùng lexical/structured retrieval, không tạo vector mặc định.
 
 ### 4. Kiểm tra
 
@@ -97,7 +104,7 @@ Nếu chưa muốn ghi vào Supabase, vẫn có thể tạo artifact embedding l
 
 ```bash
 python3 database/pipeline/scripts/embed_snapshot.py \
-  --source-dir data/raw \
+  --source-dir data/clean/medical_active_v2 \
   --output-dir data/clean/embeddings \
   --batch-size 8
 ```
@@ -127,7 +134,8 @@ python3 database/pipeline/scripts/load_embedding_artifact.py snapshot-... \
   data/clean/embeddings/snapshot-...
 ```
 
-Lệnh này kiểm tra manifest, số dòng, số chiều và nạp vector vào `pgvector`.
+Lệnh này kiểm tra manifest, số dòng, số chiều, nạp vector vào `pgvector` và mặc
+định vẫn giữ release ở `staging`.
 Storage là bản lưu/phân phối, còn
 `chunks.embedding` là bản dùng trực tiếp để truy vấn.
 
@@ -137,13 +145,23 @@ Storage là bản lưu/phân phối, còn
 |---|---:|---|
 | `data/raw/*.csv` | Có thể | Đây là dữ liệu authority, không chứa khách hàng và cần để tái tạo release. Tổng khoảng 25 MB, vẫn chấp nhận được nếu team muốn version hóa trực tiếp. |
 | `data/clean/*.csv`, PageIndex, facets, tables | Không cần | Đây là artifact sinh lại được từ CSV nguồn. |
-| `embeddings.float32.npy` | Không nên | File khoảng 45 MB, phụ thuộc model; lưu trong Supabase Storage thay vì làm repository phình. |
+| `embeddings.float32.npy` | Không nên | Candidate v2 khoảng 88,5 MB raw float32, phụ thuộc model; lưu trong private object storage thay vì làm repository phình. |
 | `.env` | Tuyệt đối không | Chứa mật khẩu Supabase. |
 
 Khuyến nghị: commit `data/raw/*.csv` nếu đây là bộ dữ liệu chính thức
 của team; không commit `data/clean/` và `.npy`. Nếu muốn lưu embedding để không
 phải gọi lại API, dùng Git LFS, Supabase Storage hoặc object storage riêng.
 
-Chunk hiện tại dùng legal unit → paragraph/sentence → gom mục tiêu 144 tokens.
-Dataset hiện có 15.471
-passages, 646 tables và 26.079 cells.
+Chunker v5 dùng legal unit → paragraph/sentence → gom tối đa 320 approximate
+tokens, bỏ structural-only chunks và tạo table-row passages có header context.
+Release qualified hiện có 683 documents, 37.288 passages, 28.301 legal units
+và 5.810 graph relationships; chỉ 14.406 passages cần embedding. Runtime chỉ
+serve 187 graph edges có evidence/target resolution đủ điều kiện.
+
+## Supabase Free
+
+Live project đang dùng 445.394.067 bytes, còn khoảng 78,9 MB (75,2 MiB) dưới
+quota 500 MiB; không đủ để stage thêm một full release. Không chạy `ingest_snapshot.py`
+trên live Free project trước khi có local backup và maintenance cutover.
+Zero-downtime dual-release cần nâng quota. Xem phần **Supabase Free deployment
+profile** trong `ARCHITECTURE.md`.

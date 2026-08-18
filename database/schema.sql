@@ -41,6 +41,23 @@ create table if not exists documents (
     primary key (dataset_id, id)
 );
 
+-- Identity aliases are citation-resolution data, not knowledge-graph edges.
+-- They stay with the authority documents so an old source ID resolves without
+-- creating a second searchable copy of the same legal instrument.
+create table if not exists document_aliases (
+    dataset_id text not null references datasets(dataset_id) on delete cascade,
+    alias_document_id text not null,
+    canonical_document_id text not null,
+    alias_type text not null default '',
+    confidence text not null default '',
+    reason text not null default '',
+    evidence_url text not null default '',
+    payload jsonb not null default '{}'::jsonb,
+    primary key (dataset_id, alias_document_id),
+    foreign key (dataset_id, canonical_document_id)
+        references documents(dataset_id, id) on delete cascade
+);
+
 create table if not exists legal_units (
     dataset_id text not null references datasets(dataset_id) on delete cascade,
     unit_id text not null,
@@ -53,6 +70,8 @@ create table if not exists legal_units (
     text text not null default '',
     source_start integer,
     source_end integer,
+    source_selector text not null default '',
+    source_fragment_sha256 text not null default '',
     text_sha256 text not null default '',
     raw_fragment_sha256 text not null default '',
     parse_method text not null,
@@ -107,8 +126,16 @@ create table if not exists chunks (
     source_key text not null,
     document_id text not null,
     chunk_order integer not null,
+    unit_id text not null,
+    source_start integer not null,
+    source_end integer not null,
     text text not null default '',
     section_title text not null default '',
+    text_sha256 text not null default '',
+    parser_version text not null default '',
+    chunker_version text not null default '',
+    lexical_eligible boolean not null default true,
+    semantic_eligible boolean not null default true,
     embedding_input_text text not null default '',
     embedding_input_sha256 text not null default '',
     embedding extensions.vector(1536),
@@ -125,13 +152,13 @@ create table if not exists chunks (
     unique (dataset_id, source_key),
     unique (dataset_id, document_id, chunk_order),
     foreign key (dataset_id, document_id)
-        references documents(dataset_id, id) on delete cascade
+        references documents(dataset_id, id) on delete cascade,
+    foreign key (dataset_id, unit_id)
+        references legal_units(dataset_id, unit_id) on delete cascade
 );
 
 create index if not exists dataset_nodes_title_idx
     on documents (dataset_id, title);
-create index if not exists dataset_chunks_document_idx
-    on chunks (dataset_id, document_id, chunk_order);
 create index if not exists dataset_chunks_search_idx
     on chunks using gin (search_vector);
 
@@ -144,11 +171,21 @@ where n.dataset_id = runtime.active_dataset_id;
 
 create or replace view active_document_content WITH (security_invoker = true) AS
 select d.dataset_id, d.id as document_id, d.content_text, d.text_sha256,
-       d.payload, r.fingerprint as dataset_version
+       d.payload || jsonb_build_object(
+           'content_available', d.content_available
+       ) as payload,
+       r.fingerprint as dataset_version
 from documents d
 join dataset_state runtime on runtime.singleton
 join datasets r on r.dataset_id = runtime.active_dataset_id
 where d.dataset_id = runtime.active_dataset_id;
+
+create or replace view active_document_aliases WITH (security_invoker = true) AS
+select a.*, r.fingerprint as dataset_version
+from document_aliases a
+join dataset_state runtime on runtime.singleton
+join datasets r on r.dataset_id = runtime.active_dataset_id
+where a.dataset_id = runtime.active_dataset_id;
 
 create or replace view active_document_html WITH (security_invoker = true) AS
 select d.dataset_id, d.id as document_id, d.raw_html, d.raw_html_sha256,
@@ -194,22 +231,37 @@ join dataset_state runtime on runtime.singleton
 join datasets r on r.dataset_id = runtime.active_dataset_id
 where c.dataset_id = runtime.active_dataset_id;
 
--- The corpus is public reference data, so anonymous/authenticated clients may
--- read it through the active views. Writes remain restricted to the database
--- worker/service role because no INSERT/UPDATE/DELETE policies are defined.
+-- The corpus is public reference data, but only the active release is exposed
+-- to client roles.  Staging/superseded releases remain worker-only; this is
+-- important because the views below use security_invoker.
 do $$
 declare
     table_name text;
 begin
     foreach table_name in array ARRAY[
-        'datasets', 'dataset_state', 'documents',
+        'datasets', 'dataset_state', 'documents', 'document_aliases',
         'legal_units', 'document_tables', 'table_cells',
         'chunks'
     ] loop
         execute format('alter table public.%I enable row level security', table_name);
         execute format('drop policy if exists public_read on public.%I', table_name);
+        execute format('drop policy if exists active_release_read on public.%I', table_name);
+    end loop;
+
+    create policy active_release_read on public.datasets
+        for select to anon, authenticated
+        using (status = 'active' and dataset_id =
+               (select active_dataset_id from public.dataset_state where singleton));
+    create policy active_release_read on public.dataset_state
+        for select to anon, authenticated using (singleton);
+
+    foreach table_name in array ARRAY[
+        'documents', 'document_aliases', 'legal_units', 'document_tables',
+        'table_cells', 'chunks'
+    ] loop
         execute format(
-            'create policy public_read on public.%I for select to anon, authenticated using (true)',
+            'create policy active_release_read on public.%I for select to anon, authenticated ' ||
+            'using (dataset_id = (select active_dataset_id from public.dataset_state where singleton))',
             table_name
         );
     end loop;

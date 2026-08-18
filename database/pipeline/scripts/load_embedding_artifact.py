@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 load_dotenv()
 
-from data_pipeline.storage import publish_dataset, ensure_dataset_vector_collection
+from data_pipeline.storage import ensure_dataset_vector_collection, publish_dataset  # noqa: E402
 
 
 def connection() -> psycopg.Connection:
@@ -31,7 +31,7 @@ def vector_literal(values: object) -> str:
     return "[" + ",".join(format(float(value), ".10g") for value in values) + "]"
 
 
-def load_artifact(dataset_id: str, artifact_dir: str | Path) -> int:
+def load_artifact(dataset_id: str, artifact_dir: str | Path, *, publish: bool = False) -> int:
     root = Path(artifact_dir)
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     artifact_dataset_id = manifest.get("dataset_id") or manifest.get("release_id")
@@ -70,14 +70,15 @@ def load_artifact(dataset_id: str, artifact_dir: str | Path) -> int:
                                 embedding_dimensions = %s, embedding_preprocessor = %s,
                                 embedding_normalized = %s, embedded_input_sha256 = %s,
                                 embedding_created_at = now()
-                            WHERE dataset_id = %s AND chunk_id = %s"""
+                            WHERE dataset_id = %s AND chunk_id = %s AND semantic_eligible"""
             for start in range(0, len(updates), 256):
                 batch = updates[start : start + 256]
                 cur.executemany(update_sql, batch)
                 if cur.rowcount != len(batch):
                     raise ValueError(f"artifact batch updated {cur.rowcount} of {len(batch)} rows")
         conn.commit()
-        publish_dataset(conn, dataset_id, require_embeddings=True)
+        if publish:
+            publish_dataset(conn, dataset_id, require_embeddings=True)
     return len(metadata)
 
 
@@ -85,8 +86,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dataset_id")
     parser.add_argument("artifact_dir", help="directory containing manifest.json and embeddings.float32.npy")
+    parser.add_argument(
+        "--publish",
+        action="store_true",
+        help="Publish only after the matching Neo4j release and parity gates have already passed.",
+    )
     args = parser.parse_args()
-    print(f"Loaded and published {args.dataset_id}: {load_artifact(args.dataset_id, args.artifact_dir)} vectors")
+    count = load_artifact(args.dataset_id, args.artifact_dir, publish=args.publish)
+    state = "loaded and published" if args.publish else "loaded; still staging"
+    print(f"{state} {args.dataset_id}: {count} vectors")
     return 0
 
 

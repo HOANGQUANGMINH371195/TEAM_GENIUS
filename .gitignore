@@ -39,6 +39,13 @@ data/*
 # Rebuildable pipeline artifacts; keep raw authority CSVs versioned.
 /data/clean/
 
+# Local corpus exports, release backups and generated audit evidence.
+/database/medical_docs_active.json
+/database/medical_relationships_active.json
+/database/backups/
+/database/audit/results/
+/database/audit/*.json
+
 # Logs
 logs/
 *.log
