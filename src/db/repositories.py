@@ -249,6 +249,60 @@ class GraphRepository:
             for row in result
         ]
 
+    async def expand_sibling_legal_units(
+        self, unit_ids: Sequence[str], *, dataset_id: str, limit: int = 12
+    ) -> list[RetrievalResult]:
+        """Return the complete enumerated scope containing a semantic hit.
+
+        A passage matching ``h)`` is often evidence that the user's question
+        concerns the complete a)-h) list.  Expanding its siblings is a
+        canonical PostgreSQL read, not a model-generated inference.
+        """
+        ids = list(dict.fromkeys(str(item) for item in unit_ids if item))
+        if not ids or limit <= 0:
+            return []
+        result = await self.session.execute(
+            text(
+                """
+                WITH parents AS (
+                    SELECT DISTINCT parent_unit_id
+                    FROM legal_units
+                    WHERE dataset_id = :dataset_id
+                      AND unit_id = ANY(CAST(:unit_ids AS text[]))
+                      AND parent_unit_id IS NOT NULL
+                )
+                SELECT u.unit_id, u.document_id, u.label, u.heading,
+                       COALESCE(
+                           NULLIF(u.text, ''),
+                           NULLIF(substring(d.content_text from u.source_start + 1 for u.source_end - u.source_start), ''),
+                           u.heading, u.label
+                       ) AS text,
+                       u.source_start, u.source_end, u.text_sha256, d.title
+                FROM legal_units u
+                JOIN parents parent ON parent.parent_unit_id = u.parent_unit_id
+                JOIN documents d ON d.dataset_id = u.dataset_id AND d.id = u.document_id
+                WHERE u.dataset_id = :dataset_id
+                  AND NOT d.is_external
+                  AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                ORDER BY u.document_id, u.source_start NULLS LAST, u.unit_id
+                LIMIT :limit
+                """
+            ),
+            {"dataset_id": dataset_id, "unit_ids": ids, "limit": limit},
+        )
+        return [
+            RetrievalResult(
+                chunk_id=f"unit:{row.unit_id}", document_id=str(row.document_id), dataset_id=dataset_id,
+                content=str(row.text or ""), source=str(row.document_id), title=str(row.title or ""),
+                section_title=str(row.heading or row.label or ""), unit_id=str(row.unit_id),
+                source_start=int(row.source_start) if row.source_start is not None else None,
+                source_end=int(row.source_end) if row.source_end is not None else None,
+                text_sha256=str(row.text_sha256 or ""),
+                channels=["page_index", "semantic_scope"], score=1.0,
+            )
+            for row in result
+        ]
+
     async def expand_entities(
         self,
         entity_names: list[str],

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -37,6 +38,9 @@ class GraphRagUnavailableError(RuntimeError):
 
 class ChatProviderError(RuntimeError):
     """The configured chat provider failed to generate a response."""
+
+
+_ENUMERATED_LEGAL_UNIT = re.compile(r"^\s*[a-zđ]\)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -220,6 +224,16 @@ class GraphRagRuntime:
                 semantic_focus = semantic_document_focus(semantic_results)
                 if semantic_focus:
                     channels["semantic_focus"] = semantic_focus
+                sibling_seed_ids = [
+                    item.unit_id
+                    for item in semantic_focus
+                    if item.unit_id and _ENUMERATED_LEGAL_UNIT.match(item.section_title or item.content)
+                ]
+                semantic_scope = await repository.expand_sibling_legal_units(
+                    sibling_seed_ids, dataset_id=dataset_id, limit=settings.max_llm_evidence
+                )
+                if semantic_scope:
+                    return RetrievalBundle(evidence=_verified_evidence(semantic_scope), relations=[])
                 intent = retrieval_intent(query)
                 graph_results: list = []
                 seed_ids = list(dict.fromkeys(item.document_id for item in weighted_rrf(channels, limit=6)))

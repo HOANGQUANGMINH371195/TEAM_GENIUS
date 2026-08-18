@@ -14,6 +14,7 @@ _REASONING_BLOCK = re.compile(
     r"<\s*/\s*(?:thinking|analysis|chain_of_thought|reasoning)\s*>",
     flags=re.IGNORECASE | re.DOTALL,
 )
+_INTERNAL_EVIDENCE_ID = re.compile(r"\b(?:EVIDENCE|DOCUMENT)_ID\s*=\s*[^\s,;]+", flags=re.IGNORECASE)
 
 
 async def intake_node(state: AgentState) -> dict:
@@ -55,9 +56,7 @@ async def assemble_context_node(state: AgentState) -> dict:
     relations: list[Relation] = state.get("graph_results", [])
     context_parts = [
         (
-            f"EVIDENCE_ID={item.chunk_id}\n"
-            f"DOCUMENT_ID={item.document_id}\n"
-            f"TITLE={item.title}\n"
+            f"NGUỒN={item.title}\n"
             f"SECTION={item.section_title}\n"
             f"TEXT={item.content[:2000]}"
         )
@@ -131,6 +130,7 @@ def _evidence_backed_response(evidence: list[RetrievalResult]) -> str:
 def _sanitize_output(value: str) -> str:
     sanitized = _REASONING_BLOCK.sub("", value).strip()
     sanitized = re.sub(r"^\s*(?:<\/?(?:thinking|analysis|reasoning)>)+\s*", "", sanitized, flags=re.I)
+    sanitized = _INTERNAL_EVIDENCE_ID.sub("", sanitized)
     return sanitized.strip()
 
 

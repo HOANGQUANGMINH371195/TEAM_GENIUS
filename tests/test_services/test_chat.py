@@ -64,8 +64,9 @@ async def test_retrieve_nests_child_span_names():
     repository = SimpleNamespace(
         current_dataset_release=AsyncMock(return_value=("dataset-1", 1)),
         find_documents=AsyncMock(return_value=[]),
-        resolve_legal_units=AsyncMock(return_value=[]),
-        search_lexical=AsyncMock(return_value=[]),
+            resolve_legal_units=AsyncMock(return_value=[]),
+            expand_sibling_legal_units=AsyncMock(return_value=[]),
+            search_lexical=AsyncMock(return_value=[]),
         hydrate_chunks=AsyncMock(return_value=[evidence]),
     )
     runtime = GraphRagRuntime()

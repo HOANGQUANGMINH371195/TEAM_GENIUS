@@ -129,6 +129,7 @@ async def test_context_can_exceed_public_citation_budget(monkeypatch):
 
         result = await get_agent().ainvoke({"query": "Test query"})
 
-    assert "EVIDENCE_ID=chunk-0" in runtime.generate.await_args.args[1]
+    assert "Evidence 0" in runtime.generate.await_args.args[1]
+    assert "EVIDENCE_ID=" not in runtime.generate.await_args.args[1]
     assert len(result["citations"]) == 8
     get_settings.cache_clear()
