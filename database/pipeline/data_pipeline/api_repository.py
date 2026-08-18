@@ -344,7 +344,8 @@ class PsycopgReadRepository:
     ) -> SearchPage | None:
         """Find identifier/title matches without loading the embedding model."""
 
-        needle = query.strip()
+        needle = query.replace("Ð", "Đ").replace("ð", "đ").strip()
+        compact_needle = needle.replace("-", "").replace("/", "")
         if not needle:
             return None
         with self._connection_factory() as conn, conn.cursor(row_factory=dict_row) as cur:
@@ -354,19 +355,23 @@ class PsycopgReadRepository:
             clauses = [
                 """(n.title ILIKE %s
                     OR COALESCE(n.payload -> 'metadata' ->> 'so_ky_hieu', '') ILIKE %s
+                    OR regexp_replace(COALESCE(n.payload -> 'metadata' ->> 'so_ky_hieu', ''), '[-/]', '', 'g') ILIKE %s
                     OR EXISTS (
                         SELECT 1 FROM active_document_aliases a
                         WHERE a.canonical_document_id = n.id
                           AND (a.alias_document_id ILIKE %s
-                               OR COALESCE(a.payload -> 'metadata' ->> 'alias_signature', '') ILIKE %s)
+                               OR COALESCE(a.payload -> 'metadata' ->> 'alias_signature', '') ILIKE %s
+                               OR regexp_replace(COALESCE(a.payload -> 'metadata' ->> 'alias_signature', ''), '[-/]', '', 'g') ILIKE %s)
                     ))""",
                 "n.dataset_id = %s",
             ]
             params: list[Any] = [
                 f"%{needle}%",
                 f"%{needle}%",
+                compact_needle,
                 f"%{needle}%",
                 f"%{needle}%",
+                compact_needle,
                 dataset.dataset_id,
             ]
             if category:
