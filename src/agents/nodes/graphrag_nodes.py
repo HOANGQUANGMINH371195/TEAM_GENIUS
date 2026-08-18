@@ -7,6 +7,7 @@ from src.agents.prompts import NO_EVIDENCE_RESPONSE
 from src.agents.state import AgentState
 from src.models.graph import Citation, Entity, Relation, RetrievalResult
 from src.services.chat import get_runtime
+from src.services.retrieval import requires_evidence_verification
 
 _REASONING_BLOCK = re.compile(
     r"<\s*(?:thinking|analysis|chain_of_thought|reasoning)\b[^>]*>.*?"
@@ -67,6 +68,21 @@ async def assemble_context_node(state: AgentState) -> dict:
 
     context = "\n---\n".join(context_parts)
     return {"context": context[: get_settings().max_context_chars]}
+
+
+async def verify_evidence_node(state: AgentState) -> dict:
+    """Fail closed for high-risk claims when no release-scoped evidence survived retrieval."""
+    query = state.get("query", "")
+    evidence: list[RetrievalResult] = state.get("retrieved_evidence", [])
+    if not requires_evidence_verification(query):
+        return {"verification_failed": False}
+    valid = [
+        item for item in evidence
+        if item.dataset_id and item.document_id and item.source_start is not None and item.source_end is not None
+    ]
+    if valid:
+        return {"verification_failed": False}
+    return {"verification_failed": True, "response": NO_EVIDENCE_RESPONSE}
 
 
 async def generate_node(state: AgentState) -> dict:

@@ -19,3 +19,4 @@ class AgentState(TypedDict, total=False):
     response: str
     error: str
     metadata: dict
+    verification_failed: bool

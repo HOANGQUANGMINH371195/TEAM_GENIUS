@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from src.agents.nodes.graphrag_nodes import verify_evidence_node
 from src.config import get_settings
 from src.models.graph import Citation, RetrievalResult
 from src.services.chat import RetrievalBundle
@@ -68,6 +69,14 @@ async def test_metadata_direct_answer_keeps_document_provenance():
     assert result["response"] == "Tên văn bản."
     assert result["citations"] == [citation.model_dump()]
     runtime.generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_high_risk_query_without_provenance_is_rejected():
+    result = await verify_evidence_node({"query": "Văn bản này còn hiệu lực không?", "retrieved_evidence": []})
+
+    assert result["verification_failed"] is True
+    assert "không tìm thấy" in result["response"]
 
 
 @pytest.mark.asyncio

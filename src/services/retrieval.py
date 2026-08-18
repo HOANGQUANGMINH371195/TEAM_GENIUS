@@ -65,6 +65,15 @@ def policy_response(query: str) -> str | None:
     return None
 
 
+def requires_evidence_verification(query: str) -> bool:
+    """Identify claims where unsupported legal advice is especially harmful."""
+    lowered = query.casefold()
+    return any(token in lowered for token in (
+        "hiệu lực", "còn hiệu lực", "hết hiệu lực", "bãi bỏ", "thay thế",
+        "mức hưởng", "mức chi trả", "được chi trả", "bao nhiêu tiền", "thanh toán",
+    ))
+
+
 def weighted_rrf(channel_hits: dict[str, Sequence[RetrievalResult]], *, limit: int) -> list[RetrievalResult]:
     """Fuse channel ranks while preserving raw scores and evidence provenance."""
     weights = {"exact": 2.0, "lexical": 1.15, "semantic": 1.0, "legal_graph": 0.7, "page_index": 1.35}
