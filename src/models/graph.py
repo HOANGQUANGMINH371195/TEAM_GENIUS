@@ -39,6 +39,7 @@ class RetrievalResult(BaseModel):
     chunk_id: str
     document_id: str
     content: str
+    dataset_id: str = ""
     source: str = ""
     title: str = ""
     section_title: str = ""
@@ -56,8 +57,12 @@ class RetrievalResult(BaseModel):
 class Citation(BaseModel):
     document_id: str
     chunk_id: str
+    dataset_id: str = ""
     title: str = ""
     section_title: str = ""
     quote: str = ""
     channels: list[str] = Field(default_factory=list)
     evidence_kind: str = "passage"
+    source_start: int | None = None
+    source_end: int | None = None
+    text_sha256: str = ""

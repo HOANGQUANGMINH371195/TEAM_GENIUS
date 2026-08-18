@@ -57,6 +57,7 @@ async def test_retrieve_nests_child_span_names():
     evidence = RetrievalResult(
         chunk_id="chunk-1",
         document_id="doc-1",
+        dataset_id="dataset-1",
         content="Evidence",
         channels=["semantic"],
     )

@@ -57,11 +57,15 @@ class AnalyzeRequest(ApiModel):
 class ChatCitation(ApiModel):
     document_id: str = Field(..., description="ID tài liệu trong dataset đang active.")
     chunk_id: str = Field(..., description="ID đoạn evidence được trích dẫn.")
+    dataset_id: str = Field(default="", description="Release đã kiểm tra provenance.")
     title: str = Field(default="", description="Tên văn bản nguồn.")
     section_title: str = Field(default="", description="Tiêu đề điều/mục nếu có.")
     quote: str = Field(default="", description="Đoạn evidence dùng để trả lời.")
     channels: list[str] = Field(default_factory=list, description="Kênh retrieval tạo ra evidence.")
     evidence_kind: str = Field(default="passage", description="Loại provenance: passage, legal_unit hoặc document_metadata.")
+    source_start: int | None = Field(default=None, description="Offset bắt đầu trong source canonical.")
+    source_end: int | None = Field(default=None, description="Offset kết thúc trong source canonical.")
+    text_sha256: str = Field(default="", description="Hash text/source fragment đã kiểm tra.")
 
 
 class ChatResponse(ApiModel):

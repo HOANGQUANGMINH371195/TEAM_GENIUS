@@ -102,10 +102,15 @@ def _citations_from_evidence(evidence: list[RetrievalResult]) -> list[Citation]:
             Citation(
                 document_id=item.document_id,
                 chunk_id=item.chunk_id,
+                dataset_id=item.dataset_id,
                 title=item.title,
                 section_title=item.section_title,
                 quote=item.content[:600],
                 channels=item.channels,
+                evidence_kind="legal_unit" if "page_index" in item.channels else "passage",
+                source_start=item.source_start,
+                source_end=item.source_end,
+                text_sha256=item.text_sha256,
             )
         )
         if len(citations) >= get_settings().max_citations:

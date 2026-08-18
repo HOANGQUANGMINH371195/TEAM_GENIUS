@@ -125,7 +125,7 @@ class GraphRepository:
         )
         return [
             RetrievalResult(
-                chunk_id=str(row.chunk_id), document_id=str(row.document_id), content=str(row.text or ""),
+                chunk_id=str(row.chunk_id), document_id=str(row.document_id), dataset_id=dataset_id, content=str(row.text or ""),
                 source=str(row.document_id), title=str(row.title or ""), section_title=str(row.section_title or ""),
                 unit_id=str(row.unit_id or ""), source_start=int(row.source_start) if row.source_start is not None else None,
                 source_end=int(row.source_end) if row.source_end is not None else None,
@@ -166,7 +166,7 @@ class GraphRepository:
         )
         return [
             RetrievalResult(
-                chunk_id=str(row.chunk_id), document_id=str(row.document_id), content=str(row.text or ""),
+                chunk_id=str(row.chunk_id), document_id=str(row.document_id), dataset_id=dataset_id, content=str(row.text or ""),
                 source=str(row.document_id), title=str(row.title or ""), section_title=str(row.section_title or ""),
                 score=float(row.score or 0.0), unit_id=str(row.unit_id or ""),
                 source_start=int(row.source_start) if row.source_start is not None else None,
@@ -239,7 +239,7 @@ class GraphRepository:
         )
         return [
             RetrievalResult(
-                chunk_id=f"unit:{row.unit_id}", document_id=str(row.document_id), content=str(row.text or ""),
+                chunk_id=f"unit:{row.unit_id}", document_id=str(row.document_id), dataset_id=dataset_id, content=str(row.text or ""),
                 source=str(row.document_id), title=str(row.title or ""), section_title=str(row.heading or row.label or ""),
                 unit_id=str(row.unit_id), source_start=int(row.source_start) if row.source_start is not None else None,
                 source_end=int(row.source_end) if row.source_end is not None else None,

@@ -168,6 +168,7 @@ class GraphRagRuntime:
                             Citation(
                                 document_id=document.document_id,
                                 chunk_id=f"metadata:{document.document_id}",
+                                dataset_id=dataset_id,
                                 title=document.title,
                                 quote=document.so_ky_hieu,
                                 channels=["exact"],
@@ -392,9 +393,11 @@ def _verified_evidence(evidence: Sequence[RetrievalResult]) -> list[RetrievalRes
     """Reject stale or mixed-release text before it reaches an LLM/citation."""
     return [
         item for item in evidence
-        if ("page_index" in item.channels and item.source_start is not None and item.source_end is not None)
+        if item.dataset_id and (
+            ("page_index" in item.channels and item.source_start is not None and item.source_end is not None)
         or not item.text_sha256
-        or hashlib.sha256(item.content.encode("utf-8")).hexdigest() == item.text_sha256
+            or hashlib.sha256(item.content.encode("utf-8")).hexdigest() == item.text_sha256
+        )
     ]
 
 
