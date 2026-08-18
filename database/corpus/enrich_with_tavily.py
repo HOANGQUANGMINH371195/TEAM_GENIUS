@@ -136,7 +136,15 @@ def accepted_result(metadata: dict[str, str], response: dict[str, Any]) -> tuple
         issuer_coverage = len(issuer_words & evidence_words) / len(issuer_words) if issuer_words else 1.0
         if issue_year and issue_year not in evidence and issuer_coverage < 0.5:
             continue
-        return result, detect_status(evidence)
+        # Search snippets from official portals often contain long "related
+        # documents" lists. A target signature appearing only in that list
+        # does not make a status phrase on the page apply to the target. Status
+        # is authoritative only when the result title itself identifies the
+        # requested document; otherwise retain the result as identity evidence
+        # without changing legal status.
+        title_identity = identity(result.get("title", ""))
+        status = detect_status(evidence) if signature in title_identity else ""
+        return result, status
     return None, ""
 
 

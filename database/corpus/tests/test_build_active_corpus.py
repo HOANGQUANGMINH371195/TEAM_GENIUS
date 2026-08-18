@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from database.corpus.build_active_corpus import (
+    apply_metadata_correction,
     atomic_write_csv,
     compact_identity,
     extract_full_content_fragments,
@@ -53,6 +54,32 @@ class CorpusBuilderTest(unittest.TestCase):
             with path.open(encoding="utf-8", newline="") as handle:
                 row = next(csv.DictReader(handle))
         self.assertEqual(row["content_html"], raw_html)
+
+    def test_reviewed_metadata_correction_updates_signature_and_title(self) -> None:
+        metadata = {
+            "so_ky_hieu": "113/2022/NQ-UBND",
+            "title": "Nghị quyết 113/2022/NQ-UBND về giá dịch vụ",
+        }
+
+        audit = apply_metadata_correction("153839", metadata)
+
+        self.assertEqual(metadata["so_ky_hieu"], "113/2022/NQ-HĐND")
+        self.assertEqual(metadata["title"], "Nghị quyết 113/2022/NQ-HĐND về giá dịch vụ")
+        self.assertEqual(audit["old_signature"], "113/2022/NQ-UBND")
+
+    def test_reviewed_metadata_correction_rejects_changed_source(self) -> None:
+        with self.assertRaisesRegex(ValueError, "source changed"):
+            apply_metadata_correction(
+                "153839",
+                {"so_ky_hieu": "already-fixed", "title": "Nghị quyết"},
+            )
+
+    def test_reviewed_metadata_correction_rejects_changed_title(self) -> None:
+        with self.assertRaisesRegex(ValueError, "title changed"):
+            apply_metadata_correction(
+                "153839",
+                {"so_ky_hieu": "113/2022/NQ-UBND", "title": "Nghị quyết không còn số"},
+            )
 
 
 if __name__ == "__main__":

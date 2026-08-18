@@ -225,6 +225,72 @@ ALIAS_RULES = (
 )
 
 
+@dataclass(frozen=True)
+class MetadataCorrection:
+    document_id: str
+    old_signature: str
+    corrected_signature: str
+    evidence: str
+
+
+# Reviewed identity corrections only. Each rule is guarded by the exact old
+# value so an upstream source change fails loudly instead of being overwritten.
+METADATA_CORRECTIONS = {
+    item.document_id: item
+    for item in (
+        MetadataCorrection("101450", "39/2013/QĐ-UBND.", "39/2013/QĐ-UBND", "selected_html_header"),
+        MetadataCorrection("108357", "05/1999/TTLT/BLÐTBXH-BYT-BTC", "05/1999/TTLT-BLĐTBXH-BYT-BTC", "selected_html_header"),
+        MetadataCorrection("108710", "15/1998/TTLT-BYT-BTC-BLÐTBXH", "15/1998/TTLT-BYT-BTC-BLĐTBXH", "selected_html_header"),
+        MetadataCorrection("109238", "09/2002/TTLT/BTCCBCP-BLÐTBXH-BTC-BYT", "09/2002/TTLT-BTCCBCP-BLĐTBXH-BTC-BYT", "selected_html_header"),
+        MetadataCorrection("109673", "22/2003/TTLT-BQP-BLÐTBXH-BYT-BTC", "22/2003/TTLT-BQP-BLĐTBXH-BYT-BTC", "selected_html_header"),
+        MetadataCorrection("110115", "03/2004/TTLT-BCA-BTC-BNV-BLĐTB & XH", "03/2004/TTLT-BCA-BTC-BNV-BLĐTBXH", "https://vbpl.vn/bocongan/Pages/vbpq-toanvan.aspx?ItemID=19944"),
+        MetadataCorrection("116216", "02/2014/NQ-HĐND.", "02/2014/NQ-HĐND", "selected_html_header"),
+        MetadataCorrection("129213", "Nghị quyết số: 528/2018/UBTVQH14", "528/2018/UBTVQH14", "selected_html_header"),
+        MetadataCorrection("153839", "113/2022/NQ-UBND", "113/2022/NQ-HĐND", "https://vbpl.vn/hoabinh/Pages/vbpq-van-ban-goc.aspx?ItemID=153839"),
+        MetadataCorrection("156429", "13/2022/NQ-HĐND.loi", "13/2022/NQ-HĐND", "https://vbpl.vn/thuathienhue/Pages/vbpq-van-ban-goc.aspx?ItemID=156562"),
+        MetadataCorrection("167742", "số 11/2024/NQ-HĐND", "11/2024/NQ-HĐND", "selected_html_header"),
+        MetadataCorrection("172923", "Luật số 51/2024/QH15", "51/2024/QH15", "selected_html_header"),
+        MetadataCorrection("173951", "Thông tư 01/2025/TT-BYT", "01/2025/TT-BYT", "selected_html_header"),
+        MetadataCorrection("174189", "Thông tư 51/2024/TT-BYT", "51/2024/TT-BYT", "selected_html_header"),
+        MetadataCorrection("174192", "Thông tư 57/2024/TT-BYT", "57/2024/TT-BYT", "selected_html_header"),
+        MetadataCorrection("178219", "Thông tư 13/2025/TT-BYT", "13/2025/TT-BYT", "selected_html_header"),
+        MetadataCorrection("178302", "Thông tư 28/2023/TT-BYT của Bộ Y tế", "28/2023/TT-BYT", "selected_html_header"),
+        MetadataCorrection("185356", "'26/2025/NQ-HĐND", "26/2025/NQ-HĐND", "selected_html_header"),
+        MetadataCorrection("32676", "17/2012/NQ-HĐND.", "17/2012/NQ-HĐND", "selected_html_header"),
+    )
+}
+
+
+def apply_metadata_correction(document_id: str, metadata: dict[str, Any]) -> dict[str, str] | None:
+    correction = METADATA_CORRECTIONS.get(document_id)
+    if correction is None:
+        return None
+    actual = clean(metadata.get("so_ky_hieu"))
+    if actual != correction.old_signature:
+        raise ValueError(
+            f"Metadata correction source changed for {document_id}: "
+            f"{actual!r} != {correction.old_signature!r}"
+        )
+    old_title = clean(metadata.get("title"))
+    if correction.old_signature not in old_title:
+        raise ValueError(
+            f"Metadata correction title changed for {document_id}: "
+            f"missing {correction.old_signature!r} in {old_title!r}"
+        )
+    metadata["so_ky_hieu"] = correction.corrected_signature
+    metadata["title"] = old_title.replace(
+        correction.old_signature, correction.corrected_signature, 1,
+    )
+    return {
+        "document_id": document_id,
+        "old_signature": correction.old_signature,
+        "corrected_signature": correction.corrected_signature,
+        "old_title": old_title,
+        "corrected_title": metadata["title"],
+        "evidence": correction.evidence,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-dir", type=Path, default=DEFAULT_SOURCE_DIR)
@@ -599,6 +665,7 @@ def build_corpus(
     crawl_backlog: list[dict[str, Any]] = []
     canonical_metadata: dict[str, dict[str, Any]] = {}
     canonical_categories: dict[str, set[str]] = {}
+    metadata_correction_output: list[dict[str, str]] = []
 
     role_priority = {"seed_core": 4, "seed_broad_kcb": 3, "graph_context": 2, "csv_only": 1}
     fillable_fields = set(BASE_METADATA_FIELDS) - {"id", "title", "so_ky_hieu", "ngay_ban_hanh", "loai_van_ban", "co_quan_ban_hanh"}
@@ -618,6 +685,10 @@ def build_corpus(
         for field in fillable_fields:
             if not metadata.get(field):
                 metadata[field] = next((clean(row.get(field)) for row in ordered_sources if clean(row.get(field))), "")
+
+        correction_audit = apply_metadata_correction(canonical_id, metadata)
+        if correction_audit:
+            metadata_correction_output.append(correction_audit)
 
         categories: set[str] = set()
         explicit_categories = False
@@ -948,6 +1019,11 @@ def build_corpus(
         sorted(crawl_backlog, key=lambda row: ({"high": 0, "medium": 1, "low": 2}[str(row["priority"])], str(row["task"]), str(row["entity_id"]))),
         ("entity_id", "task", "priority", "search_query", "preferred_domains", "acceptance_gate"),
     )
+    atomic_write_csv(
+        output_dir / "metadata_corrections.csv",
+        metadata_correction_output,
+        ("document_id", "old_signature", "corrected_signature", "old_title", "corrected_title", "evidence"),
+    )
 
     # Re-read the serialized authority artifact. This catches accidental CSV
     # transformations where provenance hashes describe an in-memory value but
@@ -1009,6 +1085,7 @@ def build_corpus(
             "semantic_eligible_documents": sum(row["semantic_eligible"] == "true" for row in metadata_output),
             "index_eligible_documents": sum(row["index_eligible"] == "true" for row in metadata_output),
             "answer_ready_documents": sum(row["answer_ready"] == "true" for row in metadata_output),
+            "metadata_corrections": len(metadata_correction_output),
             "retrieval_scope": dict(sorted(role_counts.items())),
             "relationship_provenance": dict(sorted(relationship_provenance_counts.items())),
         },
