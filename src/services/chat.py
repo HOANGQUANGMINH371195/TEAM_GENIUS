@@ -55,6 +55,8 @@ class GraphRagRuntime:
         self._vector_store: QdrantVectorStore | None = None
         self._active_release: tuple[str, int, float] | None = None
         self._embedding_cache: dict[str, tuple[list[float], float]] = {}
+        self._exact_cache: dict[tuple[str, str], tuple[list[DocumentCandidate], float]] = {}
+        self._retrieval_cache: dict[tuple[str, str], tuple[RetrievalBundle, float]] = {}
 
     def _get_embeddings(self) -> EmbeddingModel:
         if self._embeddings is None:
@@ -79,6 +81,11 @@ class GraphRagRuntime:
         safe_response = policy_response(query)
         if safe_response:
             return RetrievalBundle(evidence=[], relations=[], direct_response=safe_response)
+        normalized_query = " ".join(query.casefold().split())
+        current_release = self._active_release[0] if self._active_release else ""
+        cached = self._retrieval_cache.get((current_release, normalized_query)) if current_release else None
+        if cached and time.monotonic() - cached[1] < 60:
+            return _copy_bundle(cached[0])
         async with trace_span(
             "retrieve-context",
             as_type="retriever",
@@ -94,6 +101,12 @@ class GraphRagRuntime:
                         "direct": bool(bundle.direct_response),
                     }
                 )
+            if self._active_release:
+                cache_key = (self._active_release[0], normalized_query)
+                if len(self._retrieval_cache) >= 128:
+                    oldest = min(self._retrieval_cache, key=lambda item: self._retrieval_cache[item][1])
+                    self._retrieval_cache.pop(oldest, None)
+                self._retrieval_cache[cache_key] = (_copy_bundle(bundle), time.monotonic())
             return bundle
 
     async def _active_dataset(self, repository: GraphRepository) -> tuple[str, int]:
@@ -120,6 +133,19 @@ class GraphRagRuntime:
         self._embedding_cache[key] = (vector, now)
         return vector
 
+    async def _find_documents(self, repository: GraphRepository, *, dataset_id: str, number: str) -> list[DocumentCandidate]:
+        key = (dataset_id, number)
+        now = time.monotonic()
+        cached = self._exact_cache.get(key)
+        if cached and now - cached[1] < 300:
+            return cached[0]
+        documents = await repository.find_documents(number, dataset_id=dataset_id, limit=3)
+        if len(self._exact_cache) >= 256:
+            oldest = min(self._exact_cache, key=lambda item: self._exact_cache[item][1])
+            self._exact_cache.pop(oldest, None)
+        self._exact_cache[key] = (documents, now)
+        return documents
+
     async def _retrieve(self, query: str) -> RetrievalBundle:
         settings = get_settings()
         try:
@@ -132,7 +158,7 @@ class GraphRagRuntime:
                 document_numbers = extract_document_numbers(query)
                 exact_candidates: list[DocumentCandidate] = []
                 for number in document_numbers:
-                    exact_candidates.extend(await repository.find_documents(number, dataset_id=dataset_id, limit=3))
+                    exact_candidates.extend(await self._find_documents(repository, dataset_id=dataset_id, number=number))
                 exact_candidates = list({candidate.document_id: candidate for candidate in exact_candidates}.values())
                 if is_metadata_question(query) and len(exact_candidates) == 1 and exact_candidates[0].answer_ready:
                     document = exact_candidates[0]
@@ -174,14 +200,14 @@ class GraphRagRuntime:
                     vector = await self._embed_query(query)
                     if span is not None:
                         span.update(output={"embedding_dimensions": len(vector)})
-                lexical_results = await lexical_task
                 if len(vector) != settings.embedding_dimensions:
                     raise GraphRagUnavailableError("Query embedding has unexpected dimensions")
                 async with trace_span("qdrant-search", as_type="retriever", metadata={"dataset_id": dataset_id}) as span:
-                    vector_hits = await self._get_vector_store().search(
+                    semantic_task = asyncio.create_task(self._get_vector_store().search(
                         vector, dataset_id=dataset_id, limit=max(20, settings.retrieval_top_k * 3),
                         score_threshold=settings.semantic_similarity_threshold,
-                    )
+                    ))
+                    lexical_results, vector_hits = await asyncio.gather(lexical_task, semantic_task)
                     if span is not None:
                         span.update(output={"result_count": len(vector_hits)})
                 semantic_results = await _hydrate_vector_hits(repository, vector_hits, dataset_id)
@@ -306,6 +332,8 @@ class GraphRagRuntime:
         self._embeddings = None
         self._active_release = None
         self._embedding_cache.clear()
+        self._exact_cache.clear()
+        self._retrieval_cache.clear()
 
 
 def _merge_evidence(vector_results: list, graph_results: list) -> list:
@@ -368,6 +396,15 @@ def _verified_evidence(evidence: Sequence[RetrievalResult]) -> list[RetrievalRes
         or not item.text_sha256
         or hashlib.sha256(item.content.encode("utf-8")).hexdigest() == item.text_sha256
     ]
+
+
+def _copy_bundle(bundle: RetrievalBundle) -> RetrievalBundle:
+    return RetrievalBundle(
+        evidence=[item.model_copy(deep=True) for item in bundle.evidence],
+        relations=[item.model_copy(deep=True) for item in bundle.relations],
+        direct_response=bundle.direct_response,
+        direct_citations=[item.model_copy(deep=True) for item in bundle.direct_citations or []],
+    )
 
 
 @lru_cache
