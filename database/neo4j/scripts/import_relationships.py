@@ -99,6 +99,8 @@ def prepare(source_dir: Path, dataset_id: str) -> tuple[list[dict[str, Any]], di
             "target_graph_id": f"{dataset_id}:{target_id}",
             "relationship_id": relationship_id,
             "relationship_type": relationship_type,
+            "source_title": row.get("source_title", ""),
+            "target_title": row.get("target_title", ""),
             "categories": [part for part in row.get("agent_category", "").split(",") if part],
             "adverse": source_bool(row.get("relationship_is_adverse")),
             "source_is_selected": source_bool(row.get("source_is_selected")),
@@ -233,6 +235,7 @@ def main() -> int:
                     MATCH (target:Document {{graph_id:row.target_graph_id}})
                     CREATE (source)-[r:`{label}` {{dataset_id:$dataset_id, relationship_id:row.relationship_id}}]->(target)
                     SET r.relationship_type=row.relationship_type, r.categories=row.categories,
+                        r.source_title=row.source_title, r.target_title=row.target_title,
                         r.adverse=row.adverse, r.source_is_selected=row.source_is_selected,
                         r.target_is_selected=row.target_is_selected,
                         r.provenance_status=row.provenance_status,

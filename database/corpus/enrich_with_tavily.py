@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 csv.field_size_limit(sys.maxsize)
 load_dotenv()
 
-OFFICIAL_DOMAINS = ("vbpl.vn", "vanban.chinhphu.vn", "congbao.chinhphu.vn")
+OFFICIAL_DOMAINS = ("vbpl.vn", "vanban.chinhphu.vn", "congbao.chinhphu.vn", "gov.vn")
 STATUS_PATTERNS = (
     ("Hết hiệu lực một phần", re.compile(r"hết hiệu lực một phần", re.IGNORECASE)),
     ("Ngưng hiệu lực", re.compile(r"(?:ngưng|tạm ngưng|đình chỉ) hiệu lực", re.IGNORECASE)),

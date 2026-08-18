@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import psycopg
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
@@ -35,11 +36,53 @@ def connection() -> psycopg.Connection[Any]:
     return psycopg.connect(url, connect_timeout=20, application_name="live-corpus-parity")
 
 
+def verify_external_embedding_artifact(
+    root: Path, dataset_id: str, snapshot: Any
+) -> dict[str, Any]:
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("dataset_id") != dataset_id:
+        raise ValueError("external embedding artifact belongs to another dataset")
+    vectors = np.load(root / "embeddings.float32.npy", mmap_mode="r")
+    rows = int(manifest["rows"])
+    dimensions = int(manifest["dimensions"])
+    if vectors.shape != (rows, dimensions) or not np.isfinite(vectors).all():
+        raise ValueError("external embedding matrix is incomplete or invalid")
+    artifact_passages = {
+        str(row["passage_id"]): str(row["input_sha256"])
+        for row in (
+            json.loads(line)
+            for line in (root / "passages.jsonl").read_text(encoding="utf-8").splitlines()
+        )
+    }
+    expected_passages = {}
+    for row in snapshot.passages:
+        if not bool(row.get("semantic_eligible", True)):
+            continue
+        text = "\n\n".join(
+            part
+            for part in (str(row.get("section_label", "")), str(row.get("text", "")))
+            if part
+        )
+        expected_passages[str(row["passage_id"])] = hashlib.sha256(text.encode()).hexdigest()
+    if artifact_passages != expected_passages or len(artifact_passages) != rows:
+        raise ValueError("external embedding passage IDs/input hashes differ from snapshot")
+    return {
+        "storage": "external_local_artifact",
+        "rows": rows,
+        "dimensions": dimensions,
+        "model": manifest.get("model", ""),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-dir", type=Path, required=True)
     parser.add_argument("--dataset-id", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--external-embedding-artifact", type=Path,
+        help="Accept absent pgvector values only when this complete local/Qdrant-ready artifact matches.",
+    )
     args = parser.parse_args()
 
     metadata = read_csv(args.source_dir / "metadata.csv")
@@ -58,6 +101,12 @@ def main() -> int:
     }
     validation = json.loads((args.source_dir / "canonical_validation.json").read_text(encoding="utf-8"))
     snapshot = build_snapshot(args.source_dir)
+    external_embeddings = (
+        verify_external_embedding_artifact(
+            args.external_embedding_artifact, args.dataset_id, snapshot
+        )
+        if args.external_embedding_artifact else None
+    )
     expected_chunks = {
         str(row["passage_id"]): (
             str(row["document_id"]),
@@ -183,8 +232,10 @@ def main() -> int:
         errors.append(f"PostgreSQL chunk count {chunk_counts['chunks']} != {expected_passages}")
     if int(chunk_counts["semantic_chunks"]) != expected_semantic:
         errors.append(f"PostgreSQL semantic chunk count {chunk_counts['semantic_chunks']} != {expected_semantic}")
-    if int(chunk_counts["missing_embeddings"]):
+    if int(chunk_counts["missing_embeddings"]) and external_embeddings is None:
         errors.append(f"missing semantic embeddings: {chunk_counts['missing_embeddings']}")
+    if external_embeddings is not None and int(chunk_counts["missing_embeddings"]) != expected_semantic:
+        errors.append("external-vector mode requires all semantic vectors to be offloaded from PostgreSQL")
     if postgres_aliases != len(aliases) or alias_edges != len(aliases):
         errors.append("alias count differs between source and live stores")
     expected_references = int(validation["counts"]["relationship_reference_only_endpoints"])
@@ -200,6 +251,7 @@ def main() -> int:
         "status": "pass" if not errors else "fail",
         "dataset_id": args.dataset_id,
         "errors": errors,
+        "external_embeddings": external_embeddings,
         "counts": {
             "postgres_documents": len(postgres_rows),
             "postgres_aliases": postgres_aliases,

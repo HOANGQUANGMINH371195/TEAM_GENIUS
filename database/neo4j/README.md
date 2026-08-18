@@ -1,10 +1,11 @@
 # Neo4j knowledge graph
 
 Neo4j là nơi duy nhất lưu knowledge graph: document nodes và các relationship
-từ release authority đã qualify
-`data/clean/medical_active_v22_production_hotfix_source/relationships.csv`.
-Supabase/PostgreSQL chỉ lưu canonical document, alias resolution, chunk, table
-và embedding vector; không lưu relationship hoặc reference-only stub.
+từ release authority đã qualify. Release hiện tại được dựng từ
+`data/clean/medical_active_v31_fully_reviewed/relationships.csv`.
+Supabase/PostgreSQL chỉ lưu canonical document, alias resolution, chunk và
+table; không lưu relationship hoặc reference-only stub. Vector của release
+Free-tier hiện tại được giữ ngoài PostgreSQL để chờ chuyển Qdrant.
 
 ## Local development
 
@@ -36,8 +37,9 @@ import vào Neo4j. Online expansion và endpoint relationships phải bổ sung
 `r.serving_status = 'approved_evidence'`; các cạnh audit-only không được dùng
 để tạo câu trả lời hay cảnh báo hiệu lực.
 
-Active `snapshot-c94d7b75195a67fa` đã parity-pass ngày 2026-08-13: 1.901
-nodes (683 canonical, 1.211 reference-only, 7 alias), 5.810 legal relationships
-và 7 `ALIAS_OF` edges. Có 187 cạnh `approved_evidence`; 5.616 cạnh legacy
-audit-only và 7 cạnh bị chặn vì target mơ hồ/mâu thuẫn địa phương vẫn được giữ
-để review nhưng không được serve.
+Active `snapshot-c439751724ab7f10` đã parity-pass ngày 2026-08-18: 1.901
+nodes (682 canonical, 1.211 reference-only, 8 alias), 5.808 legal relationships
+và 8 `ALIAS_OF` edges. Supabase giữ text/chunk lexical; 14.393 vector 1536 chiều
+được offload vào artifact local đã đối chiếu passage ID và input SHA-256 để chờ
+import Qdrant. Mọi query graph online vẫn phải lấy `dataset_id` active từ
+Supabase.

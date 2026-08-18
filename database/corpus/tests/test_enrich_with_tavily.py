@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import unittest
 
-from database.corpus.enrich_with_tavily import accepted_result
+from database.corpus.enrich_with_tavily import accepted_result, is_official_url
 
 
 class TavilyAcceptanceTest(unittest.TestCase):
+    def test_accepts_vietnamese_government_subdomain(self) -> None:
+        self.assertTrue(is_official_url("https://moh.gov.vn/van-ban/example"))
+        self.assertFalse(is_official_url("https://gov.vn.example.com/not-official"))
+
     def test_related_document_signature_cannot_inherit_page_status(self) -> None:
         metadata = {
             "so_ky_hieu": "30/2014/TT-BYT",

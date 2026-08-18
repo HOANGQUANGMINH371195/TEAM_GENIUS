@@ -48,6 +48,23 @@ class Neo4jImportPreparationTest(unittest.TestCase):
         self.assertEqual(by_id["old-1"]["so_ky_hieu"], "01-QĐ")
         self.assertEqual(by_id["ref-1"]["so_ky_hieu"], "")
 
+    def test_relationships_keep_denormalized_titles_for_parity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp)
+            write_csv(
+                source / "relationships.csv",
+                ["doc_id", "other_doc_id", "relationship", "source_title", "target_title"],
+                [{
+                    "doc_id": "doc-1", "other_doc_id": "ref-1", "relationship": "tham chiếu",
+                    "source_title": "Văn bản nguồn", "target_title": "Văn bản đích",
+                }],
+            )
+            _, grouped, _ = prepare(source, "release-1")
+            edge = next(iter(grouped.values()))[0]
+
+        self.assertEqual(edge["source_title"], "Văn bản nguồn")
+        self.assertEqual(edge["target_title"], "Văn bản đích")
+
 
 if __name__ == "__main__":
     unittest.main()

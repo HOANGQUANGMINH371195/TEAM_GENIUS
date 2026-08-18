@@ -44,7 +44,10 @@ def postgres_connection() -> psycopg.Connection[Any]:
     return psycopg.connect(database_url, connect_timeout=20, application_name="corpus-cutover-backup")
 
 
-def backup_postgres(destination: Path) -> tuple[str, dict[str, int]]:
+def backup_postgres(
+    destination: Path, *, omit_generated_retrieval_columns: bool = False,
+    metadata_only: bool = False,
+) -> tuple[str, dict[str, int], str]:
     tables = (
         "documents",
         "document_aliases",
@@ -53,6 +56,8 @@ def backup_postgres(destination: Path) -> tuple[str, dict[str, int]]:
         "table_cells",
         "chunks",
     )
+    if metadata_only:
+        tables = ("documents", "document_aliases")
     with postgres_connection() as connection, connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
         cursor.execute("SELECT active_dataset_id FROM public.dataset_state WHERE singleton")
         active_dataset_id = str(cursor.fetchone()["active_dataset_id"])
@@ -68,11 +73,30 @@ def backup_postgres(destination: Path) -> tuple[str, dict[str, int]]:
         }
         counts: dict[str, int] = {}
         for table in tables:
-            cursor.execute(f"SELECT * FROM public.{table} WHERE dataset_id = %s", (active_dataset_id,))
+            projection = "*"
+            if metadata_only and table == "documents":
+                projection = (
+                    '"dataset_id", "id", "title", "is_external", "text_sha256", '
+                    '"content_available", "raw_html_sha256", "raw_html_encoding", '
+                    '"categories", "facets", "payload"'
+                )
+            elif omit_generated_retrieval_columns and table == "chunks":
+                cursor.execute(
+                    """SELECT column_name FROM information_schema.columns
+                       WHERE table_schema='public' AND table_name='chunks'
+                         AND column_name NOT IN ('embedding', 'search_vector')
+                       ORDER BY ordinal_position"""
+                )
+                columns = [row["column_name"] for row in cursor.fetchall()]
+                projection = ", ".join(f'"{column}"' for column in columns)
+            cursor.execute(
+                f"SELECT {projection} FROM public.{table} WHERE dataset_id = %s",
+                (active_dataset_id,),
+            )
             rows = cursor.fetchall()
             payload["tables"][table] = rows
             counts[table] = len(rows)
-    return write_json(destination / "postgres_active_release.json", payload), counts
+    return write_json(destination / "postgres_active_release.json", payload), counts, active_dataset_id
 
 
 def backup_neo4j(destination: Path) -> tuple[str, dict[str, int]]:
@@ -115,15 +139,30 @@ def backup_neo4j(destination: Path) -> tuple[str, dict[str, int]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--omit-generated-retrieval-columns", action="store_true",
+        help="Omit chunk embedding/search_vector; both are reproducible from the embedding artifact and text.",
+    )
+    parser.add_argument(
+        "--metadata-only", action="store_true",
+        help="Back up mutable document/alias metadata only; use with an earlier full release backup.",
+    )
     args = parser.parse_args()
     output = args.output_dir
     output.mkdir(parents=True, exist_ok=False)
-    postgres_hash, postgres_counts = backup_postgres(output)
+    postgres_hash, postgres_counts, active_dataset_id = backup_postgres(
+        output,
+        omit_generated_retrieval_columns=args.omit_generated_retrieval_columns,
+        metadata_only=args.metadata_only,
+    )
     neo4j_hash, neo4j_counts = backup_neo4j(output)
     write_json(output / "manifest.json", {
         "created_at_utc": datetime.now(UTC).isoformat(),
+        "active_dataset_id": active_dataset_id,
         "postgres_active_release_sha256": postgres_hash,
         "neo4j_graph_sha256": neo4j_hash,
+        "omitted_generated_retrieval_columns": args.omit_generated_retrieval_columns,
+        "metadata_only": args.metadata_only,
         "postgres_counts": postgres_counts,
         "neo4j_counts": neo4j_counts,
     })
