@@ -108,6 +108,20 @@ NEO4J_USERNAME=neo4j NEO4J_PASSWORD=change-me \
 
 ## Kiểm tra dữ liệu sau ingest
 
+Qdrant semantic gate phải chạy trên benchmark thematic riêng; không dùng câu
+số hiệu văn bản để đánh giá semantic retrieval:
+
+```bash
+PYTHONPATH=database/pipeline:. .venv/bin/python database/corpus/evaluate_qdrant_semantic.py \
+  --benchmark data/clean/medical_active_v31_fully_reviewed/semantic_question_benchmark.jsonl \
+  --dataset-id snapshot-c439751724ab7f10 \
+  --output /tmp/qdrant-semantic-eval.json
+```
+
+Gate mặc định là thematic Recall@20 ≥ 0,85 và ANN/document overlap với exact
+Qdrant ≥ 0,95. Exact ID, graph evidence và policy được đánh giá ở các suite
+riêng; không gộp chúng thành một semantic score.
+
 Supabase:
 
 ```sql
