@@ -80,7 +80,7 @@ async def _invoke_agent(message: str, *, feature: str, request_id: str | None) -
     summary="Chat with the BHYT GraphRAG agent",
     description=(
         "Send a BHYT or hospital-fee question. The agent retrieves evidence from "
-        "the active PostgreSQL/pgvector dataset and Neo4j graph before generating "
+        "the active Supabase release, Qdrant semantic index, and approved Neo4j graph before generating "
         "a grounded answer. No evidence means no answer is invented."
     ),
     responses={

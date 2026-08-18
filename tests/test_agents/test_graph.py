@@ -4,6 +4,7 @@ import pytest
 
 from src.config import get_settings
 from src.models.graph import RetrievalResult
+from src.services.chat import RetrievalBundle
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +25,7 @@ async def test_agent_basic_flow():
     )
     with patch("src.agents.nodes.graphrag_nodes.get_runtime") as runtime_factory:
         runtime = runtime_factory.return_value
-        runtime.retrieve = AsyncMock(return_value=([evidence], []))
+        runtime.retrieve_bundle = AsyncMock(return_value=RetrievalBundle([evidence], []))
         runtime.generate = AsyncMock(return_value="Câu trả lời grounded.")
         from src.agents.graph import get_agent
 
@@ -39,7 +40,7 @@ async def test_agent_state_structure():
     evidence = RetrievalResult(chunk_id="chunk-1", document_id="doc-1", content="Evidence")
     with patch("src.agents.nodes.graphrag_nodes.get_runtime") as runtime_factory:
         runtime = runtime_factory.return_value
-        runtime.retrieve = AsyncMock(return_value=([evidence], []))
+        runtime.retrieve_bundle = AsyncMock(return_value=RetrievalBundle([evidence], []))
         runtime.generate = AsyncMock(return_value="Answer")
         from src.agents.graph import get_agent
 
@@ -66,7 +67,7 @@ async def test_context_can_exceed_public_citation_budget(monkeypatch):
     ]
     with patch("src.agents.nodes.graphrag_nodes.get_runtime") as runtime_factory:
         runtime = runtime_factory.return_value
-        runtime.retrieve = AsyncMock(return_value=(evidence, []))
+        runtime.retrieve_bundle = AsyncMock(return_value=RetrievalBundle(evidence, []))
         runtime.generate = AsyncMock(return_value="Answer")
         from src.agents.graph import get_agent
 

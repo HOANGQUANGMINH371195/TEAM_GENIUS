@@ -13,7 +13,7 @@ Với database hiện có, kiến trúc phù hợp nhất là:
 
 > **Seed → Expand → Re-retrieve → Verify**
 
-1. **Seed:** lexical và semantic tìm passage trực tiếp trong Supabase.
+1. **Seed:** exact/lexical tìm trong Supabase; semantic tìm Qdrant rồi hydrate passage chuẩn từ Supabase.
 2. **Expand:** PageIndex mở ngữ cảnh Điều–Khoản–Điểm; Neo4j mở văn bản liên
    quan theo predicate có hướng.
 3. **Re-retrieve:** với mỗi document do graph tìm được, tìm lại passage phù hợp
@@ -26,7 +26,7 @@ semantic:
 
 | Lớp | Nguồn hiện có | Nhiệm vụ duy nhất |
 |---|---|---|
-| Hybrid recall | lexical: `chunks.search_vector` + `documents.payload`; semantic: `chunks.embedding` + pgvector | tìm passage trực tiếp bằng exact/keyword và gần nghĩa |
+| Hybrid recall | exact/lexical: Supabase; semantic: Qdrant alias `medical_legal_active` | tìm passage trực tiếp bằng exact/keyword và gần nghĩa |
 | PageIndex | `legal_units` và cột `chunks.unit_id`/source offsets | resolve/expand cấu trúc và citation span |
 | Graph | Neo4j `Document` + relationship có hướng | tìm văn bản liên quan và reasoning path |
 
@@ -52,25 +52,26 @@ Các kỹ thuật không được mang sang vì không có data contract tương
 ## 3. Hiện trạng repository: implemented và target
 
 `database/schema.sql` cùng `database/pipeline/data_pipeline` là data contract
-chuẩn. `src/db` và `src/graph_rag` vẫn chứa scaffold cũ và chưa được xem là
-production path.
+chuẩn. Runtime production dùng `src/services/chat.py` + `src/db/repositories.py`;
+`src/graph_rag` là scaffold cũ, không phải request path.
 
 | Khả năng | Hiện trạng trong code | Trạng thái kiến trúc |
 |---|---|---|
-| Versioned dataset, active views, hashes | production active: `snapshot-c94d7b75195a67fa` | đã cutover; giữ immutable release contract |
-| Legal-unit-aware chunks và PageIndex tree | 28.301 units / 37.288 passages đã active và qua offset gate | production data-ready; online hierarchy expansion còn cần nối vào service |
+| Versioned dataset, active views, hashes | active: `snapshot-c439751724ab7f10` | đã cutover; giữ immutable release contract |
+| Legal-unit-aware chunks và PageIndex tree | 28.285 units / 37.170 passages active | Điều/Khoản exact resolve đã online |
 | Lexical search | đã có, chỉ index `chunks.text` | cần exact-hint query và field boost |
-| Semantic pgvector | đã có; `candidate_limit` được tính nhưng SQL vẫn dùng `limit` | cần overfetch/iterative scan khi có metadata filter |
-| RRF | đã có bản unweighted | cần provenance theo channel và query-aware weights |
+| Semantic Qdrant | 14.393 vector, 1.536 chiều, ID/hash parity qua alias active | online; corpus không lưu pgvector |
+| RRF | weighted RRF + max 2 evidence/document | cần tune bằng held-out eval |
 | Neo4j import | active graph: 1.901 nodes, 5.810 legal edges + 7 aliases; old releases đã xóa sau backup | parity với active PostgreSQL dataset ID |
-| Neo4j online expansion | one-hop bounded expansion, rồi re-retrieve passage PostgreSQL; chỉ đọc cạnh `approved_evidence` | production live; graph outage degrade an toàn |
-| PageIndex online resolve/expand | mới có `get_legal_unit(unit_id)` | chưa triển khai |
-| Evidence rerank/verification | chưa có | chưa triển khai |
-| `src/db` production repository | schema UUID/`document_chunks` không khớp | phải migrate hoặc loại khỏi request path |
+| Neo4j online expansion | chỉ temporal/relational, `approved_evidence`, re-retrieve lexical/Qdrant | production live; graph outage degrade an toàn |
+| PageIndex online resolve/expand | exact Điều/Khoản scoped by matched document | ancestor/child expansion còn cần eval |
+| Evidence rerank/verification | weighted RRF, diversity, local text hash và Qdrant input-hash precheck | LLM verifier chỉ dành high-risk |
+| `src/db` production repository | release-scoped Supabase hydration, exact/lexical/PageIndex | production path |
 | Release read isolation | base-table `public_read` hiện là `USING (true)` | app role chỉ được thấy active release/view |
 
-Do đó các sơ đồ bên dưới chủ yếu là **target architecture**; riêng bounded
-Neo4j expansion và re-retrieve passage đã hoạt động trong production path.
+Do đó các sơ đồ bên dưới chủ yếu là **target architecture**; implementation
+online hiện đã có Qdrant, deterministic metadata route, PageIndex exact resolve
+và graph re-retrieval, còn rerank/verifier nâng cao phải được đo bằng eval mới.
 
 ### Data readiness audit và baseline production cutover — 2026-08-13
 
@@ -155,7 +156,7 @@ flowchart TB
 
     Plan --> ExactDoc[Exact document metadata lookup]
     Plan --> Lex[PostgreSQL lexical FTS]
-    Plan --> Sem[Semantic pgvector]
+    Plan --> Sem[OpenAI embedding → Qdrant semantic]
     Plan --> UnitHints[Parsed document/unit path]
 
     Lex --> Fusion[Lexical-semantic RRF]
@@ -199,7 +200,8 @@ flowchart TB
 
 | Store | Dữ liệu | Quyền quyết định |
 |---|---|---|
-| Supabase PostgreSQL | datasets, canonical documents, aliases, raw HTML, chunks, legal units, tables/cells, lexical/vector indexes | source text, metadata, identity resolution, release và citation; không lưu graph relationships/reference-only stubs |
+| Supabase PostgreSQL | datasets, canonical documents, aliases, raw HTML, chunks, legal units, tables/cells, lexical indexes | source text, metadata, identity resolution, release và citation; không lưu graph relationships/reference-only stubs |
+| Qdrant | versioned cosine vector collection, payload indexes, stable active alias | derived semantic recall only; no canonical text |
 | Neo4j | release-scoped canonical/reference/alias `Document` nodes và relationships từ `relationships.csv` | navigation/path giữa documents, không phải source text |
 | LangGraph state | query plan, candidates, evidence, warnings | request-scoped orchestration, không phải database |
 
@@ -339,8 +341,8 @@ không tạo search service mới.
 
 - query embedding phải cùng model/dimensions/preprocessor với corpus;
 - corpus input tiếp tục là `section_title + chunk.text`;
-- với filter chọn lọc, dùng pgvector iterative scan nếu version hỗ trợ; nếu
-  không, overfetch rồi filter hoặc exact vector scan trên tập đã thu hẹp;
+- filter `dataset_id` và `answer_ready` ngay trong Qdrant payload; khi cần
+  re-retrieve graph document thì filter thêm `document_id`;
 - không trộn cosine score trực tiếp với `ts_rank_cd` vì hai thang điểm khác nhau.
 
 Baseline candidate budget để bắt đầu benchmark:

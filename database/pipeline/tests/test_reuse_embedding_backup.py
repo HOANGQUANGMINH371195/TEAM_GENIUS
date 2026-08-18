@@ -3,7 +3,6 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
-
 from scripts.reuse_embedding_backup import input_sha256, input_text, parse_vector, reusable_vectors
 
 

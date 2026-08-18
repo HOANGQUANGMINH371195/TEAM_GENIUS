@@ -20,7 +20,6 @@ if str(PIPELINE_ROOT) not in sys.path:
 
 from data_pipeline.canonical import normalize_html  # noqa: E402
 
-
 ENCODING_CORRECTIONS = {
     "101886": ("Ð", "Đ", 3),
     "102592": ("Ð", "Đ", 1),

@@ -28,11 +28,13 @@ async def extract_entities_node(state: AgentState) -> dict:
 
 
 async def retrieve_vectors_node(state: AgentState) -> dict:
-    evidence, relations = await get_runtime().retrieve(state.get("query", ""))
+    bundle = await get_runtime().retrieve_bundle(state.get("query", ""))
+    evidence, relations = bundle.evidence, bundle.relations
     return {
         "vector_results": [item for item in evidence if "semantic" in item.channels],
         "graph_results": relations,
         "retrieved_evidence": evidence,
+        "response": bundle.direct_response,
     }
 
 
@@ -67,6 +69,8 @@ async def assemble_context_node(state: AgentState) -> dict:
 
 
 async def generate_node(state: AgentState) -> dict:
+    if state.get("response"):
+        return {"response": state["response"]}
     evidence: list[RetrievalResult] = state.get("retrieved_evidence", [])
     if not evidence:
         return {"response": NO_EVIDENCE_RESPONSE}

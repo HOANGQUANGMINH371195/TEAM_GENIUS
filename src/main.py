@@ -37,7 +37,7 @@ app = FastAPI(
     title="MediPay Agent API",
     description=(
         "Backend API for BHYT questions, hospital fee analysis, and payment guidance. "
-        "Built with FastAPI and grounded PostgreSQL/pgvector + Neo4j GraphRAG."
+        "Built with FastAPI, Supabase lexical/PageIndex, Qdrant semantic search, and Neo4j GraphRAG."
     ),
     version="1.0.0",
     lifespan=lifespan,
@@ -120,7 +120,7 @@ async def health():
     responses={503: {"model": ReadinessResponse}},
     tags=["System"],
     summary="Check GraphRAG readiness",
-    description="Check OpenAI, embedding, PostgreSQL, and Neo4j dependencies.",
+    description="Check OpenAI, embedding, Supabase, Qdrant, and Neo4j dependencies.",
 )
 async def readiness() -> ReadinessResponse | JSONResponse:
     checks = await get_runtime().readiness()

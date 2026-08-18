@@ -15,7 +15,7 @@ Dự án được xây dựng trong khuôn khổ chương trình **VinUni AI20K 
 | Họ và tên | Vai trò chính | Trách nhiệm chính | Tech Stack phụ trách |
 | :--- | :--- | :--- | :--- |
 | **HOÀNG QUANG MINH** | **Team Lead / DevOps** | Quản lý dự án, Hạ tầng Docker, Vercel CI/CD & Security | Docker, Vercel, GitHub Actions |
-| **LÝ MINH HẢI** | **FullStack (Backend)** | RESTful API FastAPI, Database PostgreSQL/pgvector & Caching | Python, FastAPI, PostgreSQL, pgvector |
+| **LÝ MINH HẢI** | **FullStack (Backend)** | RESTful API FastAPI, Supabase/Qdrant retrieval & Caching | Python, FastAPI, PostgreSQL, Qdrant |
 | **TRẦN QUỐC HÙNG** | **FullStack (Frontend)** | Giao diện Next.js, UI/UX Mobile, Admin Dashboard & Export PDF | Next.js, Tailwind CSS, TypeScript |
 | **NGUYỄN TIẾN DŨNG** | **Kỹ sư AI** | RAG Pipeline, LangGraph Agent, Module OCR & Langfuse | LangChain, LangGraph, Langfuse, OCR |
 
@@ -25,7 +25,7 @@ Dự án được xây dựng trong khuôn khổ chương trình **VinUni AI20K 
 
 * **Frontend:** Next.js 14, Tailwind CSS, TypeScript (Triển khai trên **Vercel**)
 * **Backend:** Python 3.11, FastAPI, Pydantic, Uvicorn (Đóng gói **Docker Container**)
-* **Database & Vector Search:** PostgreSQL với extension `pgvector`
+* **Database & Vector Search:** Supabase PostgreSQL cho dữ liệu chuẩn/lexical; Qdrant cho vector semantic
 * **AI & Agentic Framework:**
   * **LangChain & LangGraph:** Điều phối luồng Agent, định tuyến ý định (Intent Routing) & State Management.
   * **Langfuse:** Giám sát chất lượng phản hồi AI, theo dõi độ trễ (Latency) & quản lý chi phí token.
@@ -33,7 +33,7 @@ Dự án được xây dựng trong khuôn khổ chương trình **VinUni AI20K 
 
 ### Cấu trúc dự án hiện tại và hướng phát triển
 
-Backend và GraphRAG nằm trong `src`. Frontend Next.js sẽ đặt tại `web/`. Supabase quản lý PostgreSQL cho document/chunk và lexical search; Neo4j quản lý knowledge graph; Qdrant quản lý semantic vectors; Firebase được chuẩn bị cho đăng nhập. Embedding dùng `text-embedding-3-small` (1536 chiều).
+Backend và GraphRAG nằm trong `src`. Supabase quản lý document/chunk, lexical search và PageIndex; Qdrant giữ vector semantic theo collection versioned + alias `medical_legal_active`; Neo4j chỉ navigation graph. Embedding dùng `text-embedding-3-small` (1536 chiều).
 
 ```text
 .
@@ -113,5 +113,7 @@ Chạy kiểm tra:
 ruff check src/ tests/
 pytest tests/ -v --tb=short
 ```
+
+`/ready` chỉ trả `ready` khi active Supabase release, Qdrant alias/parity và Neo4j đều sẵn sàng. Không commit `.env`; copy `.env.example` và điền secrets riêng.
 
 ---

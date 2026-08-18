@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from src.integrations.qdrant import VectorHit
 from src.models.graph import RetrievalResult
 from src.services.chat import GraphRagRuntime, _limit_evidence
 
@@ -60,14 +61,17 @@ async def test_retrieve_nests_child_span_names():
         channels=["semantic"],
     )
     repository = SimpleNamespace(
-        current_dataset=AsyncMock(return_value="dataset-1"),
-        search_vectors=AsyncMock(return_value=[evidence]),
-        expand_entities=AsyncMock(return_value=[]),
-        hydrate_documents=AsyncMock(return_value=[]),
+        current_dataset_release=AsyncMock(return_value=("dataset-1", 1)),
+        find_documents=AsyncMock(return_value=[]),
+        resolve_legal_units=AsyncMock(return_value=[]),
+        search_lexical=AsyncMock(return_value=[]),
+        hydrate_chunks=AsyncMock(return_value=[evidence]),
     )
     runtime = GraphRagRuntime()
-    runtime._embeddings = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2, 0.3]))
-    runtime._graph_store = SimpleNamespace(verify_connectivity=AsyncMock())
+    runtime._embeddings = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1] * 1536))
+    runtime._vector_store = SimpleNamespace(
+        search=AsyncMock(return_value=[VectorHit("chunk-1", "doc-1", "", 0.9, "")])
+    )
 
     with (
         patch("src.services.chat.trace_span", fake_span),
@@ -78,15 +82,11 @@ async def test_retrieve_nests_child_span_names():
 
     assert names == [
         "retrieve-context",
-        "neo4j-connectivity",
-        "embedding-query",
         "get-current-dataset",
-        "pgvector-search",
-        "neo4j-expand",
-        "hydrate-documents",
+        "embedding-query",
+        "qdrant-search",
     ]
     assert result_evidence[0].chunk_id == "chunk-1"
     assert relations == []
-    repository.search_vectors.assert_awaited_once()
-    repository.expand_entities.assert_awaited_once()
-    repository.hydrate_documents.assert_awaited_once()
+    repository.search_lexical.assert_awaited_once()
+    repository.hydrate_chunks.assert_awaited_once()

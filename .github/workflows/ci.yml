@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   lint-and-test:
@@ -22,11 +22,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Lint with ruff
-        run: ruff check src/ tests/
+      - name: Lint
+        run: ruff check src/ tests/ database/corpus/ database/pipeline/tests/ eval/
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: |
+          pytest tests/ -v --tb=short
+          PYTHONPATH=database/pipeline:. pytest -q database/pipeline/tests database/corpus/tests database/neo4j/tests eval/test_*.py
         env:
           APP_ENV: test
           OPENAI_API_KEY: test-key

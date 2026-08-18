@@ -11,6 +11,7 @@ from src.config import get_settings
 logger = logging.getLogger(__name__)
 
 _configured = False
+_runtime_available: bool | None = None
 
 
 def tracing_enabled() -> bool:
@@ -38,12 +39,20 @@ def configure_langfuse() -> None:
 
 
 def get_callback_handler():
+    global _runtime_available
     if not tracing_enabled():
         return None
-    configure_langfuse()
-    from langfuse.langchain import CallbackHandler
+    if _runtime_available is False:
+        return None
+    try:
+        configure_langfuse()
+        from langfuse.langchain import CallbackHandler
 
-    return CallbackHandler()
+        return CallbackHandler()
+    except Exception:
+        _runtime_available = False
+        logger.warning("Langfuse callback unavailable; continuing without tracing")
+        return None
 
 
 def llm_invoke_config() -> dict[str, Any]:
@@ -61,13 +70,24 @@ async def trace_span(
     input: Any = None,
     metadata: Mapping[str, Any] | None = None,
 ):
-    if not tracing_enabled():
+    global _runtime_available
+    if not tracing_enabled() or _runtime_available is False:
         yield None
         return
-    configure_langfuse()
-    from langfuse import get_client
+    try:
+        configure_langfuse()
+        from langfuse import get_client
 
-    with get_client().start_as_current_observation(as_type=as_type, name=name) as observation:
+        observation_context = get_client().start_as_current_observation(as_type=as_type, name=name)
+    except Exception:
+        # Observability must be fail-open: tracing may never turn a healthy
+        # retrieval request into a user-visible outage.
+        _runtime_available = False
+        logger.warning("Langfuse trace unavailable; continuing without tracing")
+        yield None
+        return
+
+    with observation_context as observation:
         updates: dict[str, Any] = {}
         if input is not None:
             updates["input"] = input

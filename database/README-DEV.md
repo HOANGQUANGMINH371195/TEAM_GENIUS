@@ -6,7 +6,7 @@
 
 ```text
 database/
-├── schema.sql                 # Supabase PostgreSQL + pgvector
+├── schema.sql                 # Supabase PostgreSQL canonical/lexical schema
 ├── pipeline/                  # build snapshot, ingest, embedding, retrieval API
 ├── neo4j/                     # local Docker, Aura importer và graph docs
 └── firebase/                  # Firebase Auth scaffold cho frontend
@@ -33,7 +33,7 @@ Ranh giới dữ liệu:
 
 PageIndex là index cấu trúc/provenance trong Supabase, không phải database tách
 riêng hay ranking channel độc lập. Về vật lý, `legal_units` đang nằm trong
-Supabase cùng lexical/vector;
+Supabase cùng lexical/PageIndex;
 nếu tách thành service riêng thì vẫn phải giữ `dataset_id`, `unit_id` và source
 spans. Lexical và semantic tạo candidates; graph mở rộng từ document seed.
 Hợp nhất bằng weighted RRF, sau đó rerank có giới hạn diversity theo

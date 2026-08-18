@@ -18,7 +18,6 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-
 IDENTITY_FIELDS = ("title", "so_ky_hieu", "content_validation_status")
 STATUS_FIELDS = (
     "tinh_trang_hieu_luc",

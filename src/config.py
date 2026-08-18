@@ -46,7 +46,7 @@ class Settings(BaseSettings):
 
     qdrant_url: str = ""
     qdrant_api_key: str = ""
-    qdrant_collection: str = "medical_legal_v1"
+    qdrant_collection: str = "medical_legal_active"
     qdrant_timeout_seconds: float = Field(default=30.0, gt=0)
 
     retrieval_top_k: int = Field(default=5, ge=1, le=50)
@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     graph_hops: int = Field(default=1, ge=0, le=5)
     graph_neighbor_limit: int = Field(default=20, ge=1, le=100)
     graph_evidence_limit: int = Field(default=10, ge=1, le=100)
-    max_llm_evidence: int = Field(default=20, ge=1, le=100)
+    max_llm_evidence: int = Field(default=8, ge=1, le=100)
     max_citations: int = Field(default=8, ge=1, le=50)
     max_chunks_per_document: int = Field(default=2, ge=1, le=20)
     max_context_chars: int = Field(default=60_000, ge=1_000, le=200_000)

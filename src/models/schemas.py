@@ -89,6 +89,7 @@ class ErrorResponse(ApiModel):
 class ReadinessResponse(ApiModel):
     status: str
     database: bool
+    qdrant: bool
     neo4j: bool
     llm: bool
     embedding: bool

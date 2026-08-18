@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate active exact/semantic retrieval and Neo4j evidence parity."""
+"""Evaluate active exact/Qdrant semantic retrieval and Neo4j evidence parity."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from pathlib import Path
 import psycopg
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
+from qdrant_client import QdrantClient, models
 
 PIPELINE_ROOT = Path(__file__).resolve().parents[1] / "pipeline"
 sys.path.insert(0, str(PIPELINE_ROOT))
@@ -29,10 +30,6 @@ def connection() -> psycopg.Connection:
         user=os.getenv("PGUSER", "postgres"),
         password=os.getenv("PGPASSWORD", "postgres"),
     )
-
-
-def vector_literal(values: list[float]) -> str:
-    return "[" + ",".join(format(value, ".10g") for value in values) + "]"
 
 
 def main() -> int:
@@ -60,30 +57,35 @@ def main() -> int:
     vectors = embed_batch([case["query"] for case in exact_cases])
     semantic_at_5 = semantic_at_10 = 0
     semantic_failures: list[str] = []
-    with connection() as conn, conn.cursor() as cur:
-        for case, vector in zip(exact_cases, vectors, strict=True):
-            literal = vector_literal(vector)
-            cur.execute(
-                """SELECT document_id FROM active_graph_chunks
-                   WHERE embedding IS NOT NULL AND semantic_eligible
-                   ORDER BY embedding <=> %s::extensions.vector, chunk_id
-                   LIMIT %s""",
-                (literal, args.semantic_limit),
-            )
-            hits = [row[0] for row in cur.fetchall()]
-            expected = set(case["expected_document_ids"])
-            if expected & set(hits[:5]):
-                semantic_at_5 += 1
-            if expected & set(hits[:10]):
-                semantic_at_10 += 1
-            else:
-                semantic_failures.append(case["case_id"])
+    if not os.getenv("QDRANT_URL") or not os.getenv("QDRANT_API_KEY"):
+        raise RuntimeError("QDRANT_URL and QDRANT_API_KEY are required for active semantic evaluation")
+    dataset_id = repository.current_dataset().dataset_id
+    qdrant = QdrantClient(
+        url=os.environ["QDRANT_URL"], api_key=os.environ["QDRANT_API_KEY"], timeout=int(float(os.getenv("QDRANT_TIMEOUT_SECONDS", "30")))
+    )
+    collection = os.getenv("QDRANT_COLLECTION", "medical_legal_active")
+    for case, vector in zip(exact_cases, vectors, strict=True):
+        response = qdrant.query_points(
+            collection, query=vector, limit=args.semantic_limit,
+            query_filter=models.Filter(must=[
+                models.FieldCondition(key="dataset_id", match=models.MatchValue(value=dataset_id)),
+                models.FieldCondition(key="answer_ready", match=models.MatchValue(value=True)),
+            ]),
+            with_payload=["document_id"], with_vectors=False,
+        )
+        hits = [str(point.payload.get("document_id", "")) for point in response.points if point.payload]
+        expected = set(case["expected_document_ids"])
+        if expected & set(hits[:5]):
+            semantic_at_5 += 1
+        if expected & set(hits[:10]):
+            semantic_at_10 += 1
+        else:
+            semantic_failures.append(case["case_id"])
 
     driver = GraphDatabase.driver(
         os.environ["NEO4J_URI"],
         auth=(os.getenv("NEO4J_USERNAME", "neo4j"), os.environ["NEO4J_PASSWORD"]),
     )
-    dataset_id = repository.current_dataset().dataset_id
     graph_pass = 0
     graph_failures: list[str] = []
     with driver.session(database=os.getenv("NEO4J_DATABASE", "neo4j")) as session:
@@ -107,23 +109,25 @@ def main() -> int:
                 graph_failures.append(case["case_id"])
     driver.close()
 
+    exact_total = max(1, len(exact_cases))
+    graph_total = max(1, len(graph_cases))
     report = {
         "dataset_id": dataset_id,
         "benchmark_cases": len(cases),
         "exact_identifier": {
             "passed": exact_pass,
             "total": len(exact_cases),
-            "recall_at_10": exact_pass / len(exact_cases),
+            "recall_at_10": exact_pass / exact_total,
         },
         "semantic": {
-            "recall_at_5": semantic_at_5 / len(exact_cases),
-            "recall_at_10": semantic_at_10 / len(exact_cases),
+            "recall_at_5": semantic_at_5 / exact_total,
+            "recall_at_10": semantic_at_10 / exact_total,
             "passed_at_10": semantic_at_10,
             "total": len(exact_cases),
         },
-        "graph_evidence": {"passed": graph_pass, "total": len(graph_cases), "parity": graph_pass / len(graph_cases)},
+        "graph_evidence": {"passed": graph_pass, "total": len(graph_cases), "parity": graph_pass / graph_total},
         "failures": {"exact": exact_failures, "semantic_at_10": semantic_failures, "graph": graph_failures},
-        "release_gate_pass": exact_pass == len(exact_cases) and graph_pass == len(graph_cases) and semantic_at_10 >= 80,
+        "release_gate_pass": exact_pass == len(exact_cases) and graph_pass == len(graph_cases) and semantic_at_10 / exact_total >= 0.85,
         "human_adjudicated": False,
     }
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
