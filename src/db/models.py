@@ -2,16 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, DateTime, ForeignKey, ForeignKeyConstraint, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.config import get_settings
 from src.db.base import Base
-
-settings = get_settings()
-_embedding_type = Vector(settings.embedding_dimensions)
 
 
 class Dataset(Base):
@@ -59,7 +54,6 @@ class Chunk(Base):
     chunk_order: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
     section_title: Mapped[str] = mapped_column(Text)
-    embedding = mapped_column(_embedding_type, nullable=True)
     payload: Mapped[dict] = mapped_column(JSONB)
     __table_args__ = (
         ForeignKeyConstraint(["dataset_id", "document_id"], ["documents.dataset_id", "documents.id"]),
