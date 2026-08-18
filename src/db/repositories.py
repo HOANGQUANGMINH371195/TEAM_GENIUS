@@ -170,25 +170,57 @@ class GraphRepository:
     ) -> list[RetrievalResult]:
         """Resolve a requested Điều/Khoản/Điểm inside an already exact-matched document."""
         needles = [label.strip() for label in labels if label.strip()]
+        article_needles = [label for label in needles if label.casefold().startswith("điều")]
+        # A bare “Khoản 1” occurs in many articles.  When the question also
+        # names an article, resolve the article first and derive its children.
+        needles = article_needles or needles
         ids = list(dict.fromkeys(document_ids))
         if not needles or not ids:
             return []
         result = await self.session.execute(
             text(
                 """
-                SELECT u.unit_id, u.document_id, u.label, u.heading, u.text, u.source_start, u.source_end,
-                       u.text_sha256, d.title
-                FROM legal_units u
+                WITH RECURSIVE matched AS (
+                    SELECT u.dataset_id, u.unit_id, u.document_id, u.parent_unit_id, 'target'::text AS page_role
+                    FROM legal_units u
+                    WHERE u.dataset_id = :dataset_id
+                      AND u.document_id = ANY(CAST(:document_ids AS text[]))
+                      AND EXISTS (
+                        SELECT 1 FROM unnest(CAST(:labels AS text[])) AS needle
+                        WHERE u.label ILIKE '%' || needle || '%' OR u.heading ILIKE '%' || needle || '%'
+                      )
+                ), ancestors AS (
+                    SELECT * FROM matched
+                    UNION
+                    SELECT parent.dataset_id, parent.unit_id, parent.document_id, parent.parent_unit_id, 'ancestor'::text
+                    FROM ancestors child
+                    JOIN legal_units parent
+                      ON parent.dataset_id = child.dataset_id AND parent.unit_id = child.parent_unit_id
+                ), scoped AS (
+                    SELECT * FROM ancestors
+                    UNION
+                    SELECT child.dataset_id, child.unit_id, child.document_id, child.parent_unit_id, 'child'::text
+                    FROM legal_units child
+                    JOIN matched target ON target.dataset_id = child.dataset_id AND target.unit_id = child.parent_unit_id
+                )
+                SELECT u.unit_id, u.document_id, u.label, u.heading,
+                       CASE WHEN scoped.page_role = 'ancestor'
+                            THEN COALESCE(NULLIF(u.text, ''), u.heading, u.label)
+                            ELSE COALESCE(
+                                NULLIF(u.text, ''),
+                                NULLIF(substring(d.content_text from u.source_start + 1 for u.source_end - u.source_start), ''),
+                                u.heading, u.label
+                            )
+                       END AS text,
+                       u.source_start, u.source_end,
+                       u.text_sha256, d.title, scoped.page_role
+                FROM scoped
+                JOIN legal_units u ON u.dataset_id = scoped.dataset_id AND u.unit_id = scoped.unit_id
                 JOIN documents d ON d.dataset_id = u.dataset_id AND d.id = u.document_id
-                WHERE u.dataset_id = :dataset_id
-                  AND u.document_id = ANY(CAST(:document_ids AS text[]))
-                  AND NOT d.is_external
+                WHERE NOT d.is_external
                   AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
-                  AND EXISTS (
-                    SELECT 1 FROM unnest(CAST(:labels AS text[])) AS needle
-                    WHERE u.label ILIKE '%' || needle || '%' OR u.heading ILIKE '%' || needle || '%'
-                  )
-                ORDER BY u.document_id, u.source_start NULLS LAST, u.unit_id
+                ORDER BY CASE scoped.page_role WHEN 'target' THEN 0 WHEN 'child' THEN 1 ELSE 2 END,
+                         u.document_id, u.source_start NULLS LAST, u.unit_id
                 LIMIT :limit
                 """
             ),
@@ -200,7 +232,9 @@ class GraphRepository:
                 source=str(row.document_id), title=str(row.title or ""), section_title=str(row.heading or row.label or ""),
                 unit_id=str(row.unit_id), source_start=int(row.source_start) if row.source_start is not None else None,
                 source_end=int(row.source_end) if row.source_end is not None else None,
-                text_sha256=str(row.text_sha256 or ""), channels=["page_index"], score=1.0,
+                text_sha256=str(row.text_sha256 or ""), channels=["page_index"],
+                score={"target": 1.0, "ancestor": 0.8, "child": 0.65}.get(str(row.page_role), 0.5),
+                rank_details={"page_role": {"target": 3.0, "ancestor": 2.0, "child": 1.0}.get(str(row.page_role), 0.0)},
             )
             for row in result
         ]

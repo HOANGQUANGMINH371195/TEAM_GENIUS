@@ -136,9 +136,9 @@ class GraphRagRuntime:
                 if is_metadata_question(query) and len(exact_candidates) == 1 and exact_candidates[0].answer_ready:
                     return RetrievalBundle([], [], _format_metadata_answer(query, exact_candidates[0]))
                 exact_document_ids = [candidate.document_id for candidate in exact_candidates if candidate.answer_ready]
-                page_results = await repository.resolve_legal_units(
+                page_results = _verified_evidence(await repository.resolve_legal_units(
                     extract_legal_labels(query), dataset_id=dataset_id, document_ids=exact_document_ids
-                )
+                ))
                 if page_results:
                     lexical_results = await repository.search_lexical(
                         query, dataset_id=dataset_id, document_ids=exact_document_ids,
@@ -350,7 +350,8 @@ def _verified_evidence(evidence: Sequence[RetrievalResult]) -> list[RetrievalRes
     """Reject stale or mixed-release text before it reaches an LLM/citation."""
     return [
         item for item in evidence
-        if not item.text_sha256
+        if ("page_index" in item.channels and item.source_start is not None and item.source_end is not None)
+        or not item.text_sha256
         or hashlib.sha256(item.content.encode("utf-8")).hexdigest() == item.text_sha256
     ]
 
