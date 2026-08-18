@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from src.config import get_settings
-from src.models.graph import RetrievalResult
+from src.models.graph import Citation, RetrievalResult
 from src.services.chat import RetrievalBundle
 
 
@@ -49,6 +49,25 @@ async def test_agent_state_structure():
     assert isinstance(result, dict)
     assert "query" in result
     assert "retrieved_evidence" in result
+
+
+@pytest.mark.asyncio
+async def test_metadata_direct_answer_keeps_document_provenance():
+    citation = Citation(
+        document_id="doc-1", chunk_id="metadata:doc-1", title="Luật BHYT",
+        channels=["exact"], evidence_kind="document_metadata",
+    )
+    with patch("src.agents.nodes.graphrag_nodes.get_runtime") as runtime_factory:
+        runtime = runtime_factory.return_value
+        runtime.retrieve_bundle = AsyncMock(return_value=RetrievalBundle([], [], "Tên văn bản.", [citation]))
+        runtime.generate = AsyncMock()
+        from src.agents.graph import get_agent
+
+        result = await get_agent().ainvoke({"query": "Tiêu đề văn bản là gì?"})
+
+    assert result["response"] == "Tên văn bản."
+    assert result["citations"] == [citation.model_dump()]
+    runtime.generate.assert_not_awaited()
 
 
 @pytest.mark.asyncio

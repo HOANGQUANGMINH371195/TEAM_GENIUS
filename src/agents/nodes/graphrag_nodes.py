@@ -35,6 +35,7 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
         "graph_results": relations,
         "retrieved_evidence": evidence,
         "response": bundle.direct_response,
+        "direct_citations": bundle.direct_citations or [],
     }
 
 
@@ -130,7 +131,7 @@ async def guardrail_node(state: AgentState) -> dict:
         response = NO_EVIDENCE_RESPONSE
     return {
         "response": response,
-        "citations": [citation.model_dump() for citation in _citations_from_evidence(
-            state.get("retrieved_evidence", [])
+        "citations": [citation.model_dump() for citation in (
+            state.get("direct_citations") or _citations_from_evidence(state.get("retrieved_evidence", []))
         )],
     }

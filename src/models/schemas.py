@@ -61,6 +61,7 @@ class ChatCitation(ApiModel):
     section_title: str = Field(default="", description="Tiêu đề điều/mục nếu có.")
     quote: str = Field(default="", description="Đoạn evidence dùng để trả lời.")
     channels: list[str] = Field(default_factory=list, description="Kênh retrieval tạo ra evidence.")
+    evidence_kind: str = Field(default="passage", description="Loại provenance: passage, legal_unit hoặc document_metadata.")
 
 
 class ChatResponse(ApiModel):

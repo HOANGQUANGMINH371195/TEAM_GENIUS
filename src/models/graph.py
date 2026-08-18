@@ -60,3 +60,4 @@ class Citation(BaseModel):
     section_title: str = ""
     quote: str = ""
     channels: list[str] = Field(default_factory=list)
+    evidence_kind: str = "passage"

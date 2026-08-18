@@ -13,6 +13,7 @@ class AgentState(TypedDict, total=False):
     vector_results: list[RetrievalResult]
     graph_results: list[Relation]
     retrieved_evidence: list[RetrievalResult]
+    direct_citations: list[Citation]
     citations: list[Citation]
     context: str
     response: str

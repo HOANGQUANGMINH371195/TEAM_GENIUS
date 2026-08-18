@@ -18,7 +18,7 @@ from src.integrations.embeddings import EmbeddingModel, get_embedding_model
 from src.integrations.langfuse import llm_invoke_config, trace_span
 from src.integrations.neo4j import Neo4jGraphStore
 from src.integrations.qdrant import QdrantVectorStore, VectorHit
-from src.models.graph import DocumentCandidate, RetrievalResult
+from src.models.graph import Citation, DocumentCandidate, RetrievalResult
 from src.services.llm import get_llm
 from src.services.retrieval import (
     extract_document_numbers,
@@ -43,6 +43,7 @@ class RetrievalBundle:
     evidence: list[RetrievalResult]
     relations: list
     direct_response: str = ""
+    direct_citations: list[Citation] | None = None
 
 
 class GraphRagRuntime:
@@ -134,7 +135,20 @@ class GraphRagRuntime:
                     exact_candidates.extend(await repository.find_documents(number, dataset_id=dataset_id, limit=3))
                 exact_candidates = list({candidate.document_id: candidate for candidate in exact_candidates}.values())
                 if is_metadata_question(query) and len(exact_candidates) == 1 and exact_candidates[0].answer_ready:
-                    return RetrievalBundle([], [], _format_metadata_answer(query, exact_candidates[0]))
+                    document = exact_candidates[0]
+                    return RetrievalBundle(
+                        [], [], _format_metadata_answer(query, document),
+                        [
+                            Citation(
+                                document_id=document.document_id,
+                                chunk_id=f"metadata:{document.document_id}",
+                                title=document.title,
+                                quote=document.so_ky_hieu,
+                                channels=["exact"],
+                                evidence_kind="document_metadata",
+                            )
+                        ],
+                    )
                 exact_document_ids = [candidate.document_id for candidate in exact_candidates if candidate.answer_ready]
                 page_results = _verified_evidence(await repository.resolve_legal_units(
                     extract_legal_labels(query), dataset_id=dataset_id, document_ids=exact_document_ids
