@@ -1,8 +1,9 @@
-# BHYT / viện phí: hướng dẫn từ đầu đến cuối
+# BHYT / viện phí: Supabase + Neo4j + Qdrant
 
 Thư mục này chứa dữ liệu nguồn và pipeline đưa dữ liệu BHYT/viện phí vào
 database. Không có dữ liệu bệnh nhân hay dữ liệu khách hàng. Knowledge graph
-được import riêng vào [`database/neo4j`](../neo4j).
+được import riêng vào [`database/neo4j`](../neo4j). Semantic vectors được lưu
+ở Qdrant; Supabase giữ dữ liệu chuẩn, provenance và lexical search.
 
 ## Làm nhanh
 
@@ -17,9 +18,9 @@ Chạy theo đúng thứ tự sau.
 4. Vào **Table Editor**. Nếu thấy các bảng `datasets`, `documents`, `chunks`
    và `legal_units`, phần PostgreSQL đã sẵn sàng. Relationships nằm trong Neo4j.
 
-Schema đã bật `pgvector`, giữ raw HTML, legal unit, PageIndex, lexical search
-và vector search. Relationship graph được lưu trong Neo4j, không nằm trong
-schema PostgreSQL.
+Schema giữ raw HTML, legal unit, PageIndex và lexical search. Relationship
+graph được lưu trong Neo4j; vector production được lưu ở Qdrant, không cần
+giữ HNSW/vector trong Supabase Free.
 
 ### 2. Cấu hình máy chạy pipeline
 
@@ -52,6 +53,10 @@ OPENAI_API_KEY=<openai-key>
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=1536
 EMBEDDING_BATCH_SIZE=256
+QDRANT_URL=https://<cluster-id>.<region>.aws.cloud.qdrant.io
+QDRANT_API_KEY=<qdrant-api-key>
+QDRANT_COLLECTION=medical_legal_v1
+QDRANT_TIMEOUT_SECONDS=30
 ```
 
 Lấy các giá trị này tại **Supabase Dashboard → Connect → Session pooler**.
@@ -90,6 +95,12 @@ python database/pipeline/scripts/embed_dataset.py snapshot-... --publish
 ```
 
 Table rows dùng lexical/structured retrieval, không tạo vector mặc định.
+
+Artifact embedding phải được upload vào Qdrant sau khi parity pass. Mỗi point
+dùng `passage_id` làm ID; payload tối thiểu gồm `dataset_id`, `document_id`,
+`unit_id`, `source_start`, `source_end`, `input_sha256`, `answer_ready` và
+`legal_status`. Chỉ publish collection sau khi đối chiếu đủ passage ID/input
+hash với `database/corpus/verify_live_corpus_parity.py`.
 
 ### 4. Kiểm tra
 
@@ -136,8 +147,8 @@ python3 database/pipeline/scripts/load_embedding_artifact.py snapshot-... \
 
 Lệnh này kiểm tra manifest, số dòng, số chiều, nạp vector vào `pgvector` và mặc
 định vẫn giữ release ở `staging`.
-Storage là bản lưu/phân phối, còn
-`chunks.embedding` là bản dùng trực tiếp để truy vấn.
+Qdrant là bản dùng trực tiếp cho semantic query; Supabase vẫn là nguồn chuẩn
+để hydrate nội dung và citation.
 
 ## Có nên push CSV và `.npy` lên Git không?
 
@@ -154,14 +165,12 @@ phải gọi lại API, dùng Git LFS, Supabase Storage hoặc object storage ri
 
 Chunker v5 dùng legal unit → paragraph/sentence → gom tối đa 320 approximate
 tokens, bỏ structural-only chunks và tạo table-row passages có header context.
-Release qualified hiện có 683 documents, 37.288 passages, 28.301 legal units
-và 5.810 graph relationships; chỉ 14.406 passages cần embedding. Runtime chỉ
-serve 187 graph edges có evidence/target resolution đủ điều kiện.
+Release active `snapshot-c439751724ab7f10` có 682 documents, 37.170 passages,
+28.285 legal units và 5.808 legal relationships; 14.393 passages cần embedding
+và đang chờ upload vào Qdrant.
 
 ## Supabase Free
 
-Live project đang dùng 445.394.067 bytes, còn khoảng 78,9 MB (75,2 MiB) dưới
-quota 500 MiB; không đủ để stage thêm một full release. Không chạy `ingest_snapshot.py`
-trên live Free project trước khi có local backup và maintenance cutover.
-Zero-downtime dual-release cần nâng quota. Xem phần **Supabase Free deployment
-profile** trong `ARCHITECTURE.md`.
+Live project hiện dùng khoảng 162 MiB dưới quota 500 MiB vì vector/HNSW đã được
+offload sang Qdrant. Không chạy `load_embedding_artifact.py` lên production
+Supabase Free; hãy upload artifact vào Qdrant và giữ Supabase ở chế độ lexical.

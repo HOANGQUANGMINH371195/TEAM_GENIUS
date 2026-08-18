@@ -17,6 +17,7 @@ asyncpg>=0.30.0,<1
 pgvector>=0.3.6,<1
 neo4j>=5.28.0,<6
 openai>=1.68.0,<2
+qdrant-client>=1.14.0,<2
 
 # GraphRAG utilities
 langchain-text-splitters>=0.3.0,<1

@@ -15,7 +15,8 @@ database/
 Ranh giới dữ liệu:
 
 - Supabase/PostgreSQL: documents, raw HTML, legal units, tables, chunks,
-  facets, full-text search và vector `text-embedding-3-small` 1536 chiều.
+  facets và full-text search. Vector `text-embedding-3-small` 1536 chiều
+  được quản lý ở Qdrant.
 - Neo4j: document nodes và directed relationships từ
   `data/raw/relationships.csv`.
 - Firebase: client configuration cho đăng nhập; không lưu service-account key
@@ -27,7 +28,7 @@ Ranh giới dữ liệu:
 |---|---|---|
 | PageIndex index | `legal_units` trong Supabase; artifacts ở `data/clean/page_index/` | Cấu trúc Điều/Khoản, parent, thứ tự và source span cho citation |
 | Lexical | `chunks.search_vector`, GIN index | Tìm chính xác số hiệu, tên văn bản, Điều/Khoản và từ khóa |
-| Semantic | `chunks.embedding`, pgvector HNSW | Tìm các đoạn gần nghĩa bằng `text-embedding-3-small` |
+| Semantic | Qdrant collection + payload indexes | Tìm các đoạn gần nghĩa bằng `text-embedding-3-small` |
 | Graph | Neo4j Aura/local | Mở rộng document liên quan theo predicate có hướng |
 
 PageIndex là index cấu trúc/provenance trong Supabase, không phải database tách
@@ -44,7 +45,7 @@ document/unit; graph không bao giờ là nguồn text để trích dẫn.
 question
   ├─ exact: số hiệu/tên văn bản
   ├─ lexical: PostgreSQL plainto_tsquery + ts_rank_cd
-  ├─ semantic: OpenAI query embedding → pgvector cosine
+  ├─ semantic: OpenAI query embedding → Qdrant cosine search
   └─ graph: seed document IDs → Neo4j bounded expansion
           ↓
 candidate union → weighted RRF → deterministic rerank/diversity
@@ -68,7 +69,8 @@ source .venv/bin/activate
 cp .env.example .env       # chỉ khi chưa có .env
 ```
 
-Điền `DATABASE_URL`/`PG*`, `OPENAI_API_KEY` và Neo4j. Local Neo4j:
+Điền `DATABASE_URL`/`PG*`, `OPENAI_API_KEY`, Neo4j và Qdrant
+(`QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_COLLECTION`). Local Neo4j:
 
 ```bash
 docker compose -f database/neo4j/docker-compose.yml up -d
@@ -124,7 +126,7 @@ WHERE r.dataset_id = '<dataset-id>'
 RETURN n, r, m LIMIT 200;
 ```
 
-Embedding chỉ publish release sau khi mọi chunk có vector. Graph importer chạy
+Embedding được upload vào Qdrant sau khi artifact parity pass. Graph importer chạy
 idempotent theo `dataset_id`, xóa cạnh cũ của release rồi nạp lại theo đúng
 predicate; kiểu quan hệ hiển thị là `REL_Can_cu`, `REL_Bai_bo`, v.v., còn
 predicate gốc vẫn được giữ trong `r.relationship_type`.
@@ -160,7 +162,7 @@ Nếu test pipeline được chạy độc lập, luôn đặt `PYTHONPATH=datab
 - Không thêm bảng `entities`, `relations` hoặc `relationships` vào Supabase;
   graph thuộc Neo4j.
 - Không dùng Chroma, Pinecone, SentenceTransformer, PyVI hoặc GPU embedding
-  local cho pipeline hiện tại.
+  local cho pipeline hiện tại. Qdrant là vector store production.
 - Không commit `data/clean/`, vector artifacts, `.env`, Firebase service
   account hoặc Aura credential.
 - `database/pipeline/data_pipeline/canonical.py` vẫn đọc

@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     neo4j_password: str = ""
     neo4j_database: str = "neo4j"
 
+    qdrant_url: str = ""
+    qdrant_api_key: str = ""
+    qdrant_collection: str = "medical_legal_v1"
+    qdrant_timeout_seconds: float = Field(default=30.0, gt=0)
+
     retrieval_top_k: int = Field(default=5, ge=1, le=50)
     semantic_similarity_threshold: float = Field(default=0.25, ge=0.0, le=1.0)
     graph_hops: int = Field(default=1, ge=0, le=5)
