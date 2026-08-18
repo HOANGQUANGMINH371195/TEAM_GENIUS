@@ -92,7 +92,40 @@ async def generate_node(state: AgentState) -> dict:
     if not evidence:
         return {"response": NO_EVIDENCE_RESPONSE}
     response = await get_runtime().generate(state.get("query", ""), state.get("context", ""))
+    if _is_no_evidence_response(response):
+        # The retriever has already supplied release-scoped evidence.  Do not
+        # convert a model's over-cautious fallback into a false claim that no
+        # evidence exists; return the verified excerpts instead.
+        response = _evidence_backed_response(evidence)
     return {"response": response}
+
+
+def _is_no_evidence_response(response: str) -> bool:
+    normalized = " ".join(response.casefold().split())
+    expected = " ".join(NO_EVIDENCE_RESPONSE.casefold().split())
+    fallback_prefix = "hiện tại hệ thống không tìm thấy thông tin hoặc văn bản pháp lý phù hợp"
+    # Some models append a partial answer after the fallback sentence.  Once
+    # evidence is present, that opening is still false and must not reach the
+    # user; the deterministic excerpt response below is grounded instead.
+    return normalized == expected or normalized.startswith(fallback_prefix)
+
+
+def _evidence_backed_response(evidence: list[RetrievalResult]) -> str:
+    excerpts: list[str] = []
+    for item in evidence[:3]:
+        excerpt = " ".join(item.content.split())
+        if not excerpt:
+            continue
+        label = item.section_title or item.title or item.document_id
+        excerpts.append(f"- {label}: {excerpt[:700]}")
+    if not excerpts:
+        return NO_EVIDENCE_RESPONSE
+    return (
+        "Tôi đã tìm thấy các trích đoạn liên quan sau:\n"
+        + "\n".join(excerpts)
+        + "\n\nCác trích đoạn trên là phần thông tin có thể xác nhận từ evidence hiện có; "
+        "chưa đủ cơ sở để khẳng định ngoài phạm vi đó."
+    )
 
 
 def _sanitize_output(value: str) -> str:

@@ -2,7 +2,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.agents.nodes.graphrag_nodes import verify_evidence_node
+from src.agents.nodes.graphrag_nodes import generate_node, verify_evidence_node
+from src.agents.prompts import NO_EVIDENCE_RESPONSE
 from src.config import get_settings
 from src.models.graph import Citation, RetrievalResult
 from src.services.chat import RetrievalBundle
@@ -77,6 +78,33 @@ async def test_high_risk_query_without_provenance_is_rejected():
 
     assert result["verification_failed"] is True
     assert "không tìm thấy" in result["response"]
+
+
+@pytest.mark.asyncio
+async def test_generation_does_not_discard_retrieved_evidence_when_model_falls_back():
+    evidence = RetrievalResult(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        title="Nghị quyết BHYT",
+        section_title="Điều 2",
+        content="Người cao tuổi chưa có thẻ BHYT được hỗ trợ 30%.",
+        dataset_id="release-1",
+        source_start=0,
+        source_end=52,
+    )
+    with patch("src.agents.nodes.graphrag_nodes.get_runtime") as runtime_factory:
+        runtime_factory.return_value.generate = AsyncMock(
+            return_value=(
+                "Hiện tại hệ thống không tìm thấy thông tin hoặc văn bản pháp lý phù hợp "
+                "để trả lời đầy đủ câu hỏi."
+            )
+        )
+        result = await generate_node(
+            {"query": "Đối tượng nào được hỗ trợ?", "context": "evidence", "retrieved_evidence": [evidence]}
+        )
+
+    assert "Người cao tuổi" in result["response"]
+    assert result["response"] != NO_EVIDENCE_RESPONSE
 
 
 @pytest.mark.asyncio

@@ -26,6 +26,7 @@ from src.services.retrieval import (
     is_metadata_question,
     policy_response,
     retrieval_intent,
+    semantic_document_focus,
     weighted_rrf,
 )
 
@@ -216,6 +217,9 @@ class GraphRagRuntime:
                     "lexical": lexical_results,
                     "semantic": semantic_results,
                 }
+                semantic_focus = semantic_document_focus(semantic_results)
+                if semantic_focus:
+                    channels["semantic_focus"] = semantic_focus
                 intent = retrieval_intent(query)
                 graph_results: list = []
                 seed_ids = list(dict.fromkeys(item.document_id for item in weighted_rrf(channels, limit=6)))
@@ -250,7 +254,11 @@ class GraphRagRuntime:
                         )
                         channels["legal_graph"] = _merge_evidence(graph_lexical, graph_semantic)
                 return RetrievalBundle(
-                    evidence=_verified_evidence(weighted_rrf(channels, limit=settings.max_llm_evidence)),
+                    evidence=_verified_evidence(weighted_rrf(
+                        channels,
+                        limit=settings.max_llm_evidence,
+                        max_per_document=3 if semantic_focus else 2,
+                    )),
                     relations=graph_results,
                 )
         except GraphRagUnavailableError:

@@ -5,6 +5,7 @@ from src.services.retrieval import (
     normalize_identifier,
     policy_response,
     requires_evidence_verification,
+    semantic_document_focus,
     weighted_rrf,
 )
 
@@ -33,3 +34,19 @@ def test_weighted_rrf_preserves_channels_and_document_diversity():
 
     assert [item.chunk_id for item in result] == ["a", "b", "d"]
     assert result[0].rank_details["exact_rank"] == 1
+
+
+def test_semantic_document_focus_retains_neighbouring_answer_passages():
+    hits = [
+        RetrievalResult(chunk_id="other", document_id="other", content="other", score=0.80),
+        RetrievalResult(chunk_id="scope", document_id="target", content="scope", score=0.75),
+        RetrievalResult(chunk_id="noise", document_id="noise", content="noise", score=0.73),
+        RetrievalResult(chunk_id="preamble", document_id="target", content="preamble", score=0.72),
+        RetrievalResult(chunk_id="answer", document_id="target", content="answer", score=0.70),
+    ]
+
+    focused = semantic_document_focus(hits)
+    fused = weighted_rrf({"semantic": hits, "semantic_focus": focused}, limit=4, max_per_document=3)
+
+    assert [item.chunk_id for item in focused] == ["scope", "preamble", "answer"]
+    assert "answer" in [item.chunk_id for item in fused]

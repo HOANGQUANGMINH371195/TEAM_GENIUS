@@ -74,9 +74,53 @@ def requires_evidence_verification(query: str) -> bool:
     ))
 
 
-def weighted_rrf(channel_hits: dict[str, Sequence[RetrievalResult]], *, limit: int) -> list[RetrievalResult]:
+def semantic_document_focus(
+    hits: Sequence[RetrievalResult], *, documents: int = 1, chunks_per_document: int = 3
+) -> list[RetrievalResult]:
+    """Keep answer-bearing neighbouring passages from the strongest semantic document.
+
+    A question can match both a document's scope and its operative clause.  Pure
+    passage-level fusion may retain the scope but discard the clause because it
+    diversifies too aggressively across documents.  This creates a compact
+    second channel from documents that receive multiple independent semantic
+    hits, without another embedding or Qdrant request.
+    """
+    if documents <= 0 or chunks_per_document <= 0:
+        return []
+    grouped: defaultdict[str, list[tuple[int, RetrievalResult]]] = defaultdict(list)
+    for rank, hit in enumerate(hits, start=1):
+        if hit.document_id:
+            grouped[hit.document_id].append((rank, hit))
+    candidates = [
+        (
+            -sum(float(hit.score) for _, hit in rows[:chunks_per_document]),
+            rows[0][0],
+            document_id,
+            rows,
+        )
+        for document_id, rows in grouped.items()
+        if len(rows) >= 2
+    ]
+    focused: list[RetrievalResult] = []
+    for _, _, _, rows in sorted(candidates)[:documents]:
+        focused.extend(hit.model_copy(deep=True) for _, hit in rows[:chunks_per_document])
+    return focused
+
+
+def weighted_rrf(
+    channel_hits: dict[str, Sequence[RetrievalResult]], *, limit: int, max_per_document: int = 2
+) -> list[RetrievalResult]:
     """Fuse channel ranks while preserving raw scores and evidence provenance."""
-    weights = {"exact": 2.0, "lexical": 1.15, "semantic": 1.0, "legal_graph": 0.7, "page_index": 1.35}
+    if max_per_document <= 0:
+        return []
+    weights = {
+        "exact": 2.0,
+        "lexical": 1.15,
+        "semantic": 1.0,
+        "semantic_focus": 1.35,
+        "legal_graph": 0.7,
+        "page_index": 1.35,
+    }
     aggregate: defaultdict[str, float] = defaultdict(float)
     selected: dict[str, RetrievalResult] = {}
     details: defaultdict[str, dict[str, float]] = defaultdict(dict)
@@ -95,7 +139,7 @@ def weighted_rrf(channel_hits: dict[str, Sequence[RetrievalResult]], *, limit: i
     per_document: defaultdict[str, int] = defaultdict(int)
     for identifier in ordered:
         item = selected[identifier]
-        if per_document[item.document_id] >= 2:
+        if per_document[item.document_id] >= max_per_document:
             continue
         per_document[item.document_id] += 1
         item.score = aggregate[identifier]
