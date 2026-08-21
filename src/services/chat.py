@@ -14,7 +14,9 @@ from src.db.session import session_scope
 from src.integrations.embeddings import EmbeddingModel, get_embedding_model
 from src.integrations.langfuse import llm_invoke_config, trace_span
 from src.integrations.neo4j import Neo4jGraphStore
+from src.models.graph import RetrievalResult
 from src.services.llm import get_llm
+from qdrant_client import QdrantClient
 
 
 class GraphRagUnavailableError(RuntimeError):
@@ -31,6 +33,7 @@ class GraphRagRuntime:
     def __init__(self) -> None:
         self._embeddings: EmbeddingModel | None = None
         self._graph_store: Neo4jGraphStore | None = None
+        self._qdrant_client: QdrantClient | None = None
 
     def _get_embeddings(self) -> EmbeddingModel:
         if self._embeddings is None:
@@ -41,6 +44,30 @@ class GraphRagRuntime:
         if self._graph_store is None:
             self._graph_store = Neo4jGraphStore()
         return self._graph_store
+
+    def _get_qdrant_client(self) -> QdrantClient:
+        if self._qdrant_client is None:
+            settings = get_settings()
+            self._qdrant_client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+        return self._qdrant_client
+
+    async def _expand_entities_from_qdrant(
+        self,
+        qdrant_client: QdrantClient,
+        collection_name: str,
+        document_ids: list[str],
+        query_vector: list[float],
+        settings,
+    ) -> list:
+        from src.models.graph import Relation
+
+        relations: list[Relation] = []
+        if not document_ids:
+            return relations
+
+        # For now, return empty relations as the Qdrant payload may not have graph data
+        # This can be enhanced later if graph relations are stored in Qdrant
+        return relations
 
     async def retrieve(self, query: str) -> tuple[list, list]:
         async with trace_span(
@@ -82,78 +109,86 @@ class GraphRagRuntime:
                             "embedding_dimensions": len(vector),
                         }
                     )
-            async with session_scope() as session:
-                repository = GraphRepository(session, graph_store)
-                async with trace_span("get-current-dataset") as span:
-                    dataset_id = await repository.current_dataset()
-                    if span is not None:
-                        span.update(output={"dataset_id": dataset_id})
-                if dataset_id is None:
-                    raise GraphRagUnavailableError("No active dataset is available")
-                async with trace_span(
-                    "pgvector-search",
-                    as_type="retriever",
-                    metadata={
-                        "dataset_id": dataset_id,
-                        "similarity_threshold": settings.semantic_similarity_threshold,
-                    },
-                ) as span:
-                    vector_results = await repository.search_vectors(
-                        vector,
-                        limit=settings.retrieval_top_k,
-                        dataset_id=dataset_id,
-                        similarity_threshold=settings.semantic_similarity_threshold,
+
+            # Search vectors from Qdrant
+            qdrant_client = self._get_qdrant_client()
+            collection_name = settings.qdrant_collection
+            async with trace_span(
+                "qdrant-search",
+                as_type="retriever",
+                metadata={
+                    "collection": collection_name,
+                    "similarity_threshold": settings.semantic_similarity_threshold,
+                },
+            ) as span:
+                from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+                search_result = qdrant_client.query_points(
+                    collection_name=collection_name,
+                    query=vector,
+                    limit=settings.retrieval_top_k,
+                    score_threshold=settings.semantic_similarity_threshold,
+                )
+                vector_results = []
+                for point in search_result.points:
+                    payload = point.payload or {}
+                    vector_results.append(RetrievalResult(
+                        chunk_id=payload.get("passage_id", str(point.id)),
+                        document_id=payload.get("document_id", ""),
+                        content=payload.get("text", ""),
+                        source=payload.get("document_id", ""),
+                        title=payload.get("title", ""),
+                        section_title=payload.get("section_title", ""),
+                        score=max(0.0, float(point.score)),
+                        channels=["semantic"],
+                    ))
+                if span is not None:
+                    span.update(
+                        output={
+                            "result_count": len(vector_results),
+                            "top_k": settings.retrieval_top_k,
+                        }
                     )
-                    if span is not None:
-                        span.update(
-                            output={
-                                "result_count": len(vector_results),
-                                "top_k": settings.retrieval_top_k,
-                            }
-                        )
                 document_ids = list(dict.fromkeys(item.document_id for item in vector_results))
+
+                # Hydrate text content from PostgreSQL
+                async with session_scope() as session:
+                    repository = GraphRepository(session, graph_store)
+                    chunk_ids = [item.chunk_id for item in vector_results]
+                    hydrated = await repository.hydrate_chunks_by_ids(chunk_ids)
+                    # Merge hydrated data into vector_results
+                    hydrated_map = {h.chunk_id: h for h in hydrated}
+                    for i, item in enumerate(vector_results):
+                        if item.chunk_id in hydrated_map:
+                            h = hydrated_map[item.chunk_id]
+                            vector_results[i] = RetrievalResult(
+                                chunk_id=item.chunk_id,
+                                document_id=item.document_id,
+                                content=h.content,
+                                source=item.source,
+                                title=h.title,
+                                section_title=h.section_title,
+                                score=item.score,
+                                channels=item.channels,
+                            )
+
                 async with trace_span(
                     "neo4j-expand",
                     as_type="retriever",
-                    metadata={"dataset_id": dataset_id},
+                    metadata={"collection": collection_name},
                 ) as span:
-                    graph_results = await repository.expand_entities(
-                        document_ids,
-                        dataset_id=dataset_id,
-                        hops=settings.graph_hops,
-                        limit=settings.graph_neighbor_limit,
+                    graph_results = await self._expand_entities_from_qdrant(
+                        qdrant_client, collection_name, document_ids, vector, settings
                     )
                     if span is not None:
                         span.update(
                             output={
                                 "relation_count": len(graph_results),
                                 "document_count": len(document_ids),
-                                "hops": settings.graph_hops,
                             }
                         )
-                related_ids = list(
-                    dict.fromkeys(
-                        item_id
-                        for relation in graph_results
-                        for item_id in (relation.source_id, relation.target_id)
-                        if item_id
-                    )
-                )
-                hydrate_ids = related_ids[: settings.graph_evidence_limit]
-                async with trace_span(
-                    "hydrate-documents",
-                    as_type="retriever",
-                    metadata={"dataset_id": dataset_id},
-                ) as span:
-                    graph_evidence = await repository.hydrate_documents(
-                        hydrate_ids,
-                        dataset_id=dataset_id,
-                        chunks_per_document=settings.max_chunks_per_document,
-                    )
-                    if span is not None:
-                        span.update(output={"evidence_count": len(graph_evidence)})
             return _limit_evidence(
-                _merge_evidence(vector_results, graph_evidence),
+                vector_results,
                 settings.max_llm_evidence,
             ), graph_results
         except GraphRagUnavailableError:
@@ -224,6 +259,8 @@ class GraphRagRuntime:
         if self._graph_store is not None:
             await self._graph_store.close()
             self._graph_store = None
+        if self._qdrant_client is not None:
+            self._qdrant_client = None
         self._embeddings = None
 
 

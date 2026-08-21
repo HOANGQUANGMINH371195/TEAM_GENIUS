@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     langfuse_host: str = ""
     langfuse_base_url: str = ""
 
+    # Firebase Admin SDK
+    firebase_service_account_json: str = ""
+
     @property
     def embeddings_configured(self) -> bool:
         return bool(self.embedding_provider and self.embedding_model and self.openai_api_key)
