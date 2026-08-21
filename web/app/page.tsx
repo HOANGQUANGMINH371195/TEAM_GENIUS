@@ -6,9 +6,11 @@ import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 
 import { ChatCitation, ChatHistoryMessage, sendChatMessage } from "../lib/api";
+import { useAuth } from "../lib/auth-context";
+import { AuthRoute } from "../components/auth-route";
 
 type ChatMessage = ChatHistoryMessage & { id: string; citations?: ChatCitation[] };
-type IconName = "arrow" | "book" | "chat" | "check" | "chevron" | "close" | "document" | "help" | "history" | "menu" | "new" | "review" | "search" | "shield" | "spark";
+type IconName = "arrow" | "book" | "chat" | "check" | "chevron" | "close" | "document" | "help" | "history" | "logout" | "menu" | "new" | "review" | "search" | "shield" | "spark" | "user";
 
 const topicCards = [
   {
@@ -70,6 +72,7 @@ function formatInlineMarkdown(value: string) {
 }
 
 export default function HomePage() {
+  const { user, signOut } = useAuth();
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -199,6 +202,7 @@ export default function HomePage() {
   }
 
   return (
+    <AuthRoute>
     <main className={`bhyt-app${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`}>
       <button className={`bhyt-mobile-backdrop${mobileMenuOpen ? " is-visible" : ""}`} type="button" aria-label="Đóng menu" tabIndex={mobileMenuOpen ? 0 : -1} onClick={() => setMobileMenuOpen(false)} />
 
@@ -218,8 +222,15 @@ export default function HomePage() {
         </nav>
 
         <div className="bhyt-sidebar-footer">
+          {user ? (
+            <div className="bhyt-user-info">
+              {user.photoURL ? <img src={user.photoURL} alt="" className="bhyt-user-avatar" /> : <Icon name="user" />}
+              <span><strong>{user.displayName || user.email}</strong><small>{user.role === "admin" ? "Quản trị viên" : "Người dùng"}</small></span>
+              <button type="button" className="bhyt-logout-btn" onClick={() => signOut()} title="Đăng xuất"><Icon name="logout" /></button>
+            </div>
+          ) : null}
           <div className="bhyt-support-note"><Icon name="shield" /><span><strong>Hỗ trợ tra cứu BHYT</strong><small>Thông tin được đối chiếu từ nguồn pháp lý</small></span></div>
-          <a className="bhyt-admin-link" href="/admin/login"><Icon name="shield" /><span>Cổng quản trị viên</span></a>
+          {user?.role === "admin" ? <a className="bhyt-admin-link" href="/admin/review"><Icon name="shield" /><span>Cổng quản trị viên</span></a> : null}
         </div>
       </aside>
 
@@ -288,6 +299,7 @@ export default function HomePage() {
         </> : null}
       </aside>
     </main>
+    </AuthRoute>
   );
 }
 
@@ -403,12 +415,14 @@ function Icon({ name }: { name: IconName }) {
     document: <><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5M9 12h6M9 16h6"/></>,
     help: <><circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.5 2.5 0 1 1 3.4 2.3c-.8.4-1.1.9-1.1 1.7M12 17h.01"/></>,
     history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></>,
+    logout: <><path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10"/></>,
     menu: <><path d="M4 7h16M4 12h16M4 17h16"/></>,
     new: <><path d="M12 5v14M5 12h14"/></>,
     review: <><path d="M5 3h14v18H5z"/><path d="M9 8h6M9 12h6M9 16h4"/></>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     shield: <><path d="M12 2 20 5v6c0 5-3.4 9-8 11-4.6-2-8-6-8-11V5z"/><path d="m9 12 2 2 4-5"/></>,
     spark: <><path d="M12 2c.6 5 2 7.4 7 8-5 .6-6.4 3-7 8-.6-5-2-7.4-7-8 5-.6 6.4-3 7-8Z"/><path d="M19 16c.2 1.7.8 2.8 2.5 3-1.7.2-2.3 1.3-2.5 3-.2-1.7-.8-2.8-2.5-3 1.7-.2 2.3-1.3 2.5-3Z"/></>,
+    user: <><circle cx="12" cy="8" r="3"/><path d="M5 21a7 7 0 0 1 14 0"/></>,
   };
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
