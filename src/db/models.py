@@ -62,4 +62,17 @@ class Chunk(Base):
 
 DocumentChunk = Chunk
 
-__all__ = ["Chunk", "Dataset", "DatasetState", "Document", "DocumentChunk"]
+
+class User(Base):
+    __tablename__ = "users"
+
+    uid: Mapped[str] = mapped_column(String, primary_key=True)
+    email: Mapped[str] = mapped_column(String, default="")
+    display_name: Mapped[str] = mapped_column(String, default="")
+    photo_url: Mapped[str] = mapped_column(String, default="")
+    role: Mapped[str] = mapped_column(String, default="user")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+__all__ = ["Chunk", "Dataset", "DatasetState", "Document", "DocumentChunk", "User"]

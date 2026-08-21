@@ -319,3 +319,36 @@ class GraphRepository:
         return await self.graph_store.expand(
             entity_names, dataset_id=dataset_id, hops=hops, limit=limit
         )
+
+    async def hydrate_chunks_by_ids(
+        self,
+        chunk_ids: list[str],
+    ) -> list[RetrievalResult]:
+        """Hydrate chunk text content from PostgreSQL by chunk IDs."""
+        if not chunk_ids:
+            return []
+        result = await self.session.execute(
+            text(
+                """
+                SELECT c.chunk_id, c.document_id, c.text, c.section_title,
+                       d.title
+                FROM chunks c
+                JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
+                WHERE c.chunk_id = ANY(:chunk_ids)
+                """
+            ),
+            {"chunk_ids": list(chunk_ids)},
+        )
+        return [
+            RetrievalResult(
+                chunk_id=str(row.chunk_id),
+                document_id=str(row.document_id),
+                content=str(row.text or ""),
+                source=str(row.document_id),
+                title=str(row.title or ""),
+                section_title=str(row.section_title or ""),
+                score=0.0,
+                channels=["hydrated"],
+            )
+            for row in result
+        ]

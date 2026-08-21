@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.api.routes import router
+from src.api.auth_routes import router as auth_router
 from src.config import get_settings
 from src.db.session import dispose_database
 from src.integrations.langfuse import configure_langfuse, flush_langfuse, tracing_enabled
@@ -53,7 +54,7 @@ app.add_middleware(
     allow_origins=[origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-Request-ID"],
+    allow_headers=["Content-Type", "X-Request-ID", "Authorization"],
 )
 
 
@@ -102,6 +103,7 @@ async def unexpected_error_handler(request: Request, error: Exception):
 
 
 app.include_router(router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api/v1")
 
 
 @app.get(
