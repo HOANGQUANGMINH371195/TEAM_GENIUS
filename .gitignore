@@ -46,6 +46,10 @@ data/*
 /database/audit/results/
 /database/audit/*.json
 
+# Local research inputs and generated evaluation evidence; never release inputs.
+/outsource/
+/eval/results/
+
 # Logs
 logs/
 *.log
