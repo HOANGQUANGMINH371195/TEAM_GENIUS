@@ -102,8 +102,10 @@ def main() -> int:
     args = parser.parse_args()
     dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").casefold()
     tracked = command("git", "ls-files").splitlines()
+    scanner_path = Path(__file__).resolve().relative_to(ROOT).as_posix()
     secret_hits = [
         path for path in tracked
+        if path != scanner_path
         if (ROOT / path).is_file()
         and SECRET_PATTERN.search((ROOT / path).read_text(encoding="utf-8", errors="ignore"))
     ]
