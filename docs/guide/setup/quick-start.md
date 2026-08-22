@@ -20,8 +20,8 @@ cd C2-App-XXX
 python3 -m venv .venv
 source .venv/bin/activate  # macOS/Linux
 
-# Cài dependencies
-pip install -r requirements.txt
+# Cài dependencies và chạy env contract
+make setup
 
 # Tạo .env từ template
 cp .env.example .env

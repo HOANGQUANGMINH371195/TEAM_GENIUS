@@ -12,8 +12,8 @@ weight: 1
 # Stage 1: Build
 FROM python:3.11-slim AS builder
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+COPY requirements/runtime.lock .
+RUN pip install --no-cache-dir --require-hashes -r runtime.lock
 
 # Stage 2: Production
 FROM python:3.11-slim
