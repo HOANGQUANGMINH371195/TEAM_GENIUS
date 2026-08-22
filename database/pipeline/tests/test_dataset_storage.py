@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from data_pipeline.storage import (
+    assert_schema_migrated,
     canonical_snapshot_to_dataset,
     collection_name_for_dataset,
     create_dataset_schema,
@@ -41,6 +42,30 @@ class RecordingConnection:
         self.commits += 1
 
 
+class SchemaConnection:
+    def __init__(self, tables: list[str]) -> None:
+        self.tables = tables
+
+    class Cursor:
+        def __init__(self, tables: list[str]) -> None:
+            self.tables = tables
+
+        def __enter__(self) -> SchemaConnection.Cursor:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def execute(self, *_: object) -> None:
+            return None
+
+        def fetchall(self) -> list[tuple[str]]:
+            return [(table,) for table in self.tables]
+
+    def cursor(self) -> SchemaConnection.Cursor:
+        return self.Cursor(self.tables)
+
+
 class Dataset:
     manifest = {"pipeline_version": "test", "generated_at_utc": "ignore-me"}
     document_nodes = [
@@ -76,6 +101,13 @@ class Dataset:
 
 
 class ReleaseStorageTest(unittest.TestCase):
+    def test_ingest_requires_migration_owned_schema(self) -> None:
+        assert_schema_migrated(
+            SchemaConnection(["datasets", "dataset_state", "documents", "legal_units", "chunks"])
+        )
+        with self.assertRaisesRegex(RuntimeError, "database/postgres/migrations/runner.py"):
+            assert_schema_migrated(SchemaConnection(["datasets"]))
+
     def test_manifest_fingerprint_ignores_build_timestamp(self) -> None:
         first = {"pipeline_version": "2", "generated_at_utc": "2026-01-01T00:00:00Z"}
         second = {"pipeline_version": "2", "generated_at_utc": "2026-02-01T00:00:00Z"}

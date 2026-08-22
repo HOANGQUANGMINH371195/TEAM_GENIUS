@@ -23,6 +23,38 @@ class Neo4jGraphStore:
     async def verify_connectivity(self) -> None:
         await self.driver.verify_connectivity()
 
+    async def readiness(
+        self,
+        *,
+        dataset_id: str,
+        expected_nodes: int | None = None,
+        expected_approved_edges: int | None = None,
+    ) -> bool:
+        """Check release-scoped node/edge counts, not connectivity alone."""
+        async with self.driver.session(database=self.database) as session:
+            result = await session.run(
+                """
+                MATCH (n)
+                WHERE n.dataset_id = $dataset_id
+                WITH count(n) AS node_count
+                OPTIONAL MATCH ()-[r]->()
+                WHERE r.dataset_id = $dataset_id
+                  AND r.serving_status = 'approved_evidence'
+                RETURN node_count, count(r) AS relationship_count
+                """,
+                dataset_id=dataset_id,
+            )
+            row = await result.single()
+        if not row:
+            return False
+        node_count = int(row["node_count"])
+        relationship_count = int(row["relationship_count"])
+        if expected_nodes is not None and node_count != expected_nodes:
+            return False
+        if expected_approved_edges is not None and relationship_count != expected_approved_edges:
+            return False
+        return node_count > 0 and relationship_count > 0
+
     async def expand(
         self,
         entity_names: Sequence[str],

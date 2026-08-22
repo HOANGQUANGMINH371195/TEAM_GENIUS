@@ -11,5 +11,8 @@ const firebaseConfig = {
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
+// Next prerenders client components on the server. Firebase Auth must only be
+// constructed in the browser, otherwise a missing/invalid build-time public
+// key turns a static build into a hard prerender failure.
+export const auth = typeof window === "undefined" ? null : getAuth(app);
+export const googleProvider = typeof window === "undefined" ? null : new GoogleAuthProvider();

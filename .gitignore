@@ -61,6 +61,8 @@ docker-compose.override.yml
 # Node (frontend)
 node_modules/
 .next/
+*.tsbuildinfo
+web/next-env.d.ts
 out/
 .nuxt/
 

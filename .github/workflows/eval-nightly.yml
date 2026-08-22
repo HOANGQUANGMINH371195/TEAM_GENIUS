@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install --require-hashes -r requirements/dev.lock
       - name: Validate release-locked suite
         run: PYTHONPATH=database/pipeline:. pytest -q eval/test_release_locked_suite.py
       - name: Evaluate Qdrant thematic retrieval
@@ -61,7 +61,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install --require-hashes -r requirements/dev.lock
       - name: Create isolated RAGAS runtime
         run: python -m venv .eval-ragas-venv && .eval-ragas-venv/bin/pip install "ragas==0.3.9" "langchain-openai<1"
       - name: Run full read-only RAGAS evaluation

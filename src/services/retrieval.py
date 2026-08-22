@@ -8,7 +8,19 @@ from collections.abc import Sequence
 
 from src.models.graph import RetrievalResult
 
-_DOCUMENT_NUMBER = re.compile(r"\b\d{1,4}/\d{4}/[A-ZĐ0-9-]+\b", re.IGNORECASE)
+# Vietnamese instruments use both year-qualified signatures
+# (``60/2026/NQ-HĐND``) and abbreviated administrative forms such as
+# ``11/CT.UBND`` or ``15/TTLB``. Keep dates out by requiring an alphabetic
+# token after the slash in the abbreviated branch.
+_DOCUMENT_NUMBER = re.compile(
+    # ``Ð`` is present in a subset of legacy CSV signatures while the
+    # normalized runtime representation uses Vietnamese ``Đ``.  Accept both
+    # at extraction time; ``normalize_identifier`` canonicalizes them before
+    # lookup.
+    r"\b\d{1,6}/\d{4}/[A-ZĐÐ0-9][A-ZĐÐ0-9./-]*\b"
+    r"|\b\d{1,6}/[A-ZĐÐ][A-ZĐÐ0-9./-]*\b",
+    re.IGNORECASE,
+)
 _LEGAL_LABEL = re.compile(r"\b(?:điều|khoản)\s+\d+[a-zđ]?|\b[a-zđ]\)", re.IGNORECASE)
 
 
@@ -27,15 +39,35 @@ def extract_legal_labels(query: str) -> list[str]:
 
 def retrieval_intent(query: str) -> str:
     lowered = query.casefold()
-    if _LEGAL_LABEL.search(query):
-        return "legal_unit"
-    if extract_document_numbers(query):
-        return "lookup"
     if any(token in lowered for token in ("hiệu lực", "từ ngày", "trước ngày", "thay thế", "bãi bỏ")):
         return "temporal"
     if any(token in lowered for token in ("liên quan", "dẫn chiếu", "sửa đổi", "căn cứ")):
         return "relational"
+    if _LEGAL_LABEL.search(query):
+        return "legal_unit"
+    if extract_document_numbers(query):
+        return "lookup"
     return "thematic"
+
+
+def decompose_query(query: str, *, limit: int = 3) -> list[str]:
+    """Create a small deterministic set of independent sub-queries.
+
+    This is deliberately conservative: only explicit conjunctions are split,
+    and each fragment must retain enough content to be a meaningful retrieval
+    request.  It feeds the bounded embedding/Qdrant batch path; final answer
+    generation remains single-user and unbatched.
+    """
+    normalized = " ".join(query.split())
+    if not normalized or limit <= 1:
+        return [normalized] if normalized else []
+    parts = re.split(r"\s+(?:và|đồng thời|cũng như)\s+", normalized, flags=re.IGNORECASE)
+    if len(parts) <= 1:
+        return [normalized]
+    selected = [part.strip(" ,;:.?") for part in parts if len(part.strip()) >= 12]
+    if len(selected) < 2:
+        return [normalized]
+    return selected[: max(2, min(limit, 3))]
 
 
 def is_metadata_question(query: str) -> bool:
@@ -43,26 +75,77 @@ def is_metadata_question(query: str) -> bool:
     return bool(extract_document_numbers(query)) and any(
         token in lowered
         for token in (
-            "tiêu đề", "tên văn bản", "tên của", "hiệu lực", "ban hành", "loại văn bản",
-            "danh mục", "category", "tình trạng", "số ký hiệu", "số hiệu",
+            "tiêu đề", "tên văn bản", "tên đầy đủ", "tên của", "hiệu lực", "ban hành",
+            "loại văn bản", "danh mục", "category", "tình trạng", "số ký hiệu", "số hiệu",
+            "thuộc nhóm", "nhóm nội dung",
         )
     )
+
+
+def is_simple_status_metadata_question(query: str) -> bool:
+    """Allow exact metadata answers for a direct status/date lookup only.
+
+    Comparative, temporal-chain and relational questions still go through
+    lexical/semantic/graph fusion; this helper is intentionally narrow so a
+    metadata shortcut cannot hide a needed graph relation.
+    """
+    lowered = query.casefold()
+    if not is_metadata_question(query):
+        return False
+    if not any(token in lowered for token in ("hiệu lực", "tình trạng", "ban hành")):
+        return False
+    complex_markers = (
+        "thay thế", "bãi bỏ", "sửa đổi", "dẫn chiếu", "liên quan", "trước ngày",
+        "sau ngày", "từ ngày nào đến", "so sánh", "mốc thời gian",
+    )
+    return not any(marker in lowered for marker in complex_markers)
 
 
 def policy_response(query: str) -> str | None:
     """Return a deterministic safe response before any external retrieval."""
     lowered = query.casefold()
     if any(token in lowered for token in ("bỏ qua hướng dẫn", "ignore previous", "system prompt", "prompt nội bộ")):
-        return "Tôi không thể làm theo yêu cầu thay đổi hướng dẫn hệ thống. Tôi chỉ có thể hỗ trợ câu hỏi BHYT và viện phí dựa trên nguồn hợp lệ."
-    if any(token in lowered for token in ("otp", "cvv", "mật khẩu", "số thẻ", "cccd", "hồ sơ bệnh án", "bệnh án của")):
-        return "Không gửi thông tin định danh, OTP, CVV hoặc hồ sơ bệnh án. Tôi có thể hướng dẫn quy trình chung nếu bạn đã ẩn dữ liệu cá nhân."
+        return (
+            "Tôi không thể làm theo yêu cầu thay đổi system prompt hoặc tiết lộ API key, token, secret "
+            "hay hướng dẫn ẩn. Tôi chỉ hỗ trợ câu hỏi BHYT và viện phí dựa trên nguồn hợp lệ."
+        )
+    if any(token in lowered for token in ("otp", "cvv", "mật khẩu")):
+        return (
+            "Tôi không tiếp nhận hoặc lặp lại OTP, CVV hay mật khẩu. Không lưu các secret này; hãy dùng "
+            "kênh thanh toán an toàn và chính thức."
+        )
+    if any(token in lowered for token in ("số thẻ", "cccd", "hồ sơ bệnh án", "bệnh án của")):
+        return (
+            "Tôi không thể cung cấp hồ sơ hoặc số thẻ của người khác. Cần xác minh danh tính và quyền đại diện "
+            "trước khi cung cấp dữ liệu; tôi chỉ có thể hướng dẫn quy trình chung đã ẩn thông tin cá nhân."
+        )
     if any(token in lowered for token in ("kê đơn", "uống thuốc", "chẩn đoán bệnh", "liều thuốc")):
         return "Tôi không thể chẩn đoán hoặc kê đơn. Với triệu chứng hay liều dùng, hãy liên hệ bác sĩ hoặc cơ sở y tế; tôi chỉ hỗ trợ thông tin chính sách và viện phí có nguồn."
     if any(token in lowered for token in ("claim đã được duyệt", "yêu cầu đã được duyệt", "đã được phê duyệt")):
         return "Tôi không thể xác nhận tình trạng duyệt claim khi không có nguồn trạng thái chính thức. Hãy kiểm tra kênh của cơ quan bảo hiểm hoặc cơ sở tiếp nhận."
-    if "viện phí" in lowered and any(token in lowered for token in ("bao nhiêu", "ước tính", "tổng tiền")):
-        return "Để đối chiếu viện phí an toàn, cần bảng kê chi tiết, nơi khám, tuyến/chuyển tuyến, mức hưởng BHYT và thời điểm điều trị. Không nên kết luận số tiền khi thiếu các đầu vào này."
+    if ("quyền lợi" in lowered and "được hưởng" in lowered) or "gói bảo hiểm" in lowered:
+        return "Để xác định quyền lợi, cần tên hoặc mã gói bảo hiểm/văn bản áp dụng và ngày điều trị hoặc ngày hiệu lực. Tôi không thể khẳng định quyền lợi khi thiếu các thông tin này."
+    if "viện phí" in lowered and any(token in lowered for token in ("bao nhiêu", "ước tính", "tổng tiền", "tính", "cuối cùng")):
+        return "Để đối chiếu viện phí an toàn, cần hóa đơn hoặc bảng kê chi tiết, nơi khám, tuyến/chuyển tuyến, mức hưởng BHYT và thời điểm điều trị. Không nên kết luận số tiền khi thiếu các đầu vào này."
     return None
+
+
+def no_answer_response(query: str = "", *, reason: str = "no_evidence") -> str:
+    """Return a stable abstention that explains why a claim was not made."""
+    if reason == "ambiguous":
+        return (
+            "Tôi tìm thấy nhiều văn bản có thể phù hợp nhưng chưa thể xác định đúng văn bản. "
+            "Vui lòng cung cấp số hiệu đầy đủ, cơ quan ban hành hoặc ngày hiệu lực."
+        )
+    if reason == "unverified":
+        return (
+            "Tôi chưa thể xác minh claim này từ nguồn chính thức hoặc evidence có span hợp lệ; "
+            "vì vậy không khẳng định nội dung pháp lý."
+        )
+    return (
+        "Hiện tại hệ thống không tìm thấy thông tin hoặc văn bản pháp lý phù hợp "
+        "để giải đáp câu hỏi này."
+    )
 
 
 def requires_evidence_verification(query: str) -> bool:

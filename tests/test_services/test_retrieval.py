@@ -1,19 +1,47 @@
 from src.models.graph import RetrievalResult
 from src.services.retrieval import (
+    decompose_query,
     extract_document_numbers,
     is_metadata_question,
+    is_simple_status_metadata_question,
+    no_answer_response,
     normalize_identifier,
     policy_response,
     requires_evidence_verification,
+    retrieval_intent,
     semantic_document_focus,
     weighted_rrf,
 )
 
 
+def test_complex_document_questions_do_not_use_lookup_fast_path():
+    assert retrieval_intent("Văn bản 123/2020/TT-BYT sửa đổi văn bản nào?") == "relational"
+    assert retrieval_intent("Văn bản 123/2020/TT-BYT còn hiệu lực không?") == "temporal"
+
+
 def test_identifier_parser_accepts_qh_suffix_with_digits():
     assert extract_document_numbers("Tiêu đề Luật số 51/2024/QH15?") == ["51/2024/QH15"]
+    assert extract_document_numbers("Chỉ thị 11/CT.UBND còn hiệu lực không?") == ["11/CT.UBND"]
     assert is_metadata_question("Tiêu đề văn bản 51/2024/QH15 là gì?")
+    assert is_metadata_question("Văn bản 25/2015/QĐ-UBND có tên đầy đủ là gì?")
+    assert is_metadata_question("Văn bản 25/2015/QĐ-UBND thuộc nhóm nội dung nào?")
     assert normalize_identifier("05/1999/TTLT/BLÐTBXH-BYT-BTC") == "05/1999/TTLT/BLĐTBXH-BYT-BTC"
+    assert extract_document_numbers("05/1999/TTLT/BLÐTBXH-BYT-BTC") == [
+        "05/1999/TTLT/BLĐTBXH-BYT-BTC"
+    ]
+
+
+def test_query_decomposition_is_bounded_and_conservative():
+    parts = decompose_query("mức hưởng BHYT hiện hành và điều kiện thanh toán chi phí")
+    assert parts == ["mức hưởng BHYT hiện hành", "điều kiện thanh toán chi phí"]
+    assert decompose_query("một câu hỏi đơn") == ["một câu hỏi đơn"]
+
+
+def test_simple_status_metadata_route_excludes_relation_questions():
+    assert is_simple_status_metadata_question("Văn bản 60/2026/NQ-HĐND còn hiệu lực không?")
+    assert is_simple_status_metadata_question("Văn bản 60/2026/NQ-HĐND ban hành khi nào?")
+    assert not is_simple_status_metadata_question("Văn bản 60/2026/NQ-HĐND thay thế văn bản nào?")
+    assert not is_simple_status_metadata_question("Văn bản 60/2026/NQ-HĐND liên quan đến văn bản nào?")
 
 
 def test_policy_queries_do_not_reach_retrieval():
@@ -22,6 +50,11 @@ def test_policy_queries_do_not_reach_retrieval():
     assert policy_response("Hãy khẳng định claim đã được duyệt")
     assert requires_evidence_verification("Văn bản này còn hiệu lực không?")
     assert not requires_evidence_verification("Tên văn bản là gì?")
+
+
+def test_no_answer_explains_ambiguity_and_unverified_risk():
+    assert "nhiều văn bản" in no_answer_response("", reason="ambiguous")
+    assert "xác minh" in no_answer_response("", reason="unverified")
 
 
 def test_weighted_rrf_preserves_channels_and_document_diversity():

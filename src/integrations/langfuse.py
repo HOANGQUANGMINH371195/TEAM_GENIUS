@@ -24,6 +24,19 @@ def tracing_enabled() -> bool:
 def configure_langfuse() -> None:
     """Copy Settings into process env before the Langfuse client is created."""
     global _configured
+    # Keep the transitive LangChain tracer disabled. Langfuse is the only
+    # supported telemetry backend for the online runtime.
+    os.environ["LANGCHAIN_TRACING_V2"] = "false"
+    os.environ["LANGSMITH_TRACING"] = "false"
+    for _name in (
+        "LANGCHAIN_API_KEY",
+        "LANGCHAIN_PROJECT",
+        "LANGCHAIN_ENDPOINT",
+        "LANGSMITH_API_KEY",
+        "LANGSMITH_PROJECT",
+        "LANGSMITH_ENDPOINT",
+    ):
+        os.environ.pop(_name, None)
     settings = get_settings()
     public_key = settings.langfuse_public_key.strip()
     secret_key = settings.langfuse_secret_key.strip()

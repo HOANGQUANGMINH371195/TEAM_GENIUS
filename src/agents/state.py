@@ -15,6 +15,7 @@ class AgentState(TypedDict, total=False):
     retrieved_evidence: list[RetrievalResult]
     direct_citations: list[Citation]
     citations: list[Citation]
+    claims: list[dict]
     context: str
     response: str
     error: str

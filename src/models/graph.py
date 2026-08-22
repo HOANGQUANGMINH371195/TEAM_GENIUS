@@ -19,6 +19,9 @@ class DocumentCandidate(BaseModel):
     ngay_co_hieu_luc: str = ""
     ngay_het_hieu_luc: str = ""
     legal_status: str = ""
+    legal_status_verified: bool = False
+    legal_status_source: str = ""
+    legal_status_checked_at: str = ""
     categories: list[str] = Field(default_factory=list)
     answer_ready: bool = False
 
@@ -66,3 +69,6 @@ class Citation(BaseModel):
     source_start: int | None = None
     source_end: int | None = None
     text_sha256: str = ""
+    provenance_verified: bool = False
+    source_url: str = ""
+    source_checked_at: str = ""

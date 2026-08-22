@@ -8,6 +8,7 @@ Neo4j. It contains no credentials and can be inspected as JSON/JSONL.
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -48,8 +49,9 @@ def backup_postgres(
     destination: Path, *, omit_generated_retrieval_columns: bool = False,
     metadata_only: bool = False,
 ) -> tuple[str, dict[str, int], str]:
-    tables = (
+    release_tables = (
         "documents",
+        "release_projections",
         "document_aliases",
         "legal_units",
         "document_tables",
@@ -57,7 +59,7 @@ def backup_postgres(
         "chunks",
     )
     if metadata_only:
-        tables = ("documents", "document_aliases")
+        release_tables = ("documents", "document_aliases")
     with postgres_connection() as connection, connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
         cursor.execute("SELECT active_dataset_id FROM public.dataset_state WHERE singleton")
         active_dataset_id = str(cursor.fetchone()["active_dataset_id"])
@@ -72,7 +74,7 @@ def backup_postgres(
             "tables": {},
         }
         counts: dict[str, int] = {}
-        for table in tables:
+        for table in release_tables:
             projection = "*"
             if metadata_only and table == "documents":
                 projection = (
@@ -96,6 +98,15 @@ def backup_postgres(
             rows = cursor.fetchall()
             payload["tables"][table] = rows
             counts[table] = len(rows)
+        # Conversation data is owner-scoped application state. Include it only
+        # when the migration exists, and never pretend it is release content.
+        for table in ("conversations", "conversation_turns"):
+            cursor.execute("SELECT to_regclass(%s) AS relation", (f"public.{table}",))
+            if cursor.fetchone()["relation"] is None:
+                continue
+            cursor.execute(f"SELECT * FROM public.{table} WHERE deleted_at IS NULL" if table == "conversations" else f"SELECT * FROM public.{table}")
+            payload["tables"][table] = cursor.fetchall()
+            counts[table] = len(payload["tables"][table])
     return write_json(destination / "postgres_active_release.json", payload), counts, active_dataset_id
 
 
@@ -147,6 +158,10 @@ def main() -> int:
         "--metadata-only", action="store_true",
         help="Back up mutable document/alias metadata only; use with an earlier full release backup.",
     )
+    parser.add_argument(
+        "--compress", action="store_true",
+        help="Write a gzip-compressed copy beside the JSON backup and record its checksum.",
+    )
     args = parser.parse_args()
     output = args.output_dir
     output.mkdir(parents=True, exist_ok=False)
@@ -156,7 +171,7 @@ def main() -> int:
         metadata_only=args.metadata_only,
     )
     neo4j_hash, neo4j_counts = backup_neo4j(output)
-    write_json(output / "manifest.json", {
+    manifest = {
         "created_at_utc": datetime.now(UTC).isoformat(),
         "active_dataset_id": active_dataset_id,
         "postgres_active_release_sha256": postgres_hash,
@@ -165,7 +180,16 @@ def main() -> int:
         "metadata_only": args.metadata_only,
         "postgres_counts": postgres_counts,
         "neo4j_counts": neo4j_counts,
-    })
+    }
+    if args.compress:
+        source = output / "postgres_active_release.json"
+        compressed = output / "postgres_active_release.json.gz"
+        with source.open("rb") as input_file, gzip.open(compressed, "wb", compresslevel=9) as output_file:
+            while block := input_file.read(1024 * 1024):
+                output_file.write(block)
+        manifest["postgres_active_release_gzip_sha256"] = hashlib.sha256(compressed.read_bytes()).hexdigest()
+        manifest["compression"] = "gzip"
+    write_json(output / "manifest.json", manifest)
     print(json.dumps({"output_dir": str(output), "postgres": postgres_counts, "neo4j": neo4j_counts}))
     return 0
 

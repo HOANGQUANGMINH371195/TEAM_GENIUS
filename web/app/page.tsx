@@ -1,15 +1,16 @@
 "use client";
 
-import { FormEvent, forwardRef, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, forwardRef, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import Image from "next/image";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 
-import { ChatCitation, ChatHistoryMessage, sendChatMessage } from "../lib/api";
+import { ChatCitation, sendChatMessageStream } from "../lib/api";
 import { useAuth } from "../lib/auth-context";
 import { AuthRoute } from "../components/auth-route";
 
-type ChatMessage = ChatHistoryMessage & { id: string; citations?: ChatCitation[] };
+type ChatMessage = { role: "user" | "assistant"; content: string; id: string; citations?: ChatCitation[] };
 type IconName = "arrow" | "book" | "chat" | "check" | "chevron" | "close" | "document" | "help" | "history" | "logout" | "menu" | "new" | "review" | "search" | "shield" | "spark" | "user";
 
 const topicCards = [
@@ -76,6 +77,7 @@ export default function HomePage() {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [streamStage, setStreamStage] = useState("started");
   const [error, setError] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -88,10 +90,11 @@ export default function HomePage() {
   const drawerRef = useRef<HTMLElement>(null);
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const drawerReturnFocusRef = useRef<HTMLElement | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const conversationIdRef = useRef(crypto.randomUUID());
 
   const activeMessage = messages.find((message) => message.id === activeMessageId && message.role === "assistant");
   const activeEvidence = (activeMessage?.citations ?? []).map((citation) => ({ ...citation, evidenceId: `${activeMessage?.id ?? "active"}-${citation.chunk_id}` }));
-  const history = useMemo<ChatHistoryMessage[]>(() => messages.map(({ role, content }) => ({ role, content })), [messages]);
 
   useGSAP(() => {
     if (!welcomeRef.current || messages.length || typeof window === "undefined") return;
@@ -154,6 +157,8 @@ export default function HomePage() {
 
   function createNewChat() {
     if (loading) return;
+    streamAbortRef.current?.abort();
+    conversationIdRef.current = crypto.randomUUID();
     setMessages([]);
     setQuestion("");
     setError("");
@@ -183,22 +188,43 @@ export default function HomePage() {
     const message = question.trim();
     if (!message || loading) return;
     const userMessage: ChatMessage = { id: `user-${Date.now()}`, role: "user", content: message };
-    const nextHistory = [...history, { role: "user" as const, content: message }];
     setMessages((current) => [...current, userMessage]);
     setQuestion("");
     setError("");
     setLoading(true);
+    setStreamStage("started");
     setActiveMessageId(null);
     setExpandedCitationIds([]);
     setEvidenceOpen(false);
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
     try {
-      const result = await sendChatMessage(message, nextHistory);
+      const result = await sendChatMessageStream(
+        message,
+        (streamEvent) => {
+          if (streamEvent.type === "status") setStreamStage(streamEvent.stage);
+          if (streamEvent.type === "final") setStreamStage("verified");
+        },
+        {
+          conversationId: conversationIdRef.current,
+          turnId: crypto.randomUUID(),
+        },
+        controller.signal,
+      );
       setMessages((current) => [...current, { id: `assistant-${Date.now()}`, role: "assistant", content: result.response, citations: result.citations }]);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Không thể gửi câu hỏi");
+      if (!(requestError instanceof DOMException && requestError.name === "AbortError")) {
+        setError(requestError instanceof Error ? requestError.message : "Không thể gửi câu hỏi");
+      }
     } finally {
+      streamAbortRef.current = null;
       setLoading(false);
     }
+  }
+
+  function cancelRequest() {
+    streamAbortRef.current?.abort();
+    setStreamStage("cancelled");
   }
 
   return (
@@ -224,7 +250,7 @@ export default function HomePage() {
         <div className="bhyt-sidebar-footer">
           {user ? (
             <div className="bhyt-user-info">
-              {user.photoURL ? <img src={user.photoURL} alt="" className="bhyt-user-avatar" /> : <Icon name="user" />}
+              {user.photoURL ? <Image src={user.photoURL} alt="" width={32} height={32} unoptimized className="bhyt-user-avatar" /> : <Icon name="user" />}
               <span><strong>{user.displayName || user.email}</strong><small>{user.role === "admin" ? "Quản trị viên" : "Người dùng"}</small></span>
               <button type="button" className="bhyt-logout-btn" onClick={() => signOut()} title="Đăng xuất"><Icon name="logout" /></button>
             </div>
@@ -263,7 +289,7 @@ export default function HomePage() {
               ) : (
                 <AssistantMessage key={message.id} message={message} evidenceDrawerOpen={evidenceOpen && activeMessageId === message.id} onEvidenceToggle={toggleEvidenceDrawer} />
               ))}
-              {loading ? <LoadingMessage /> : null}
+              {loading ? <LoadingMessage stage={streamStage} onCancel={cancelRequest} /> : null}
               {error ? <div className="bhyt-error" role="alert">{error}</div> : null}
               {!loading && messages.some((message) => message.role === "assistant") ? (
                 <section className="bhyt-follow-up" aria-labelledby="follow-up-title">
@@ -279,7 +305,7 @@ export default function HomePage() {
           <Icon name="search" />
           <input ref={inputRef} aria-label="Nhập câu hỏi về bảo hiểm y tế" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Hỏi về quyền lợi, mức đóng hoặc thủ tục BHYT..." disabled={loading} />
           <span className="bhyt-composer-hint">Enter</span>
-          <button type="submit" aria-label="Gửi câu hỏi" disabled={loading || !question.trim()}>{loading ? "Đang tra cứu" : "Gửi câu hỏi"}<Icon name="arrow" /></button>
+          <button type={loading ? "button" : "submit"} aria-label={loading ? "Hủy tra cứu" : "Gửi câu hỏi"} onClick={loading ? cancelRequest : undefined} disabled={!loading && !question.trim()}>{loading ? "Hủy" : "Gửi câu hỏi"}<Icon name={loading ? "close" : "arrow"} /></button>
         </form>
       </section>
 
@@ -387,8 +413,18 @@ function AssistantMessage({ message, evidenceDrawerOpen, onEvidenceToggle }: { m
   );
 }
 
-function LoadingMessage() {
-  return <div className="bhyt-message-row is-assistant"><span className="bhyt-assistant-avatar" aria-hidden="true"><Icon name="spark" /></span><div className="bhyt-assistant-message"><div className="bhyt-message-meta"><strong>Trợ lý BHYT</strong><span>Đang tra cứu</span></div><div className="bhyt-typing"><span /><span /><span /><p>Đang đối chiếu văn bản và quan hệ pháp lý...</p></div></div></div>;
+function LoadingMessage({ stage, onCancel }: { stage: string; onCancel: () => void }) {
+  const labels: Record<string, string> = {
+    started: "Đang khởi động truy vấn...",
+    retrieve_vectors: "Đang tìm evidence liên quan...",
+    assemble_context: "Đang đóng gói ngữ cảnh nguồn...",
+    verify_evidence: "Đang kiểm tra provenance...",
+    generate: "Đang soạn câu trả lời...",
+    guardrail: "Đang kiểm tra claim và citation...",
+    verified: "Đã kiểm chứng câu trả lời.",
+    cancelled: "Đã hủy truy vấn.",
+  };
+  return <div className="bhyt-message-row is-assistant"><span className="bhyt-assistant-avatar" aria-hidden="true"><Icon name="spark" /></span><div className="bhyt-assistant-message"><div className="bhyt-message-meta"><strong>Trợ lý BHYT</strong><span>Đang tra cứu</span></div><div className="bhyt-typing"><span /><span /><span /><p>{labels[stage] ?? labels.started}</p><button type="button" onClick={onCancel}>Hủy</button></div></div></div>;
 }
 
 function CitationCard({ citation, expanded, onToggle }: { citation: ChatCitation & { evidenceId: string }; expanded: boolean; onToggle: () => void }) {

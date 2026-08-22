@@ -10,7 +10,7 @@ Free-tier hiện tại được giữ ngoài PostgreSQL để chờ chuyển Qdr
 ## Local development
 
 ```bash
-docker compose -f database/neo4j/docker-compose.yml up -d
+docker compose --profile local-full up -d neo4j
 ```
 
 Thiết lập `NEO4J_URI=bolt://localhost:7687`, `NEO4J_USERNAME=neo4j` và

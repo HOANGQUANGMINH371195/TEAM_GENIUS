@@ -13,7 +13,7 @@ Chạy theo đúng thứ tự sau.
 
 1. Tạo một project mới tại Supabase.
 2. Mở **SQL Editor → New query**.
-3. Mở file [database/schema.sql](../schema.sql), copy toàn bộ nội dung vào
+3. Mở file [database/postgres/schema.sql](../postgres/schema.sql), copy toàn bộ nội dung vào
    SQL Editor và bấm **Run**.
 4. Vào **Table Editor**. Nếu thấy các bảng `datasets`, `documents`, `chunks`
    và `legal_units`, phần PostgreSQL đã sẵn sàng. Relationships nằm trong Neo4j.
@@ -30,11 +30,11 @@ Chạy các lệnh sau từ root repository:
 cd /home/minh/projects/team-Vin-genius
 python3 -m venv .venv-bhyt
 source .venv-bhyt/bin/activate
-pip install -r requirements.txt
+make setup
 ```
 
 Nếu đã có môi trường Python dùng chung của team thì không cần tạo môi trường
-mới; chỉ cần bảo đảm `requirements.txt` đã được cài.
+mới; chỉ cần bảo đảm `make setup` đã hoàn tất.
 
 Copy `.env.example` thành `.env` ở root repo nếu chưa có, sau đó điền:
 
@@ -141,12 +141,14 @@ service role key không được commit.
 Máy khác chỉ cần tải thư mục artifact về rồi chạy:
 
 ```bash
-python3 database/pipeline/scripts/load_embedding_artifact.py snapshot-... \
-  data/clean/embeddings/snapshot-...
+python3 database/corpus/qdrant_release.py \
+  --artifact-dir data/clean/embeddings/snapshot-... \
+  --metadata-csv data/clean/metadata.csv
 ```
 
-Lệnh này kiểm tra manifest, số dòng, số chiều, nạp vector vào `pgvector` và mặc
-định vẫn giữ release ở `staging`.
+Lệnh này kiểm tra manifest, số dòng, số chiều, nạp vector vào collection Qdrant
+theo release và chỉ được phép đổi alias sau parity; PostgreSQL vẫn giữ canonical
+text/provenance để hydrate/citation.
 Qdrant là bản dùng trực tiếp cho semantic query; Supabase vẫn là nguồn chuẩn
 để hydrate nội dung và citation.
 

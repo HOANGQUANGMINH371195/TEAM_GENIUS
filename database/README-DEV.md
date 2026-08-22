@@ -6,7 +6,8 @@
 
 ```text
 database/
-├── schema.sql                 # Supabase PostgreSQL canonical/lexical schema
+├── postgres/                  # Supabase PostgreSQL schema + ordered migrations
+├── qdrant/                    # Qdrant projection contract
 ├── pipeline/                  # build snapshot, ingest, embedding, retrieval API
 ├── neo4j/                     # local Docker, Aura importer và graph docs
 └── firebase/                  # Firebase Auth scaffold cho frontend
@@ -73,7 +74,7 @@ cp .env.example .env       # chỉ khi chưa có .env
 (`QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_COLLECTION`). Local Neo4j:
 
 ```bash
-docker compose -f database/neo4j/docker-compose.yml up -d
+docker compose --profile local-full up -d neo4j
 ```
 
 Local mặc định dùng `bolt://localhost:7687`, user `neo4j`, password
@@ -158,7 +159,7 @@ export NEO4J_DATABASE='neo4j'
   --source-dir data/raw --dataset-id <active-dataset-id>
 ```
 
-Không dùng `database/neo4j/docker-compose.yml` trong production. Không commit
+Compose Neo4j chỉ dành cho local; production dùng Neo4j Aura. Không commit
 Aura password.
 
 ## Kiểm tra

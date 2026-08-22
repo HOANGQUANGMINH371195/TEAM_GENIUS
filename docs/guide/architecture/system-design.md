@@ -42,7 +42,7 @@ Supabase là PostgreSQL managed, dùng full-text search cho chunks và là ngu�
 canonical của text/provenance. Qdrant giữ semantic vector derived theo active alias.
 `legal_units`/PageIndex giữ cấu trúc và source spans. Neo4j lưu document graph
 và predicates có hướng. Schema PostgreSQL quản lý bằng SQL tại
-`database/schema.sql`; không dùng SQLite hay Alembic.
+`database/postgres/schema.sql`; không dùng SQLite hay Alembic.
 
 ### Model runtime
 

@@ -29,10 +29,10 @@ import os
 import re
 import sys
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
-
+from typing import Any
 
 csv.field_size_limit(sys.maxsize)
 
@@ -41,7 +41,7 @@ PIPELINE_ROOT = REPO_ROOT / "database" / "pipeline"
 if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
-from data_pipeline.canonical import normalize_html  # noqa: E402
+from data_pipeline.canonical import normalize_html  # noqa: E402, I001
 
 
 DEFAULT_SOURCE_DIR = Path("/home/minh/projects/csv_admin_bhyt_vien_phi/source_originals")
@@ -757,7 +757,6 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
 
     csv_metadata = index_unique(csv_metadata_rows, "id", "metadata.csv")
     csv_content = index_unique(csv_content_rows, "id", "content.csv")
-    csv_documents = index_unique(csv_document_rows, "id", "documents.csv")
     active_documents = index_unique(active_document_rows, "id", args.active_docs.name)
 
     db_inventory: dict[str, Any] = {}
@@ -1315,7 +1314,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         }
 
     summary = {
-        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "generated_at": dt.datetime.now(dt.UTC).isoformat(),
         "inputs": {
             "source_dir": str(args.source_dir),
             "active_docs": str(args.active_docs),

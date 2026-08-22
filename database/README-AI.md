@@ -124,7 +124,7 @@ separate backend auth task explicitly requires it.
 ## Safe change procedure
 
 - Inspect `git status` first and preserve unrelated user changes.
-- Prefer `database/schema.sql` and the pipeline modules over new ad-hoc SQL.
+- Prefer `database/postgres/schema.sql` and the pipeline modules over new ad-hoc SQL.
 - Keep all SQL release-scoped by `dataset_id`.
 - Keep API routes free of direct SQL, embedding calls and graph orchestration.
 - Update `README-DEV.md`, this contract and `.env.example` when a boundary or

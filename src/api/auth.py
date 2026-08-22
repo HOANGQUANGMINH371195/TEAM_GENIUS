@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import firebase_admin
 import firebase_admin.credentials
-from firebase_admin import auth as fb_auth
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from firebase_admin import auth as fb_auth
 
 logger = logging.getLogger(__name__)
 
@@ -19,23 +20,33 @@ def _ensure_firebase_initialized() -> None:
     global _initialized
     if _initialized:
         return
-    if not firebase_admin._apps:
-        import json
-        from src.config import get_settings
+    try:
+        firebase_admin.get_app()
+        _initialized = True
+        return
+    except ValueError:
+        pass
 
-        settings = get_settings()
-        service_account_json = getattr(settings, "firebase_service_account_json", "")
+    import json
 
-        if service_account_json:
-            # Parse JSON string
-            service_account_info = json.loads(service_account_json)
-            cred = firebase_admin.credentials.Certificate(service_account_info)
-            firebase_admin.initialize_app(cred)
-            logger.info("Firebase Admin initialized with service account JSON")
-        else:
-            # 回退到默认凭证 (适合 GCP 环境)
-            firebase_admin.initialize_app()
-            logger.info("Firebase Admin initialized with default credentials")
+    from src.config import get_settings
+
+    settings = get_settings()
+    service_account_json = getattr(settings, "firebase_service_account_json", "")
+
+    if service_account_json:
+        service_account_info = json.loads(service_account_json)
+        cred = firebase_admin.credentials.Certificate(service_account_info)
+        firebase_admin.initialize_app(cred)
+        logger.info("Firebase Admin initialized with service account JSON")
+    elif settings.app_env == "production" and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+        raise RuntimeError(
+            "Firebase Admin credentials are required in production; configure "
+            "FIREBASE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS"
+        )
+    else:
+        firebase_admin.initialize_app()
+        logger.info("Firebase Admin initialized with application default credentials")
     _initialized = True
 
 
@@ -77,8 +88,9 @@ async def require_admin(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     uid = user.get("uid", "")
-    from src.db.session import session_scope
     from sqlalchemy import text
+
+    from src.db.session import session_scope
 
     async with session_scope() as session:
         result = await session.execute(

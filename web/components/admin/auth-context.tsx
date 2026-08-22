@@ -23,7 +23,9 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   const isAuthenticated = !loading && !!user;
   const isReady = !loading;
 
-  const login = useCallback((_username: string, _password: string): LoginResult => {
+  const login = useCallback((username: string, password: string): LoginResult => {
+    void username;
+    void password;
     return { success: false, message: "Vui lòng đăng nhập bằng tài khoản Google." };
   }, []);
 

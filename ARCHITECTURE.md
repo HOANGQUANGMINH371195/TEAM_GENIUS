@@ -51,7 +51,7 @@ Các kỹ thuật không được mang sang vì không có data contract tương
 
 ## 3. Hiện trạng repository: implemented và target
 
-`database/schema.sql` cùng `database/pipeline/data_pipeline` là data contract
+`database/postgres/schema.sql` cùng `database/pipeline/data_pipeline` là data contract
 chuẩn. Runtime production dùng `src/services/chat.py` + `src/db/repositories.py`;
 `src/graph_rag` là scaffold cũ, không phải request path.
 
@@ -750,6 +750,7 @@ src/graph_rag/        planner, fusion, graph scoring, rerank, verifier contracts
 src/db/               active-release PostgreSQL repository
 src/integrations/     embeddings, Neo4j, LLM, telemetry adapters
 database/pipeline/    deterministic ingestion and release publication
+database/postgres/    PostgreSQL schema and ordered migrations
 database/neo4j/       relationship importer and traversal queries
 web/                  answer, citation, unit/table and graph-path views
 ```

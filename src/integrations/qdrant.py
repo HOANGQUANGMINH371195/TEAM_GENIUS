@@ -84,6 +84,100 @@ class QdrantVectorStore:
             if point.payload and point.payload.get("document_id")
         ]
 
+    async def search_many(
+        self,
+        vectors: Sequence[Sequence[float]],
+        *,
+        dataset_id: str,
+        limit: int,
+        document_ids: Sequence[str] | None = None,
+        score_threshold: float | None = None,
+    ) -> list[list[VectorHit]]:
+        """Search bounded sub-query vectors in one Qdrant batch when supported.
+
+        Older Qdrant clients/servers fall back to the same bounded concurrent
+        adapter, preserving ordering and release filters without changing
+        correctness.
+        """
+        import asyncio
+
+        values = [list(vector) for vector in vectors]
+        if not values:
+            return []
+        if any(len(vector) != self.dimensions for vector in values) or limit <= 0:
+            return [[] for _ in values]
+        from qdrant_client import models
+
+        conditions: list[models.FieldCondition] = [
+            models.FieldCondition(key="dataset_id", match=models.MatchValue(value=dataset_id)),
+            models.FieldCondition(key="answer_ready", match=models.MatchValue(value=True)),
+        ]
+        if document_ids:
+            conditions.append(
+                models.FieldCondition(
+                    key="document_id", match=models.MatchAny(any=list(dict.fromkeys(document_ids))),
+                )
+            )
+        query_filter = models.Filter(must=conditions)
+
+        async def one(vector: Sequence[float]) -> list[VectorHit]:
+            response = await self.client.query_points(
+                self.collection,
+                query=[float(value) for value in vector],
+                query_filter=query_filter,
+                limit=limit,
+                with_payload=["passage_id", "document_id", "unit_id", "input_sha256"],
+                with_vectors=False,
+                score_threshold=score_threshold,
+                timeout=self.timeout,
+            )
+            return [
+                VectorHit(
+                    chunk_id=str(point.payload.get("passage_id") or point.id).replace("-", ""),
+                    document_id=str(point.payload.get("document_id") or ""),
+                    unit_id=str(point.payload.get("unit_id") or ""),
+                    score=float(point.score),
+                    input_sha256=str(point.payload.get("input_sha256") or ""),
+                )
+                for point in response.points
+                if point.payload and point.payload.get("document_id")
+            ]
+
+        # The client API exposes query_batch only in newer releases. Keep the
+        # fallback explicit so dependency upgrades cannot silently widen scope.
+        query_batch = getattr(self.client, "query_batch", None)
+        if query_batch is None:
+            return await asyncio.gather(*(one(vector) for vector in values))
+        requests = [
+            models.QueryRequest(
+                query=vector,
+                filter=query_filter,
+                limit=limit,
+                with_payload=["passage_id", "document_id", "unit_id", "input_sha256"],
+                with_vector=False,
+                score_threshold=score_threshold,
+            )
+            for vector in values
+        ]
+        try:
+            responses = await query_batch(collection_name=self.collection, requests=requests)
+        except (AttributeError, TypeError, NotImplementedError):
+            return await asyncio.gather(*(one(vector) for vector in values))
+        return [
+            [
+                VectorHit(
+                    chunk_id=str(point.payload.get("passage_id") or point.id).replace("-", ""),
+                    document_id=str(point.payload.get("document_id") or ""),
+                    unit_id=str(point.payload.get("unit_id") or ""),
+                    score=float(point.score),
+                    input_sha256=str(point.payload.get("input_sha256") or ""),
+                )
+                for point in response.points
+                if point.payload and point.payload.get("document_id")
+            ]
+            for response in responses
+        ]
+
     async def readiness(self, *, dataset_id: str, expected_points: int) -> bool:
         """Validate alias shape and release point count without touching PostgreSQL."""
         from qdrant_client import models

@@ -1,6 +1,26 @@
-from langgraph.graph import END, StateGraph
+from __future__ import annotations
 
-from src.agents.nodes.graphrag_nodes import (
+import os
+
+# LangSmith is a transitive LangChain dependency, but it is not an
+# observability backend for this service. Disable its ambient environment
+# tracer before importing LangGraph so a stale local `.env` cannot cause 403
+# requests or leak prompts. Langfuse is configured explicitly by the adapter.
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
+os.environ["LANGSMITH_TRACING"] = "false"
+for _name in (
+    "LANGCHAIN_API_KEY",
+    "LANGCHAIN_PROJECT",
+    "LANGCHAIN_ENDPOINT",
+    "LANGSMITH_API_KEY",
+    "LANGSMITH_PROJECT",
+    "LANGSMITH_ENDPOINT",
+):
+    os.environ.pop(_name, None)
+
+from langgraph.graph import END, StateGraph  # noqa: E402
+
+from src.agents.nodes.graphrag_nodes import (  # noqa: E402
     assemble_context_node,
     extract_entities_node,
     generate_node,
@@ -9,7 +29,7 @@ from src.agents.nodes.graphrag_nodes import (
     retrieve_vectors_node,
     verify_evidence_node,
 )
-from src.agents.state import AgentState
+from src.agents.state import AgentState  # noqa: E402
 
 
 def should_continue(state: AgentState) -> str:

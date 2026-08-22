@@ -16,6 +16,7 @@ import numpy as np
 import psycopg
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
+from qdrant_client import QdrantClient, models
 
 load_dotenv()
 
@@ -81,7 +82,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--external-embedding-artifact", type=Path,
-        help="Accept absent pgvector values only when this complete local/Qdrant-ready artifact matches.",
+        help="Accept absent in-database vector values only when this complete Qdrant-ready artifact matches.",
     )
     args = parser.parse_args()
 
@@ -140,14 +141,23 @@ def main() -> int:
         if postgres_identity_mismatches:
             errors.append(f"PostgreSQL identity mismatches: {postgres_identity_mismatches[:20]}")
         cursor.execute(
-            """SELECT count(*) AS chunks,
+            """SELECT EXISTS (
+                       SELECT 1 FROM information_schema.columns
+                       WHERE table_schema='public' AND table_name='chunks' AND column_name='embedding'
+                   ) AS has_embedding"""
+        )
+        has_embedding = bool(cursor.fetchone()["has_embedding"])
+        embedding_expression = "embedding IS NULL" if has_embedding else "TRUE"
+        cursor.execute(
+            f"""SELECT count(*) AS chunks,
                       count(*) FILTER (WHERE semantic_eligible) AS semantic_chunks,
-                      count(*) FILTER (WHERE semantic_eligible AND embedding IS NULL) AS missing_embeddings
+                      count(*) FILTER (WHERE semantic_eligible AND {embedding_expression}) AS missing_embeddings
                FROM chunks WHERE dataset_id=%s""", (args.dataset_id,),
         )
         chunk_counts = dict(cursor.fetchone())
+        embedded_expression = "embedding IS NOT NULL" if has_embedding else "FALSE"
         cursor.execute(
-            """SELECT chunk_id, document_id, text, semantic_eligible, embedding IS NOT NULL AS embedded
+            f"""SELECT chunk_id, document_id, text, semantic_eligible, {embedded_expression} AS embedded
                FROM chunks WHERE dataset_id=%s""", (args.dataset_id,),
         )
         live_chunks = {
@@ -169,6 +179,46 @@ def main() -> int:
             errors.append(f"PostgreSQL chunk content/provenance mismatches: {chunk_mismatches[:20]}")
         cursor.execute("SELECT count(*) AS count FROM document_aliases WHERE dataset_id=%s", (args.dataset_id,))
         postgres_aliases = int(cursor.fetchone()["count"])
+        cursor.execute(
+            """SELECT projection_kind, locator, status, release_fingerprint,
+                      expected_count, actual_count
+               FROM release_projections WHERE dataset_id=%s""",
+            (args.dataset_id,),
+        )
+        projection_rows = {str(row["projection_kind"]): row for row in cursor.fetchall()}
+        if set(projection_rows) != {"postgres", "qdrant", "neo4j"}:
+            errors.append("release projection registry is incomplete")
+        for kind, row in projection_rows.items():
+            if row["status"] != "ready" or row["release_fingerprint"] == "":
+                errors.append(f"{kind} projection is not ready/fingerprint-scoped")
+            if row["actual_count"] is not None and int(row["actual_count"]) != int(row["expected_count"]):
+                errors.append(f"{kind} projection expected/actual counts differ")
+
+    qdrant_point_count: int | None = None
+    if os.getenv("QDRANT_URL") and os.getenv("QDRANT_API_KEY"):
+        qdrant = QdrantClient(
+            url=os.environ["QDRANT_URL"], api_key=os.environ["QDRANT_API_KEY"], timeout=30,
+        )
+        try:
+            collection = os.getenv("QDRANT_COLLECTION", "medical_legal_active")
+            if not qdrant.collection_exists(collection):
+                errors.append(f"Qdrant collection missing: {collection}")
+            else:
+                qdrant_point_count = int(qdrant.count(
+                    collection,
+                    count_filter=models.Filter(must=[
+                        models.FieldCondition(key="dataset_id", match=models.MatchValue(value=args.dataset_id))
+                    ]),
+                    exact=True,
+                ).count)
+                qdrant_row = projection_rows.get("qdrant")
+                if qdrant_row is None or qdrant_point_count != int(qdrant_row["expected_count"]):
+                    errors.append(
+                        f"Qdrant point count {qdrant_point_count} does not match registry "
+                        f"{qdrant_row['expected_count'] if qdrant_row else 'missing'}"
+                    )
+        finally:
+            qdrant.close()
 
     driver = GraphDatabase.driver(
         os.environ["NEO4J_URI"],
@@ -223,6 +273,10 @@ def main() -> int:
                    RETURN count(n) AS count""",
                 dataset_id=args.dataset_id,
             ).single()["count"])
+            approved_edges = int(session.run(
+                "MATCH ()-[r]->() WHERE r.dataset_id=$dataset_id AND r.serving_status='approved_evidence' RETURN count(r) AS count",
+                dataset_id=args.dataset_id,
+            ).single()["count"])
     finally:
         driver.close()
 
@@ -255,12 +309,23 @@ def main() -> int:
         "counts": {
             "postgres_documents": len(postgres_rows),
             "postgres_aliases": postgres_aliases,
+            "release_projections": {
+                kind: {
+                    "locator": str(row["locator"]),
+                    "status": str(row["status"]),
+                    "expected_count": int(row["expected_count"]),
+                    "actual_count": int(row["actual_count"]) if row["actual_count"] is not None else None,
+                }
+                for kind, row in projection_rows.items()
+            },
+            "qdrant_actual_points": qdrant_point_count,
             "chunks": int(chunk_counts["chunks"]),
             "semantic_chunks": int(chunk_counts["semantic_chunks"]),
             "missing_semantic_embeddings": int(chunk_counts["missing_embeddings"]),
             "chunk_content_mismatches": len(chunk_mismatches),
             "neo4j_document_nodes": len(actual_nodes),
             "neo4j_reference_nodes": reference_nodes,
+            "neo4j_approved_evidence": approved_edges,
             "neo4j_legal_relationships": len(actual_edges),
             "neo4j_alias_relationships": alias_edges,
             "postgres_identity_mismatches": len(postgres_identity_mismatches),

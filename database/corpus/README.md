@@ -45,8 +45,8 @@ Quy trình kiểm soát:
 
 1. `reuse_embedding_backup.py` chỉ tái sử dụng vector khi cả passage ID và
    embedding-input SHA-256 khớp; input mới phải được embed lại.
-2. `offload_staging_embeddings.py` chỉ xóa pgvector/HNSW sau khi artifact local
-   khớp dataset ID, row count, dimensions và toàn bộ vector hữu hạn.
+2. `offload_staging_embeddings.py` chỉ dọn staging vector metadata sau khi
+   artifact local khớp dataset ID, row count, dimensions và toàn bộ vector hữu hạn.
 3. `verify_live_corpus_parity.py --external-embedding-artifact ...` đối chiếu
    source, Supabase, Neo4j và artifact theo từng passage/edge trước khi báo pass.
 

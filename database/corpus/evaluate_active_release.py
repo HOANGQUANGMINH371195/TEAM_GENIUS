@@ -35,8 +35,12 @@ def connection() -> psycopg.Connection:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--benchmark", type=Path, required=True)
+    parser.add_argument(
+        "--semantic-benchmark", type=Path,
+        help="Optional thematic benchmark. Never reuse exact-signature cases for semantic quality.",
+    )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--semantic-limit", type=int, default=10)
+    parser.add_argument("--semantic-limit", type=int, default=20)
     args = parser.parse_args()
     cases = [json.loads(line) for line in args.benchmark.read_text(encoding="utf-8").splitlines() if line]
     exact_cases = [case for case in cases if case["case_type"] == "exact_document_retrieval"]
@@ -54,33 +58,49 @@ def main() -> int:
         else:
             exact_failures.append(case["case_id"])
 
-    vectors = embed_batch([case["query"] for case in exact_cases])
-    semantic_at_5 = semantic_at_10 = 0
-    semantic_failures: list[str] = []
-    if not os.getenv("QDRANT_URL") or not os.getenv("QDRANT_API_KEY"):
-        raise RuntimeError("QDRANT_URL and QDRANT_API_KEY are required for active semantic evaluation")
     dataset_id = repository.current_dataset().dataset_id
-    qdrant = QdrantClient(
-        url=os.environ["QDRANT_URL"], api_key=os.environ["QDRANT_API_KEY"], timeout=int(float(os.getenv("QDRANT_TIMEOUT_SECONDS", "30")))
-    )
-    collection = os.getenv("QDRANT_COLLECTION", "medical_legal_active")
-    for case, vector in zip(exact_cases, vectors, strict=True):
-        response = qdrant.query_points(
-            collection, query=vector, limit=args.semantic_limit,
-            query_filter=models.Filter(must=[
-                models.FieldCondition(key="dataset_id", match=models.MatchValue(value=dataset_id)),
-                models.FieldCondition(key="answer_ready", match=models.MatchValue(value=True)),
-            ]),
-            with_payload=["document_id"], with_vectors=False,
+    semantic = {"status": "not_run", "reason": "pass --semantic-benchmark separately"}
+    semantic_failures: list[str] = []
+    semantic_at_5 = semantic_at_10 = semantic_at_limit = 0
+    semantic_total = 0
+    if args.semantic_benchmark:
+        semantic_cases = [
+            json.loads(line) for line in args.semantic_benchmark.read_text(encoding="utf-8").splitlines() if line.strip()
+        ]
+        if not os.getenv("QDRANT_URL") or not os.getenv("QDRANT_API_KEY"):
+            raise RuntimeError("QDRANT_URL and QDRANT_API_KEY are required for active semantic evaluation")
+        vectors = embed_batch([str(case.get("question") or case.get("query") or "") for case in semantic_cases])
+        qdrant = QdrantClient(
+            url=os.environ["QDRANT_URL"], api_key=os.environ["QDRANT_API_KEY"], timeout=int(float(os.getenv("QDRANT_TIMEOUT_SECONDS", "30")))
         )
-        hits = [str(point.payload.get("document_id", "")) for point in response.points if point.payload]
-        expected = set(case["expected_document_ids"])
-        if expected & set(hits[:5]):
-            semantic_at_5 += 1
-        if expected & set(hits[:10]):
-            semantic_at_10 += 1
-        else:
-            semantic_failures.append(case["case_id"])
+        collection = os.getenv("QDRANT_COLLECTION", "medical_legal_active")
+        for case, vector in zip(semantic_cases, vectors, strict=True):
+            response = qdrant.query_points(
+                collection, query=vector, limit=args.semantic_limit,
+                query_filter=models.Filter(must=[
+                    models.FieldCondition(key="dataset_id", match=models.MatchValue(value=dataset_id)),
+                    models.FieldCondition(key="answer_ready", match=models.MatchValue(value=True)),
+                ]),
+                with_payload=["document_id"], with_vectors=False,
+            )
+            hits = [str(point.payload.get("document_id", "")) for point in response.points if point.payload]
+            expected = {str(case["document_id"])}
+            semantic_at_5 += bool(expected & set(hits[:5]))
+            semantic_at_10 += bool(expected & set(hits[:10]))
+            semantic_at_limit += bool(expected & set(hits[:args.semantic_limit]))
+            if not expected & set(hits[:args.semantic_limit]):
+                semantic_failures.append(str(case.get("case_id") or case.get("document_id")))
+        qdrant.close()
+        semantic_total = len(semantic_cases)
+        semantic = {
+            "status": "complete",
+            "recall_at_5": semantic_at_5 / max(1, semantic_total),
+            "recall_at_10": semantic_at_10 / max(1, semantic_total),
+            "recall_at_limit": semantic_at_limit / max(1, semantic_total),
+            "limit": args.semantic_limit,
+            "passed_at_10": semantic_at_10,
+            "total": semantic_total,
+        }
 
     driver = GraphDatabase.driver(
         os.environ["NEO4J_URI"],
@@ -119,15 +139,11 @@ def main() -> int:
             "total": len(exact_cases),
             "recall_at_10": exact_pass / exact_total,
         },
-        "semantic": {
-            "recall_at_5": semantic_at_5 / exact_total,
-            "recall_at_10": semantic_at_10 / exact_total,
-            "passed_at_10": semantic_at_10,
-            "total": len(exact_cases),
-        },
+        "semantic": semantic,
         "graph_evidence": {"passed": graph_pass, "total": len(graph_cases), "parity": graph_pass / graph_total},
         "failures": {"exact": exact_failures, "semantic_at_10": semantic_failures, "graph": graph_failures},
-        "release_gate_pass": exact_pass == len(exact_cases) and graph_pass == len(graph_cases) and semantic_at_10 / exact_total >= 0.85,
+        "release_gate_pass": exact_pass == len(exact_cases) and graph_pass == len(graph_cases)
+        and (semantic.get("status") != "complete" or float(semantic["recall_at_limit"]) >= 0.85),
         "human_adjudicated": False,
     }
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, ForeignKeyConstraint, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, ForeignKeyConstraint, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +27,26 @@ class DatasetState(Base):
     singleton: Mapped[bool] = mapped_column(Boolean, primary_key=True, default=True)
     active_dataset_id: Mapped[str | None] = mapped_column(ForeignKey("datasets.dataset_id"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReleaseProjection(Base):
+    """Control-plane row describing one verified projection of a release."""
+
+    __tablename__ = "release_projections"
+
+    dataset_id: Mapped[str] = mapped_column(String, primary_key=True)
+    projection_kind: Mapped[str] = mapped_column(String, primary_key=True)
+    locator: Mapped[str] = mapped_column(String, unique=True)
+    status: Mapped[str] = mapped_column(String)
+    release_fingerprint: Mapped[str] = mapped_column(String)
+    expected_count: Mapped[int] = mapped_column(BigInteger)
+    actual_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    content_sha256: Mapped[str] = mapped_column(String, default="")
+    embedding_model: Mapped[str] = mapped_column(String, default="")
+    embedding_dimensions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Document(Base):
@@ -75,4 +95,35 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-__all__ = ["Chunk", "Dataset", "DatasetState", "Document", "DocumentChunk", "User"]
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    conversation_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_uid: Mapped[str] = mapped_column(ForeignKey("users.uid"))
+    title: Mapped[str] = mapped_column(String(240), default="")
+    active_dataset_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ConversationTurn(Base):
+    __tablename__ = "conversation_turns"
+
+    turn_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.conversation_id"))
+    owner_uid: Mapped[str] = mapped_column(ForeignKey("users.uid"))
+    turn_index: Mapped[int] = mapped_column(Integer)
+    user_message: Mapped[str] = mapped_column(Text)
+    assistant_response: Mapped[str] = mapped_column(Text)
+    dataset_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    citations: Mapped[list] = mapped_column(JSONB, default=list)
+    claims: Mapped[list] = mapped_column(JSONB, default=list)
+    request_id: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+__all__ = [
+    "Chunk", "Conversation", "ConversationTurn", "Dataset", "DatasetState", "ReleaseProjection",
+    "Document", "DocumentChunk", "User",
+]

@@ -23,7 +23,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from psycopg import sql
 from psycopg.types.json import Jsonb
 
 from data_pipeline.facets import build_facets
@@ -83,7 +82,11 @@ def new_dataset_id(manifest: Mapping[str, Any]) -> str:
 
 
 def collection_name_for_dataset(dataset_id: str) -> str:
-    """Return the release-scoped vector index name used by Supabase/pgvector."""
+    """Return a legacy metadata locator for a staged release.
+
+    Semantic vectors are published by ``database/corpus/qdrant_release.py``;
+    this value is retained only for immutable manifest compatibility.
+    """
 
     validate_dataset_id(dataset_id)
     return f"legal_graph_chunks__{dataset_id.replace('-', '_')}"
@@ -226,8 +229,11 @@ def canonical_snapshot_to_dataset(snapshot: Any) -> IngestionDataset:
 
 
 def create_dataset_schema(conn: Any) -> None:
-    """Create idempotent release tables and active-release views.
+    """Bootstrap a disposable database schema for an explicit local fixture.
 
+    This helper is retained for compatibility tests and fresh fixture setup.
+    Production ingestion must use ``database/postgres/migrations/runner.py`` and never
+    call this function from a worker/request path.
     ``conn`` follows the psycopg connection/cursor interface; accepting ``Any``
     keeps this function easy to exercise using a recording DB adapter in unit
     tests, without requiring a live PostgreSQL/Supabase database.
@@ -819,61 +825,6 @@ def _group_facets(rows: Sequence[Mapping[str, Any]]) -> dict[str, tuple[Mapping[
     return {member_id: tuple(values) for member_id, values in grouped.items()}
 
 
-def ensure_dataset_vector_collection(conn: Any, dataset_id: str, *, dimensions: int) -> str:
-    """Create the release-scoped pgvector column and HNSW index.
-
-    Supabase exposes PostgreSQL plus pgvector rather than a separate
-    collection API.  The release id remains part of every row and every active
-    view, so vector retrieval cannot cross release boundaries.
-    """
-
-    validate_dataset_id(dataset_id)
-    if dimensions <= 0:
-        raise ValueError("dimensions must be positive")
-    collection = collection_name_for_dataset(dataset_id)
-    with conn.cursor() as cur:
-        cur.execute("SELECT status FROM datasets WHERE dataset_id = %s", (dataset_id,))
-        if cur.fetchone() is None:
-            raise ValueError(f"Unknown dataset_id: {dataset_id}")
-        # A staging release created by an earlier implementation may carry a
-        # legacy collection name with hyphens.  It has not been activated, so
-        # correcting this metadata is safe and makes a retry idempotent.
-        cur.execute(
-            "UPDATE datasets SET collection_name = %s WHERE dataset_id = %s AND status = 'staging'",
-            (collection, dataset_id),
-        )
-        cur.execute("CREATE SCHEMA IF NOT EXISTS extensions")
-        cur.execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions")
-        cur.execute("ALTER EXTENSION vector SET SCHEMA extensions")
-        cur.execute(f"ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding extensions.vector({dimensions})")
-        cur.execute("""SELECT format_type(a.atttypid, a.atttypmod)
-            FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
-            WHERE c.relname = 'chunks' AND a.attname = 'embedding' AND a.attnum > 0""")
-        current_type = cur.fetchone()
-        if not current_type or current_type[0] != f"vector({dimensions})":
-            cur.execute("SELECT indexname FROM pg_indexes WHERE tablename = 'chunks' AND indexdef ILIKE '%embedding%'")
-            for (old_index_name,) in cur.fetchall():
-                cur.execute(sql.SQL("DROP INDEX IF EXISTS {} CASCADE").format(sql.Identifier(old_index_name)))
-            cur.execute("DROP VIEW IF EXISTS active_graph_chunks CASCADE")
-            # Existing deployments may have a vector column from the previous
-            # local model. Changing dimensions requires a full rebuild.
-            cur.execute(f"ALTER TABLE chunks ALTER COLUMN embedding TYPE extensions.vector({dimensions}) USING NULL")
-        index_name = f"dataset_chunks_embedding_hnsw_{hashlib.sha256(dataset_id.encode()).hexdigest()[:12]}"
-        cur.execute(
-            f"CREATE INDEX IF NOT EXISTS {index_name} "
-            "ON chunks USING hnsw (embedding extensions.vector_cosine_ops) "
-            "WHERE dataset_id = '" + dataset_id + "' AND semantic_eligible AND embedding IS NOT NULL"
-        )
-        cur.execute("""CREATE OR REPLACE VIEW active_graph_chunks WITH (security_invoker = true) AS
-            SELECT c.*, r.fingerprint AS dataset_version
-            FROM chunks c
-            JOIN dataset_state runtime ON runtime.singleton
-            JOIN datasets r ON r.dataset_id = runtime.active_dataset_id
-            WHERE c.dataset_id = runtime.active_dataset_id""")
-    conn.commit()
-    return collection
-
-
 def fail_dataset(conn: Any, dataset_id: str, reason: str) -> None:
     """Record a staging failure without touching the active release."""
 
@@ -886,10 +837,37 @@ def fail_dataset(conn: Any, dataset_id: str, reason: str) -> None:
     conn.commit()
 
 
-def stage_dataset(conn: Any, dataset: DatasetLike, *, dataset_id: str | None = None) -> tuple[str, dict[str, int]]:
-    """Create and validate an immutable staging release, without exposing it."""
+def assert_schema_migrated(conn: Any) -> None:
+    """Fail closed when a worker is pointed at an un-migrated database.
 
-    create_dataset_schema(conn)
+    DDL is intentionally absent from the ingest transaction. This keeps
+    migration authority in the one-shot runner and prevents two workers from
+    racing to alter active tables while a release is being staged.
+    """
+    required = {"datasets", "dataset_state", "documents", "legal_units", "chunks"}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = ANY(%s)
+            """,
+            (list(required),),
+        )
+        present = {str(row[0]) for row in cur.fetchall()}
+    missing = sorted(required - present)
+    if missing:
+        raise RuntimeError(
+            "Database migrations are incomplete; run database/postgres/migrations/runner.py "
+            f"before ingest (missing: {', '.join(missing)})"
+        )
+
+
+def stage_dataset(conn: Any, dataset: DatasetLike, *, dataset_id: str | None = None) -> tuple[str, dict[str, int]]:
+    """Validate migration-owned schema and stage an immutable release."""
+
+    assert_schema_migrated(conn)
     dataset_id = begin_dataset(conn, dataset.manifest, dataset_id=dataset_id)
     try:
         stage_graph_dataset(conn, dataset_id, dataset)
@@ -905,7 +883,7 @@ def ingest_dataset(
     conn: Any, dataset: DatasetLike, *, dataset_id: str | None = None,
     require_embeddings: bool = True,
 ) -> tuple[str, dict[str, int]]:
-    """Perform schema setup, stage, validate and atomic publication.
+    """Stage, validate and atomically publish using migration-owned tables.
 
     On errors the caller gets the exception and the active release is unchanged.
     A failed staging record is retained only when the database transaction can

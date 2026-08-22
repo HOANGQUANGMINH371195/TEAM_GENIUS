@@ -42,7 +42,7 @@ truncate vector hoặc fallback sang model local nếu chưa tạo release mới
 
 ### Supabase schema
 
-`database/schema.sql` tạo documents, chunks, legal units và tables; Qdrant giữ vector semantic derived.
+`database/postgres/schema.sql` tạo documents, chunks, legal units và tables; Qdrant giữ vector semantic derived.
 PageIndex được sinh từ dữ liệu raw và ánh xạ vào legal units. Knowledge graph
 được lưu trong Neo4j; embedding dùng `text-embedding-3-small` với vector 1536
 chiều. Text dùng làm citation luôn phải lấy lại từ Supabase.
