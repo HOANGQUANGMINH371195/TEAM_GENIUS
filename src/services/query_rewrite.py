@@ -54,7 +54,7 @@ def should_rewrite_query(query: str) -> bool:
     return bool(
         len(normalized.split()) >= 4
         and policy_response(normalized) is None
-        and retrieval_intent(normalized) in {"thematic", "temporal"}
+        and retrieval_intent(normalized) in {"thematic", "temporal", "relational"}
         and not extract_document_numbers(normalized)
     )
 

@@ -66,7 +66,14 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_collection: str = "medical_legal_active"
     qdrant_timeout_seconds: float = Field(default=30.0, gt=0)
-    retrieval_timeout_seconds: float = Field(default=15.0, gt=0)
+    # Supabase pool checkout plus the bounded original/HyDE retrieval cascade
+    # can legitimately exceed 15s on a cold/free-tier connection.  A timeout
+    # shorter than the measured staging path turns a recoverable slow request
+    # into an agent_error before answer generation starts.
+    # Legal-unit expansion may require two bounded PostgreSQL passes on the
+    # free-tier pool; allow the verified request to finish instead of turning
+    # a slow cold connection into an agent error.
+    retrieval_timeout_seconds: float = Field(default=45.0, gt=0)
     provider_concurrency: int = Field(default=8, ge=1, le=64)
     provider_circuit_failure_threshold: int = Field(default=3, ge=1, le=20)
     provider_circuit_cooldown_seconds: float = Field(default=30.0, ge=1, le=600)

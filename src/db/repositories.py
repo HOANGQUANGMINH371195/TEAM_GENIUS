@@ -39,14 +39,37 @@ def lexical_phrases(query: str, *, limit: int = 48) -> list[str]:
     keyword catalogue or turning full-text search into an all-terms filter.
     """
     tokens = [token.casefold() for token in _LEXICAL_TOKEN.findall(query)]
-    phrases = list(
-        dict.fromkeys(
-            " ".join(tokens[index : index + width])
-            for width in (5, 4, 3, 2)
-            for index in range(len(tokens) - width + 1)
-        )
-    )
-    return phrases[: max(0, limit)]
+    by_width = [
+        list(dict.fromkeys(" ".join(tokens[index : index + width]) for index in range(len(tokens) - width + 1)))
+        for width in (5, 4, 3, 2)
+    ]
+    all_phrases = list(dict.fromkeys(phrase for phrases in by_width for phrase in phrases))
+    if len(all_phrases) <= max(0, limit):
+        return all_phrases
+    # A fixed prefix cut makes long questions systematically lose their
+    # decisive ending (for example the service or exception after a broad
+    # legal preamble).  Sample every n-gram width across the complete query
+    # instead.  This remains fully query-derived and bounded, but preserves
+    # both the beginning and end of natural-language questions.
+    budget = max(0, limit)
+    selected: list[str] = []
+    non_empty = [(phrases, 3 if width == 2 else 1) for phrases, width in zip(by_width, (5, 4, 3, 2)) if phrases]
+    for group_index, (phrases, weight) in enumerate(non_empty):
+        remaining_weight = sum(item_weight for _, item_weight in non_empty[group_index:])
+        quota = min(len(phrases), max(1, round(budget * weight / remaining_weight)))
+        # Endpoint-inclusive sampling gives each portion of a question a
+        # chance to contribute, including its final condition/exception.
+        for sample in range(quota):
+            index = (
+                0
+                if quota == 1
+                else round(sample * (len(phrases) - 1) / (quota - 1))
+            )
+            candidate = phrases[index]
+            if candidate not in selected:
+                selected.append(candidate)
+        budget = max(0, limit - len(selected))
+    return selected
 
 
 def lexical_disjunction(query: str, *, limit: int = 32) -> str:
@@ -97,8 +120,14 @@ class GraphRepository:
         # corpus-wide passage search remains capped at 48; applying that cap
         # here could omit a decisive formal title phrase occurring late in a
         # HyDE rewrite (for example after the user's circumstances).
-        phrases = lexical_phrases(query, limit=160)
-        if not phrases or limit <= 0:
+        # This is a title-only candidate lookup.  A small set of the longest
+        # query-derived phrases is enough to locate formal instrument titles;
+        # evaluating every possible n-gram against every title is both
+        # redundant and can starve the bounded retrieval deadline when the
+        # original and HyDE query run concurrently.
+        phrases = lexical_phrases(query, limit=24)
+        disjunction = lexical_disjunction(query, limit=64)
+        if (not phrases and not disjunction) or limit <= 0:
             return []
         result = await self.session.execute(
             text(
@@ -110,7 +139,11 @@ class GraphRepository:
                 )
                 SELECT d.id,
                        max(pq.token_count) AS phrase_length,
-                       max(ts_rank_cd(to_tsvector('simple', d.title), pq.phrase_query)) AS score,
+                       GREATEST(
+                           ts_rank_cd(to_tsvector('simple', d.title), websearch_to_tsquery('simple', :query)),
+                           COALESCE(ts_rank_cd(to_tsvector('simple', d.title), to_tsquery('simple', :disjunction)) * 1.5, 0.0),
+                           COALESCE(max(ts_rank_cd(to_tsvector('simple', d.title), pq.phrase_query) * pq.token_count * 30.0), 0.0)
+                       ) AS score,
                        max(
                            CASE
                                WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%luật%'
@@ -123,17 +156,28 @@ class GraphRepository:
                            END
                        ) AS authority_rank
                 FROM documents d
-                JOIN phrase_queries pq
+                LEFT JOIN phrase_queries pq
                   ON to_tsvector('simple', d.title) @@ pq.phrase_query
                 WHERE d.dataset_id = :dataset_id
                   AND NOT d.is_external
                   AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
-                GROUP BY d.id
-                ORDER BY authority_rank DESC, phrase_length DESC, score DESC, d.id
+                  AND (
+                      to_tsvector('simple', d.title) @@ websearch_to_tsquery('simple', :query)
+                      OR (:disjunction <> '' AND to_tsvector('simple', d.title) @@ to_tsquery('simple', :disjunction))
+                      OR pq.phrase_query IS NOT NULL
+                  )
+                GROUP BY d.id, d.title, d.payload
+                ORDER BY score DESC, authority_rank DESC, phrase_length DESC, d.id
                 LIMIT :limit
                 """
             ),
-            {"dataset_id": dataset_id, "phrases": phrases, "limit": limit},
+            {
+                "dataset_id": dataset_id,
+                "phrases": phrases,
+                "query": query,
+                "disjunction": disjunction,
+                "limit": limit,
+            },
         )
         return [str(row.id) for row in result]
 
@@ -500,7 +544,7 @@ class GraphRepository:
                                    -- derived from the user query.
                                    SELECT max(
                                        ts_rank_cd(c.search_vector, pq.phrase_query)
-                                       * pq.token_count * 30.0
+                                       * pq.token_count * 300.0
                                    )
                                    FROM phrase_queries pq
                                    WHERE c.search_vector @@ pq.phrase_query
@@ -558,26 +602,155 @@ class GraphRepository:
         a matching passage afterwards; document IDs are never evidence.
         """
         disjunction = lexical_disjunction(query)
+        # Document recall is a first-stage candidate generator, not the final
+        # lexical ranker.  Keeping its longest 16 phrases preserves precise
+        # legal concepts while avoiding a chunks × phrases scan that can
+        # dominate latency under concurrent original/HyDE retrieval.
+        phrases = lexical_phrases(query, limit=16)
         if not disjunction or limit <= 0:
             return []
         result = await self.session.execute(
             text(
                 """
-                SELECT c.document_id,
-                       max(ts_rank_cd(c.search_vector, to_tsquery('simple', :disjunction))) AS score
-                FROM chunks c
-                JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
-                WHERE c.dataset_id = :dataset_id
-                  AND c.lexical_eligible IS TRUE
+                WITH phrase_queries AS (
+                    SELECT phrase,
+                           phraseto_tsquery('simple', phrase) AS phrase_query,
+                           cardinality(regexp_split_to_array(phrase, '\\s+')) AS token_count
+                    FROM unnest(CAST(:phrases AS text[])) AS phrase
+                ), phrase_anchors AS (
+                    SELECT DISTINCT ON (pq.phrase) pq.phrase, d.id AS document_id
+                    FROM phrase_queries pq
+                    JOIN documents d
+                      ON d.dataset_id = :dataset_id
+                     AND NOT d.is_external
+                     AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                     AND d.document_search_vector @@ pq.phrase_query
+                    ORDER BY pq.phrase,
+                             CASE
+                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%luật%'
+                                      OR d.title ILIKE 'luật %' THEN 4
+                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%nghị định%'
+                                      OR d.title ILIKE 'nghị định %' THEN 3
+                                 WHEN d.title ILIKE 'văn bản hợp nhất%' THEN 2
+                                 WHEN d.title ILIKE 'thông tư%' THEN 1
+                                 ELSE 0
+                             END DESC,
+                             length(d.content_text), d.id
+                ), chunk_phrase_anchors AS (
+                    SELECT DISTINCT ON (pq.phrase) pq.phrase, c.document_id
+                    FROM phrase_queries pq
+                    JOIN chunks c
+                      ON c.dataset_id = :dataset_id
+                     AND c.lexical_eligible IS TRUE
+                     AND lower(COALESCE(c.section_title, '') || ' ' || c.text)
+                         LIKE '%' || lower(pq.phrase) || '%'
+                    JOIN documents d
+                      ON d.dataset_id = c.dataset_id AND d.id = c.document_id
+                    WHERE NOT d.is_external
+                      AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                    ORDER BY pq.phrase,
+                             CASE
+                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%luật%'
+                                      OR d.title ILIKE 'luật %' THEN 4
+                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%nghị định%'
+                                      OR d.title ILIKE 'nghị định %' THEN 3
+                                 WHEN d.title ILIKE 'văn bản hợp nhất%' THEN 2
+                                 ELSE 0
+                             END DESC,
+                             length(c.text), c.document_id
+                ), unit_phrase_anchors AS (
+                    SELECT DISTINCT ON (pq.phrase) pq.phrase, u.document_id
+                    FROM phrase_queries pq
+                    JOIN legal_units u
+                      ON u.dataset_id = :dataset_id
+                     AND lower(COALESCE(u.heading, '') || ' ' || COALESCE(u.text, ''))
+                         LIKE '%' || lower(pq.phrase) || '%'
+                    JOIN documents d
+                      ON d.dataset_id = u.dataset_id AND d.id = u.document_id
+                    WHERE NOT d.is_external
+                      AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                    ORDER BY pq.phrase,
+                             CASE
+                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%luật%'
+                                      OR d.title ILIKE 'luật %' THEN 4
+                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%nghị định%'
+                                      OR d.title ILIKE 'nghị định %' THEN 3
+                                 WHEN d.title ILIKE 'văn bản hợp nhất%' THEN 2
+                                 ELSE 0
+                             END DESC,
+                             length(COALESCE(u.text, '') || COALESCE(u.heading, '')), u.document_id
+                ), ranked AS (
+                    SELECT d.id AS document_id,
+                       max(
+                           GREATEST(
+                               ts_rank_cd(d.document_search_vector, to_tsquery('simple', :disjunction)),
+                               COALESCE((
+                                   SELECT max(
+                                       ts_rank_cd(d.document_search_vector, pq.phrase_query)
+                                       * pq.token_count * 300.0
+                                   )
+                                   FROM phrase_queries pq
+                                   WHERE d.document_search_vector @@ pq.phrase_query
+                               ), 0.0)
+                           )
+                       ) AS score,
+                       max(
+                           CASE
+                               WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%luật%'
+                                    OR d.title ILIKE 'luật %' THEN 4
+                               WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%nghị định%'
+                                    OR d.title ILIKE 'nghị định %' THEN 3
+                               WHEN d.title ILIKE 'văn bản hợp nhất%' THEN 2
+                               WHEN d.title ILIKE 'thông tư%' THEN 1
+                               ELSE 0
+                           END
+                       ) AS authority_rank,
+                       max(
+                           CASE WHEN COALESCE(d.payload -> 'metadata' ->> 'legal_status_verified', 'false')::boolean
+                                     AND COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', '')
+                                         ILIKE 'còn hiệu lực%'
+                                THEN 1 ELSE 0 END
+                       ) AS current_verified_rank
+                    FROM documents d
+                WHERE d.dataset_id = :dataset_id
                   AND NOT d.is_external
                   AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
-                  AND c.search_vector @@ to_tsquery('simple', :disjunction)
-                GROUP BY c.document_id
-                ORDER BY score DESC, c.document_id
+                  AND (
+                      d.document_search_vector @@ to_tsquery('simple', :disjunction)
+                      OR EXISTS (
+                          SELECT 1 FROM phrase_queries pq
+                          WHERE d.document_search_vector @@ pq.phrase_query
+                      )
+                  )
+                GROUP BY d.id, d.payload, d.title, d.document_search_vector
+                )
+                SELECT ranked.document_id FROM ranked
+                LEFT JOIN (
+                    SELECT DISTINCT document_id FROM phrase_anchors
+                    UNION
+                    SELECT DISTINCT document_id FROM chunk_phrase_anchors
+                    UNION
+                    SELECT DISTINCT document_id FROM unit_phrase_anchors
+                ) anchors
+                  ON anchors.document_id = ranked.document_id
+                -- This is a candidate-recall stage, so a primary current
+                -- instrument should not be excluded merely because a local
+                -- administrative document repeats more common query words.
+                -- The later passage reranker still decides relevance.
+                -- Exact query-derived phrase score controls relevance;
+                -- authority/currentness resolve near-ties rather than
+                -- replacing relevance with a closed hierarchy.
+                ORDER BY (anchors.document_id IS NOT NULL) DESC,
+                         score DESC, current_verified_rank DESC, authority_rank DESC, ranked.document_id
                 LIMIT :limit
                 """
             ),
-            {"dataset_id": dataset_id, "disjunction": disjunction, "limit": limit},
+            {
+                "dataset_id": dataset_id,
+                "phrases": phrases,
+                "disjunction": disjunction,
+                "limit": limit,
+            },
         )
         return [str(row.document_id) for row in result]
 
@@ -832,9 +1005,57 @@ class GraphRepository:
                              c.source_start, c.source_end, c.text_sha256,
                              c.embedding_input_sha256, d.title
                     HAVING count(DISTINCT term.value) >= :minimum_matches
+                    UNION ALL
+                    SELECT 'unit:' || u.unit_id AS chunk_id, u.document_id,
+                           COALESCE(NULLIF(u.text, ''),
+                                    NULLIF(parent.text, ''),
+                                    CASE WHEN parent.heading IS NOT NULL
+                                         THEN parent.heading || ' — ' || COALESCE(u.heading, u.label)
+                                    END,
+                                    NULLIF(substring(d.content_text from u.source_start + 1
+                                                     for u.source_end - u.source_start), ''),
+                                    u.heading, u.label) AS text,
+                           COALESCE(u.heading, u.label) AS section_title, u.unit_id,
+                           u.source_start, u.source_end, u.text_sha256,
+                           '' AS embedding_input_sha256, d.title,
+                           count(DISTINCT term.value) AS matched_terms
+                    FROM legal_units u
+                    JOIN documents d
+                      ON d.dataset_id = u.dataset_id AND d.id = u.document_id
+                    LEFT JOIN legal_units parent
+                      ON parent.dataset_id = u.dataset_id AND parent.unit_id = u.parent_unit_id
+                    JOIN unnest(CAST(:terms AS text[])) AS term(value)
+                      ON lower(COALESCE(u.heading, '') || ' ' || COALESCE(u.text, ''))
+                         LIKE '%' || lower(term.value) || '%'
+                    WHERE u.dataset_id = :dataset_id
+                      AND u.document_id = ANY(CAST(:document_ids AS text[]))
+                      AND NOT d.is_external
+                      AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                    GROUP BY u.unit_id, u.document_id, u.text, u.heading, u.label,
+                             u.source_start, u.source_end, u.text_sha256, d.content_text,
+                             parent.text, parent.heading, d.title
+                    HAVING count(DISTINCT term.value) >= :minimum_matches
                 )
                 SELECT * FROM matched
-                ORDER BY matched_terms DESC,
+                ORDER BY COALESCE((
+                             SELECT CASE
+                                 WHEN COALESCE(d2.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%luật%'
+                                      OR d2.title ILIKE 'luật %' THEN 4
+                                 WHEN COALESCE(d2.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%nghị định%'
+                                      OR d2.title ILIKE 'nghị định %' THEN 3
+                                 WHEN d2.title ILIKE 'văn bản hợp nhất%' THEN 2
+                                 ELSE 0
+                             END
+                             FROM documents d2
+                             WHERE d2.dataset_id = :dataset_id AND d2.id = matched.document_id
+                         ), 0) DESC,
+                         CASE
+                             WHEN matched.text ~ '[0-9]+%'
+                                  OR lower(matched.text) LIKE '%100%'
+                                  OR lower(matched.text) LIKE '%mức hưởng%'
+                             THEN 1 ELSE 0
+                         END DESC,
+                         matched_terms DESC,
                          array_position(CAST(:document_ids AS text[]), document_id),
                          source_start NULLS LAST, chunk_id
                 LIMIT :limit
@@ -856,7 +1077,12 @@ class GraphRepository:
                 source_start=int(row.source_start) if row.source_start is not None else None,
                 source_end=int(row.source_end) if row.source_end is not None else None,
                 text_sha256=str(row.text_sha256 or ""), input_sha256=str(row.embedding_input_sha256 or ""),
-                channels=["document_operatives"], score=float(row.matched_terms or 0),
+                channels=(
+                    ["document_operatives", "page_index"]
+                    if str(row.chunk_id).startswith("unit:")
+                    else ["document_operatives"]
+                ),
+                score=float(row.matched_terms or 0),
             )
             for row in result
         ]

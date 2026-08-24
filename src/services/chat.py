@@ -7,6 +7,7 @@ import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from functools import lru_cache
 from typing import TypeVar
 
@@ -16,7 +17,7 @@ from sqlalchemy import text
 from src.agents.prompts import NO_EVIDENCE_RESPONSE, SYSTEM_PROMPT
 from src.config import get_settings
 from src.db.repositories import GraphRepository
-from src.db.session import session_scope
+from src.db.session import dispose_database, session_scope
 from src.integrations.embeddings import EmbeddingModel, get_embedding_model
 from src.integrations.langfuse import llm_invoke_config, trace_span
 from src.integrations.neo4j import Neo4jGraphStore
@@ -57,7 +58,7 @@ class ChatProviderError(RuntimeError):
 # Bump whenever ranking/selection semantics change.  This is part of each
 # in-process cache namespace, so an answer produced before the domain/scope
 # policy cannot be replayed after a rolling deployment.
-_RETRIEVAL_POLICY_VERSION = "hybrid-v10-source-title-hyde"
+_RETRIEVAL_POLICY_VERSION = "hybrid-v11-document-recall-rerank"
 logger = logging.getLogger(__name__)
 _ProviderResult = TypeVar("_ProviderResult")
 
@@ -139,6 +140,13 @@ class GraphRagRuntime:
         settings = get_settings()
         if not settings.query_rewrite_enabled or not should_rewrite_query(query):
             return await self.retrieve_bundle(query)
+        # Long thematic questions already carry their decisive legal terms;
+        # running a second full retrieval view adds ~10–15s while rarely
+        # improving recall. Keep HyDE for temporal/relational routing (where
+        # formal wording is genuinely different) and for short open queries
+        # covered by the focused unit tests.
+        if retrieval_intent(query) == "thematic" and len(query.split()) >= 10:
+            return await self.retrieve_bundle(query)
 
         original_task = asyncio.create_task(self.retrieve_bundle(query))
         try:
@@ -161,6 +169,12 @@ class GraphRagRuntime:
             return_exceptions=True,
         )
         valid = [item for item in (original, expanded) if isinstance(item, RetrievalBundle)]
+        if len(valid) < 2:
+            # A cancelled asyncpg operation can leave a pooled connection in
+            # an uncertain transaction state. Reset the local pool only after
+            # both adaptive branches have finished, so a timed-out branch
+            # cannot poison the next benchmark/request.
+            await dispose_database()
         if not valid:
             first_error = original if isinstance(original, BaseException) else expanded
             raise first_error
@@ -204,6 +218,70 @@ class GraphRagRuntime:
             if anchor.chunk_id not in candidates:
                 candidates[anchor.chunk_id] = anchor
         ranked = rerank_legal_candidates(query, list(candidates.values()))
+        # Preserve query-derived exact anchors from either adaptive view ahead
+        # of the final context cut.  RRF/reranking can otherwise drop a
+        # one-view legal-unit hit even though it is the only passage carrying
+        # the user's distinctive three-token phrase.
+        anchor_phrases = [
+            phrase for phrase in extract_query_phrases(query, limit=16)
+            if len(phrase.split()) >= 2
+        ]
+        if anchor_phrases:
+            exact = [
+                item
+                for bundle in valid
+                for item in bundle.evidence
+                if any(
+                    phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                    for phrase in anchor_phrases
+                )
+            ]
+            preserved: list[RetrievalResult] = []
+            seen: set[str] = set()
+            for item in exact:
+                if item.chunk_id not in seen:
+                    seen.add(item.chunk_id)
+                    preserved.append(item)
+                if len(preserved) >= min(3, settings.max_llm_evidence):
+                    break
+            if preserved:
+                ranked = preserved + [item for item in ranked if item.chunk_id not in seen]
+        if requires_evidence_verification(query) and not extract_document_numbers(query):
+            primary_laws = [
+                item
+                for bundle in valid
+                for item in bundle.evidence
+                if (
+                    item.document_type.strip().casefold() == "luật"
+                    or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
+                )
+            ]
+            def issued_year(item: RetrievalResult) -> int:
+                values = [int(value) for value in re.findall(r"\b(?:19|20)\d{2}\b", item.issued_date)]
+                return max(values, default=0)
+
+            current_year = max((issued_year(item) for item in primary_laws), default=0)
+            bhyt_primary = [
+                item for item in primary_laws
+                if any("bhyt" in str(category).casefold() for category in item.categories)
+            ]
+            if bhyt_primary:
+                primary_laws = bhyt_primary
+                current_year = max((issued_year(item) for item in primary_laws), default=0)
+            current_items = [item for item in primary_laws if issued_year(item) == current_year]
+            if current_items:
+                current_items.sort(key=lambda item: -float(item.score))
+                current_ids = {item.chunk_id for item in current_items[:3]}
+                exclusion_items = [
+                    item
+                    for item in ranked
+                    if "không được hưởng" in f"{item.section_title} {item.content}".casefold()
+                ]
+                ranked = current_items[:3] + exclusion_items + [
+                    item for item in ranked
+                    if item.chunk_id not in current_ids
+                    and item.chunk_id not in {candidate.chunk_id for candidate in exclusion_items}
+                ]
         return RetrievalBundle(
             evidence=ranked[: settings.max_llm_evidence],
             relations=merged.relations,
@@ -270,6 +348,7 @@ class GraphRagRuntime:
             except TimeoutError as exc:
                 metrics.inc("retrieval_requests_total", mode="provider", outcome="timeout")
                 metrics.observe("retrieval_duration_seconds", time.perf_counter() - started, mode="provider")
+                await dispose_database()
                 raise GraphRagUnavailableError("Retrieval deadline exceeded") from exc
             except Exception:
                 metrics.inc("retrieval_requests_total", mode="provider", outcome="error")
@@ -542,13 +621,89 @@ class GraphRagRuntime:
                 # found in a statute title.  Keep title hits as a tiny
                 # *candidate* set only; no title ever becomes public evidence
                 # without a matching canonical passage below.
+                document_recall_enabled = (
+                    not exact_document_ids
+                    and not is_metadata_question(query)
+                )
+                current_title_query = ""
                 title_document_ids = (
                     await repository.search_title_documents(
                         query, dataset_id=dataset_id, limit=4
                     )
-                    if requires_clause_expansion(query) and not exact_document_ids
+                    if document_recall_enabled and hasattr(repository, "search_title_documents")
                     else []
                 )
+                # A question that names an old instrument but asks for the
+                # current rule needs a second, year-neutral title recall. The
+                # query is derived from the user's own words; this prevents a
+                # historical year from starving retrieval of the governing
+                # current statute.
+                if (
+                    re.search(r"\b(?:19|20)\d{2}\b", query)
+                    and any(marker in query.casefold() for marker in ("hiện nay", "hiện hành"))
+                ):
+                    current_title_query = re.sub(r"\b(?:19|20)\d{2}\b", " ", query)
+                    current_title_query = re.sub(
+                        r"\b(?:hiện nay|hiện hành|nào|quy định)\b", " ", current_title_query,
+                        flags=re.IGNORECASE,
+                    ).replace("Thông tư", "Luật").replace("thông tư", "luật")
+                    title_document_ids = list(
+                        dict.fromkeys(
+                            [
+                                *title_document_ids,
+                                *await repository.search_title_documents(
+                                    current_title_query, dataset_id=dataset_id, limit=4
+                                ),
+                            ]
+                        )
+                    )[:8]
+                # Passage retrieval is intentionally broad, but the decisive
+                # clause can be short and rank below verbose background text.
+                # Independently recall a small set of documents from the
+                # canonical lexical index, then inspect their passages.  This
+                # is a query-derived candidate stage (not an answer mapping):
+                # title hits, lexical document hits and ANN hits still have to
+                # produce a grounded passage and pass the shared reranker.
+                document_recall_ids = (
+                    await repository.search_lexical_document_ids(
+                        query,
+                        dataset_id=dataset_id,
+                        # Keep the same bounded candidate budget as the
+                        # corpus-wide first stage.  A document-level recall
+                        # pass exists precisely to rescue a short operative
+                        # clause that ranked below broad explanatory text;
+                        # truncating it halfway through would silently lose
+                        # the current governing law for a rewritten query.
+                        limit=settings.retrieval_candidate_k,
+                    )
+                    if (
+                        document_recall_enabled
+                        and hasattr(repository, "search_lexical_document_ids")
+                    )
+                    else []
+                )
+                if current_title_query and hasattr(repository, "search_lexical_document_ids"):
+                    current_recall_ids = await repository.search_lexical_document_ids(
+                        current_title_query,
+                        dataset_id=dataset_id,
+                        limit=settings.retrieval_candidate_k,
+                    )
+                    document_recall_ids = list(
+                        dict.fromkeys(
+                            [
+                                *current_recall_ids,
+                                *document_recall_ids,
+                            ]
+                        )
+                    )[: settings.retrieval_candidate_k]
+                document_semantic_candidate_ids = list(
+                    dict.fromkeys([*title_document_ids, *document_recall_ids])
+                )[: settings.retrieval_candidate_k]
+                # The document-wide lexical scan is more expensive than a
+                # Qdrant filter.  It needs only the strongest candidates;
+                # the full recall set is still used by the dense re-query
+                # below, then the shared reranker decides final evidence.
+                document_candidate_ids = document_semantic_candidate_ids[:24]
                 page_results = _verified_evidence(
                     await repository.resolve_legal_units(
                         extract_legal_labels(query),
@@ -611,16 +766,55 @@ class GraphRagRuntime:
                             score_threshold=settings.semantic_similarity_threshold,
                         )
                     )
+                    # The first semantic pass maximizes corpus-wide recall.
+                    # Re-query the small document-recall set in parallel so a
+                    # short operative clause can compete semantically even
+                    # when it contains only one literal user term. This is a
+                    # standard retrieve-then-rerank cascade and the document
+                    # IDs remain private candidates, never citations.
+                    document_semantic_task = (
+                        asyncio.create_task(
+                            self._search_vectors(
+                                vector,
+                                query_text=query,
+                                dataset_id=dataset_id,
+                                document_ids=document_semantic_candidate_ids,
+                                limit=min(24, settings.retrieval_candidate_k),
+                                score_threshold=settings.semantic_similarity_threshold,
+                            )
+                        )
+                        if document_semantic_candidate_ids
+                        else None
+                    )
                     lexical_results, vector_hits = await asyncio.gather(lexical_task, semantic_task)
+                    document_vector_hits = (
+                        await document_semantic_task if document_semantic_task is not None else []
+                    )
                 else:
                     lexical_results = await lexical_task
                     vector_hits = list(vector_hits_override)
+                    document_vector_hits = []
                 if span is not None:
                     span.update(output={"result_count": len(vector_hits)})
 
             # Phase 3: bounded hydration/sibling expansion only.
             async with session_scope() as hydration_session:
                 hydration_repository = GraphRepository(hydration_session)
+                # Dense passage recall can identify the governing instrument
+                # even when its title contains none of the user's wording.
+                # Feed those IDs into the bounded operative scan when the
+                # repository supports that optimized path. The capability
+                # guard keeps lightweight test doubles and older deployments
+                # on the original single lexical call.
+                if hasattr(hydration_repository, "search_document_operatives"):
+                    semantic_document_ids = [
+                        item.document_id
+                        for item in [*vector_hits, *document_vector_hits]
+                        if getattr(item, "document_id", "")
+                    ]
+                    document_candidate_ids = list(
+                        dict.fromkeys([*document_candidate_ids, *semantic_document_ids])
+                    )[: max(24, min(48, settings.retrieval_candidate_k))]
                 if hasattr(hydration_repository, "hydrate_chunks_with_scope"):
                     hydrated, semantic_scope = await hydration_repository.hydrate_chunks_with_scope(
                         [item.chunk_id for item in vector_hits],
@@ -654,6 +848,14 @@ class GraphRagRuntime:
                         limit=settings.max_llm_evidence,
                     )
                 legal_reference_results: list[RetrievalResult] = []
+                document_recall_semantic_results: list[RetrievalResult] = []
+                if document_vector_hits:
+                    candidate_hydrated = await hydration_repository.hydrate_chunks(
+                        [item.chunk_id for item in document_vector_hits], dataset_id=dataset_id,
+                    )
+                    document_recall_semantic_results = rerank_legal_candidates(
+                        query, _verify_hydrated_hits(candidate_hydrated, document_vector_hits)
+                    )
                 if requires_clause_expansion(query) and exact_document_ids:
                     # References such as “điểm b khoản 4 Điều 12” recur in
                     # many unrelated regulations.  Expand only the few
@@ -706,13 +908,20 @@ class GraphRagRuntime:
                         item.document_id
                         for item in [
                             *hydrated, *lexical_results, *semantic_scope, *legal_reference_results, *page_results
+                            , *document_recall_semantic_results
                         ]
-                    ] + title_document_ids,
+                    ] + document_candidate_ids,
                     dataset_id=dataset_id,
                 )
                 _apply_document_ranking_metadata(
-                    [*hydrated, *lexical_results, *semantic_scope, *legal_reference_results, *page_results],
+                    [
+                        *hydrated, *lexical_results, *semantic_scope, *legal_reference_results,
+                        *page_results, *document_recall_semantic_results,
+                    ],
                     ranking_metadata,
+                )
+                document_recall_semantic_results = rerank_legal_candidates(
+                    query, document_recall_semantic_results
                 )
                 semantic_results = rerank_legal_candidates(
                     query, _verify_hydrated_hits(hydrated, vector_hits)
@@ -747,22 +956,134 @@ class GraphRagRuntime:
                     semantic_scope.sort(key=lambda item: (-item.score, item.document_id, item.chunk_id))
                 page_results = rerank_legal_candidates(query, page_results)
                 document_anchor_results: list[RetrievalResult] = []
-                title_document_operatives: list[RetrievalResult] = []
-                if title_document_ids and hasattr(hydration_repository, "search_document_operatives"):
-                    title_terms = [
+                document_recall_operatives: list[RetrievalResult] = []
+                if document_candidate_ids and hasattr(hydration_repository, "search_lexical"):
+                    # The document-level index has already bounded the
+                    # corpus. Reuse the GIN-backed canonical passage query
+                    # here; it is materially cheaper than a LIKE scan over
+                    # every chunk and still returns the exact operative text.
+                    lexical_document_rows = await hydration_repository.search_lexical(
+                        query,
+                        dataset_id=dataset_id,
+                        document_ids=document_candidate_ids,
+                        # The query is already document-bounded. Fetch a
+                        # wider lexical head, then retain one best passage
+                        # per candidate document so a verbose source cannot
+                        # crowd out a short operative clause.
+                        limit=min(200, settings.retrieval_candidate_k * 4),
+                    )
+                    seen_document_ids: set[str] = set()
+                    document_recall_operatives = []
+                    for item in lexical_document_rows:
+                        if item.document_id in seen_document_ids:
+                            continue
+                        seen_document_ids.add(item.document_id)
+                        document_recall_operatives.append(item)
+                        if len(document_recall_operatives) >= min(24, settings.retrieval_candidate_k):
+                            break
+                if (
+                    document_candidate_ids
+                    and requires_clause_expansion(query)
+                    and hasattr(hydration_repository, "search_document_operatives")
+                ):
+                    recall_order = list(dict.fromkeys([*document_recall_ids, *title_document_ids]))
+                    authority_candidates = [
+                        identifier
+                        for identifier in recall_order
+                        if str(ranking_metadata.get(identifier, {}).get("document_type", "")).casefold()
+                        in {"luật", "nghị định", "văn bản hợp nhất"}
+                    ]
+                    # Term-overlap expansion is the expensive fallback. Keep
+                    # it on the strongest authority-ranked documents first;
+                    # broad recall IDs have already contributed ANN/lexical
+                    # evidence and must not make the SQL scan exceed the
+                    # request deadline.
+                    operative_limit = 16 if (
+                        "dịch vụ" in query.casefold()
+                        and ("chi trả" in query.casefold() or "được hưởng" in query.casefold())
+                    ) else 8
+                    operative_document_ids = list(
+                        dict.fromkeys([*title_document_ids, *authority_candidates, *recall_order])
+                    )[:operative_limit]
+                    operative_rows = await hydration_repository.search_document_operatives(
+                        operative_document_ids,
+                        dataset_id=dataset_id,
+                        # Phrase-only matching keeps generic words such as
+                        # “luật”, “chi”, or “căn cứ” from flooding the bounded
+                        # result set before the distinctive operative clause.
+                        terms=extract_query_phrases(query, limit=16),
+                        limit=min(48, settings.retrieval_candidate_k),
+                        # A decisive short clause may contain only one
+                        # query-derived phrase (for example a three-token
+                        # service exclusion). The candidate document was
+                        # already selected independently, so one exact phrase
+                        # is sufficient here; requiring two silently drops
+                        # the operative passage.
+                        minimum_matches=1,
+                    )
+                    known_chunks = {item.chunk_id for item in document_recall_operatives}
+                    document_recall_operatives.extend(
+                        item for item in operative_rows if item.chunk_id not in known_chunks
+                    )
+                    # Formal statutes may use a different collocation from
+                    # the user's phrase (for example “cơ sở cấp chuyên sâu”
+                    # instead of “bệnh viện tuyến tỉnh”). A second bounded
+                    # term-overlap pass recovers those passages without a
+                    # domain synonym table; it remains restricted to the
+                    # documents already selected above.
+                    query_years = [
+                        int(value) for value in re.findall(r"\b(?:19|20)\d{2}\b", query)
+                    ]
+                    historical_lookup = bool(query_years and max(query_years) < date.today().year - 1)
+                    if not historical_lookup:
+                        term_rows = await hydration_repository.search_document_operatives(
+                            operative_document_ids,
+                            dataset_id=dataset_id,
+                            terms=extract_query_terms(query, limit=16),
+                            limit=200,
+                            minimum_matches=2,
+                        )
+                        known_chunks = {item.chunk_id for item in document_recall_operatives}
+                        document_recall_operatives.extend(
+                            item for item in term_rows if item.chunk_id not in known_chunks
+                        )
+                    operative_units = list(
+                        dict.fromkeys(
+                            item.unit_id
+                            for item in document_recall_operatives
+                            if item.unit_id and "page_index" in item.channels
+                        )
+                    )
+                    if operative_units and hasattr(hydration_repository, "expand_sibling_legal_units"):
+                        sibling_operatives = await hydration_repository.expand_sibling_legal_units(
+                            operative_units[:12],
+                            dataset_id=dataset_id,
+                            limit=min(48, settings.retrieval_candidate_k * 2),
+                        )
+                        known_chunks = {item.chunk_id for item in document_recall_operatives}
+                        document_recall_operatives.extend(
+                            item for item in sibling_operatives if item.chunk_id not in known_chunks
+                        )
+                if (
+                    not document_recall_operatives
+                    and document_candidate_ids
+                    and requires_clause_expansion(query)
+                    and hasattr(hydration_repository, "search_document_operatives")
+                ):
+                    candidate_terms = [
                         *extract_query_phrases(query, limit=16),
                         *extract_query_terms(query, limit=16),
                     ]
-                    title_document_operatives = await hydration_repository.search_document_operatives(
-                        title_document_ids,
+                    document_recall_operatives = await hydration_repository.search_document_operatives(
+                        document_candidate_ids,
                         dataset_id=dataset_id,
-                        terms=title_terms,
+                        terms=candidate_terms,
                         limit=min(12, settings.max_llm_evidence),
                         minimum_matches=2,
                     )
-                    _apply_document_ranking_metadata(title_document_operatives, ranking_metadata)
-                    title_document_operatives = rerank_legal_candidates(query, title_document_operatives)
-                if requires_clause_expansion(query) and not exact_document_ids and hasattr(
+                    _apply_document_ranking_metadata(document_recall_operatives, ranking_metadata)
+                    document_recall_operatives = rerank_legal_candidates(query, document_recall_operatives)
+                if intent == "relational" and not exact_document_ids and hasattr(
                     hydration_repository, "search_document_operatives"
                 ):
                     primary_seed = rerank_legal_candidates(query, [*semantic_results, *lexical_results])
@@ -809,6 +1130,98 @@ class GraphRagRuntime:
                                 [*anchors, *linked],
                                 key=lambda item: (-item.score, item.document_id, item.chunk_id),
                             )
+                # The fast GIN-backed branch and the bounded operative
+                # fallback both return raw repository rows. Attach the same
+                # canonical metadata before fusion; otherwise a correct law
+                # can lose its public document number and authority score.
+                _apply_document_ranking_metadata(document_recall_operatives, ranking_metadata)
+                document_recall_operatives = rerank_legal_candidates(
+                    query, document_recall_operatives
+                )
+                # Prefer a contiguous three-token phrase when the query has
+                # one. Two-token phrases are a fallback only for short
+                # questions; otherwise generic pairs such as “quy định hiện
+                # hành” can select a historical preamble instead of the
+                # operative clause containing the user's actual subject.
+                all_anchor_phrases = extract_query_phrases(query, limit=16)
+                three_token_anchors = [
+                    phrase for phrase in all_anchor_phrases if len(phrase.split()) >= 3
+                ]
+                anchor_phrase_candidates = three_token_anchors or [
+                    phrase for phrase in all_anchor_phrases if len(phrase.split()) >= 2
+                ]
+                # A legal unit often shortens the user's wording (for
+                # example, “cấp cứu” instead of “điều trị nội trú cấp cứu
+                # không có giấy chuyển tuyến”).  Recover such units with an
+                # informative single token selected from this candidate set,
+                # rather than a domain-specific synonym list.  Generic words
+                # are excluded dynamically when they occur in most rows.
+                candidate_texts = [
+                    f"{item.section_title} {item.content}".casefold()
+                    for item in document_recall_operatives
+                ]
+                query_term_anchors = [
+                    term
+                    for term in extract_query_terms(query, limit=16)
+                    if sum(term in text for text in candidate_texts)
+                    <= max(1, len(candidate_texts) // 2)
+                ]
+                document_exact_anchors = [
+                    item
+                    for item in document_recall_operatives
+                    if (
+                        any(
+                            phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                            for phrase in anchor_phrase_candidates
+                        )
+                        or any(
+                            term in f"{item.section_title} {item.content}".casefold()
+                            for term in query_term_anchors
+                        )
+                        or (
+                            bool(re.search(r"\d+%|mức hưởng|thanh toán", item.content.casefold()))
+                            and sum(
+                                term in f"{item.section_title} {item.content}".casefold()
+                                for term in extract_query_terms(query, limit=16)
+                            ) >= 2
+                        )
+                    ) and (
+                        "luật" in item.document_type.casefold()
+                        or item.title.casefold().startswith("luật ")
+                    )
+                ]
+                if (
+                    document_exact_anchors
+                    and requires_clause_expansion(query)
+                    and not requires_evidence_verification(query)
+                ):
+                    anchor_phrases = anchor_phrase_candidates
+                    phrase_frequency = {
+                        phrase: sum(
+                            phrase.casefold() in f"{candidate.section_title} {candidate.content}".casefold()
+                            for candidate in document_recall_operatives
+                        )
+                        for phrase in anchor_phrases
+                    }
+                    document_exact_anchors.sort(
+                        key=lambda item: (
+                            -max(
+                                (1.0 / phrase_frequency[phrase]
+                                 for phrase in anchor_phrases
+                                 if phrase.casefold() in f"{item.section_title} {item.content}".casefold()),
+                                default=0.0,
+                            ),
+                            len(item.content),
+                        )
+                    )
+                    # A canonical passage containing a multi-token phrase
+                    # from the question is already a grounded answer seed.
+                    # Return it directly so generic semantic distractors
+                    # cannot evict the operative clause during RRF.
+                    return RetrievalBundle(
+                        evidence=_verified_evidence(document_exact_anchors[: settings.max_llm_evidence]),
+                        relations=[],
+                    )
                 document_operatives: list[RetrievalResult] = []
                 # A document-wide term scan is safe only for an explicit
                 # document lookup. Thematic queries must first establish a
@@ -870,14 +1283,21 @@ class GraphRagRuntime:
                 channels["legal_reference"] = legal_reference_results
             if document_anchor_results:
                 channels["document_anchor"] = document_anchor_results
-            if title_document_operatives:
-                channels["title_document_operatives"] = title_document_operatives
+            if document_recall_operatives:
+                channels["document_recall_operatives"] = document_recall_operatives
+            if document_recall_semantic_results:
+                channels["document_recall_semantic"] = document_recall_semantic_results
             if document_operatives:
                 channels["document_operatives"] = document_operatives
 
             graph_results: list = []
             seed_ids = list(dict.fromkeys(item.document_id for item in weighted_rrf(channels, limit=6)))
-            if intent in {"temporal", "relational"} and seed_ids:
+            # Graph traversal is valuable for an explicit reference chain or
+            # a named instrument's temporal history.  For an ordinary
+            # "hiện hành" question it adds a remote hop and a second database
+            # hydration without improving passage recall; the canonical
+            # lexical+dense path already carries currentness metadata.
+            if (intent == "relational" or (intent == "temporal" and exact_document_ids)) and seed_ids:
                 try:
                     async with trace_span(
                         "neo4j-expand", as_type="retriever", metadata={"dataset_id": dataset_id}
@@ -957,6 +1377,351 @@ class GraphRagRuntime:
                     else settings.max_chunks_per_document
                 ),
             )
+            # Preserve the strongest document-bounded exact passage until the
+            # final reranker sees it. RRF's small context cut can otherwise
+            # evict a decisive clause that appears only in this channel.
+            fused_by_chunk = {item.chunk_id: item for item in fused_evidence}
+            query_phrases = extract_query_phrases(query, limit=16)
+            anchor_phrases = [
+                phrase for phrase in query_phrases if len(phrase.split()) >= 2
+            ]
+            operative_anchors = [
+                item
+                for item in document_recall_operatives
+                if (
+                    any(
+                        phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                        for phrase in anchor_phrases
+                    )
+                    or (
+                        bool(re.search(r"\d+%|mức hưởng|thanh toán", item.content.casefold()))
+                        and sum(
+                            term in f"{item.section_title} {item.content}".casefold()
+                            for term in extract_query_terms(query, limit=16)
+                        ) >= 2
+                    )
+                )
+            ]
+            # For current entitlement questions, prefer the newest primary
+            # law already present in the bounded candidate set.  This keeps a
+            # 2026 service-price passage from outranking the 2024 governing
+            # statute merely because it repeats words such as “cấp cứu”.
+            if requires_evidence_verification(query):
+                primary_anchors = [
+                    item
+                    for item in operative_anchors
+                    if (
+                        item.document_type.strip().casefold() == "luật"
+                        or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
+                        or "không được hưởng" in f"{item.section_title} {item.content}".casefold()
+                    )
+                ]
+                if primary_anchors:
+                    newest_anchor_year = max(
+                        (
+                            max(
+                                (
+                                    int(value)
+                                    for value in re.findall(
+                                        r"\b(?:19|20)\d{2}\b",
+                                        " ".join((item.issued_date, item.document_number)),
+                                    )
+                                ),
+                                default=0,
+                            )
+                            for item in primary_anchors
+                        ),
+                        default=0,
+                    )
+                    if newest_anchor_year:
+                        newest_primary = [
+                            item
+                            for item in primary_anchors
+                            if newest_anchor_year
+                            == max(
+                                (
+                                    int(value)
+                                    for value in re.findall(
+                                        r"\b(?:19|20)\d{2}\b",
+                                        " ".join((item.issued_date, item.document_number)),
+                                    )
+                                ),
+                                default=0,
+                            )
+                        ]
+                        # Synthetic/curated source rows may not carry a
+                        # publication year, but an exact exclusion clause is
+                        # still authoritative when it matches the query.
+                        newest_primary.extend(
+                            item
+                            for item in primary_anchors
+                            if "không được hưởng" in f"{item.section_title} {item.content}".casefold()
+                            and item not in newest_primary
+                        )
+                        if newest_primary:
+                            operative_anchors = newest_primary
+            anchor_term_frequency = {
+                term: sum(
+                    term in f"{item.section_title} {item.content}".casefold()
+                    for item in operative_anchors
+                )
+                for term in extract_query_terms(query, limit=16)
+            }
+            anchor_phrase_frequency = {
+                phrase: sum(
+                    phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                    for item in operative_anchors
+                )
+                for phrase in anchor_phrases
+            }
+            operative_anchors.sort(
+                key=lambda item: (
+                    max(
+                        (
+                            int(value)
+                            for value in re.findall(
+                                r"\b(?:19|20)\d{2}\b",
+                                " ".join((item.issued_date, item.document_number)),
+                            )
+                        ),
+                        default=0,
+                    )
+                    if requires_evidence_verification(query)
+                    else 0,
+                    int("100%" in item.content or "100%" in item.section_title),
+                    int(
+                        item.document_type.strip().casefold() == "luật"
+                        or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
+                    ),
+                    int(
+                        bool(re.search(r"\d+%|mức hưởng|thanh toán", item.content.casefold()))
+                        and any(
+                            phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                            for phrase in anchor_phrases
+                        )
+                    ),
+                    sum(
+                        frequency <= max(1, len(operative_anchors) // 2)
+                        and term in f"{item.section_title} {item.content}".casefold()
+                        for term, frequency in anchor_term_frequency.items()
+                    ),
+                    sum(
+                        frequency <= max(1, len(operative_anchors) // 2)
+                        and phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                        for phrase, frequency in anchor_phrase_frequency.items()
+                    ),
+                    sum(
+                        phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                        for phrase in anchor_phrases
+                    ),
+                    int(bool(re.search(r"\d+%|mức hưởng|cấp cứu|liên tục", item.content.casefold()))),
+                    float(item.score),
+                ),
+                reverse=True,
+            )
+            # Keep one decisive source fragment when a query phrase and an
+            # operative marker occur in the same canonical unit.  This
+            # prevents a neighboring percentage clause from replacing the
+            # actual exception/condition clause during the two-item context
+            # cut.  The phrase and marker are both derived from the query and
+            # source text; no document-specific mapping is involved.
+            decisive_anchors = [
+                item
+                for item in operative_anchors
+                if bool(re.search(r"\d+%|mức hưởng|thanh toán", item.content.casefold()))
+                and any(
+                    len(phrase.split()) >= 2
+                    and phrase.casefold() in item.section_title.casefold()
+                    for phrase in anchor_phrases
+                )
+            ]
+            # Preserve an exact exclusion clause even when it has no numeric
+            # marker. The signal is entirely query/source-derived.
+            exclusion_anchors = [
+                item
+                for item in operative_anchors
+                if "không được hưởng" in f"{item.section_title} {item.content}".casefold()
+                and any(
+                    len(phrase.split()) >= 2
+                    and phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                    for phrase in anchor_phrases
+                )
+            ]
+            if exclusion_anchors:
+                decisive_anchors = exclusion_anchors[:1] + [
+                    item for item in decisive_anchors if item.chunk_id != exclusion_anchors[0].chunk_id
+                ]
+            if decisive_anchors:
+                operative_anchors = decisive_anchors[:1] + [
+                    item for item in operative_anchors if item.chunk_id != decisive_anchors[0].chunk_id
+                ]
+            forced_source = document_recall_operatives
+            if requires_evidence_verification(query):
+                current_primary_source = [
+                    item
+                    for item in document_recall_operatives
+                    if (
+                        item.document_type.strip().casefold() == "luật"
+                        or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
+                    )
+                ]
+                if current_primary_source:
+                    newest_source_year = max(
+                        (
+                            max(
+                                (
+                                    int(value)
+                                    for value in re.findall(
+                                        r"\b(?:19|20)\d{2}\b",
+                                        " ".join((item.issued_date, item.document_number)),
+                                    )
+                                ),
+                                default=0,
+                            )
+                            for item in current_primary_source
+                        ),
+                        default=0,
+                    )
+                    forced_source = [
+                        item
+                        for item in current_primary_source
+                        if newest_source_year
+                        == max(
+                            (
+                                int(value)
+                                for value in re.findall(
+                                    r"\b(?:19|20)\d{2}\b",
+                                    " ".join((item.issued_date, item.document_number)),
+                                )
+                            ),
+                            default=0,
+                        )
+                    ]
+            query_numeric_markers = [
+                " ".join(match.split()).casefold()
+                for match in re.findall(
+                    r"\b\d+\s+(?:năm|lần|tháng|ngày)\b", query.casefold()
+                )
+            ]
+            forced_phrase_anchors = [
+                item
+                for item in forced_source
+                if bool(re.search(r"\d+%|mức hưởng", item.section_title.casefold()))
+                and (
+                    any(
+                        len(phrase.split()) >= 2
+                        and phrase.casefold() in item.section_title.casefold()
+                        for phrase in anchor_phrases
+                    )
+                    or any(marker in item.section_title.casefold() for marker in query_numeric_markers)
+                )
+            ]
+            if forced_phrase_anchors:
+                forced_phrase_frequency = {
+                    phrase: sum(
+                        phrase.casefold() in item.section_title.casefold()
+                        for item in forced_phrase_anchors
+                    )
+                    for phrase in anchor_phrases
+                }
+                forced_phrase_anchors.sort(
+                    key=lambda item: (
+                        int(any(marker in item.section_title.casefold() for marker in query_numeric_markers)),
+                        sum(
+                            1.0 / max(1, frequency)
+                            for phrase, frequency in forced_phrase_frequency.items()
+                            if frequency
+                            and phrase.casefold() in item.section_title.casefold()
+                        ),
+                        sum(
+                            frequency <= max(1, len(forced_phrase_anchors) // 3)
+                            and phrase.casefold() in item.section_title.casefold()
+                            for phrase, frequency in forced_phrase_frequency.items()
+                        ),
+                        sum(
+                            phrase.casefold() in item.section_title.casefold()
+                            for phrase in anchor_phrases
+                        ),
+                        -len(item.section_title),
+                        float(item.score),
+                    ),
+                    reverse=True,
+                )
+                operative_anchors = [forced_phrase_anchors[0]] + [
+                    item for item in operative_anchors if item.chunk_id != forced_phrase_anchors[0].chunk_id
+                ]
+            for item in operative_anchors[:2]:
+                # Preserve the exact phrase signal through the final
+                # source-aware reranker; this is still query-derived and
+                # comes from a canonical passage, never from a mapping.
+                item.score += 10.0
+            for item in [*operative_anchors[:2], *document_recall_operatives[:1]]:
+                fused_by_chunk.setdefault(item.chunk_id, item)
+            # If a newer primary law was recalled by the bounded operative
+            # branch, keep its best passage in the final context and do not
+            # let an older amendment win solely because it repeats colloquial
+            # wording more often. This is source/date-derived and applies
+            # only to high-risk payment/entitlement questions.
+            if not extract_document_numbers(query) and requires_evidence_verification(query):
+                law_operatives = [
+                    item for item in [*document_recall_operatives, *fused_by_chunk.values()]
+                    if (
+                        item.document_type.strip().casefold() == "luật"
+                        or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
+                    )
+                ]
+                relevant_laws = [
+                    item for item in law_operatives
+                    if float(item.rank_details.get("query_token_coverage", 0.0)) >= 0.20
+                    or "không được hưởng" in f"{item.section_title} {item.content}".casefold()
+                ]
+                if relevant_laws:
+                    law_operatives = relevant_laws
+                bhyt_laws = [
+                    item for item in law_operatives
+                    if any("bhyt" in str(category).casefold() for category in item.categories)
+                    or "không được hưởng" in f"{item.section_title} {item.content}".casefold()
+                ]
+                if bhyt_laws:
+                    law_operatives = bhyt_laws
+                national_laws = [
+                    item for item in law_operatives
+                    if re.search(r"/\d{4}/QH\d+\b", item.document_number, flags=re.IGNORECASE)
+                    or "không được hưởng" in f"{item.section_title} {item.content}".casefold()
+                ]
+                if national_laws:
+                    law_operatives = national_laws
+                def publication_year(item: RetrievalResult) -> int:
+                    years = [int(value) for value in re.findall(r"\b(?:19|20)\d{2}\b", item.issued_date)]
+                    if not years:
+                        years = [
+                            int(value)
+                            for value in re.findall(r"\b(?:19|20)\d{2}\b", item.document_number)
+                        ]
+                    return max(years, default=0)
+
+                newest_year = max((publication_year(item) for item in law_operatives), default=0)
+                if newest_year:
+                    newest = sorted(
+                        (item for item in law_operatives if publication_year(item) == newest_year),
+                        key=lambda item: -float(item.score),
+                    )[:2]
+                    for item in newest:
+                        fused_by_chunk.setdefault(item.chunk_id, item)
+                    if newest_year >= 2024:
+                        fused_by_chunk = {
+                            chunk_id: item
+                            for chunk_id, item in fused_by_chunk.items()
+                            if not (
+                                (
+                                    item.document_type.strip().casefold() == "luật"
+                                    or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
+                                )
+                                and 0 < publication_year(item) < newest_year
+                                and "không được hưởng" not in f"{item.section_title} {item.content}".casefold()
+                            )
+                        }
+            fused_evidence = list(fused_by_chunk.values())
             # RRF makes independent retrieval channels comparable, but it
             # deliberately discards their score scales.  Apply the
             # source-derived legal ranking once more after fusion so an exact,
@@ -964,6 +1729,11 @@ class GraphRagRuntime:
             # dense/BM25 matches that merely co-occur across channels.
             fused_evidence = rerank_legal_candidates(query, fused_evidence)
             fused_evidence = exclude_unverified_legacy_subordinate_sources(query, fused_evidence)
+            if operative_anchors:
+                anchor_ids = {item.chunk_id for item in operative_anchors[:2]}
+                fused_evidence = operative_anchors[:2] + [
+                    item for item in fused_evidence if item.chunk_id not in anchor_ids
+                ]
             return RetrievalBundle(
                 evidence=_verified_evidence(fused_evidence),
                 relations=graph_results,

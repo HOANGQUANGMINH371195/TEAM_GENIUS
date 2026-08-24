@@ -102,7 +102,7 @@ def requires_clause_expansion(query: str) -> bool:
     normalized = " ".join(query.casefold().split())
     return bool(
         re.search(
-            r"\b(?:bao\s+nhiêu|bao\s+lâu|khi\s+nào|từ\s+khi\s+nào|trường\s+hợp\s+nào|điều\s+kiện\s+nào|có\s+được)\b|%",
+            r"\b(?:bao\s+nhiêu|bao\s+lâu|khi\s+nào|từ\s+khi\s+nào|trường\s+hợp\s+nào|điều\s+kiện\s+nào|quyền\s+lợi\s+gì|mức\s+hưởng|được\s+hưởng|có\s+được)\b|\bcó\b[\s\S]{0,100}\bkhông\b|%",
             normalized,
         )
     )
@@ -345,7 +345,8 @@ def requires_evidence_verification(query: str) -> bool:
     lowered = query.casefold()
     return any(token in lowered for token in (
         "hiệu lực", "còn hiệu lực", "hết hiệu lực", "bãi bỏ", "thay thế",
-        "mức hưởng", "mức chi trả", "được chi trả", "bao nhiêu tiền", "thanh toán",
+        "mức hưởng", "mức chi trả", "được chi trả", "được hưởng",
+        "có được", "bao nhiêu tiền", "thanh toán", "hiện nay", "hiện hành",
     ))
 
 
@@ -406,7 +407,7 @@ def rerank_legal_candidates(
     current_year = date.today().year
     asks_current = any(
         marker in query.casefold() for marker in ("hiện nay", "hiện hành", "mới nhất")
-    ) or any(year >= current_year for year in query_years)
+    ) or any(year >= current_year for year in query_years) or requires_evidence_verification(query)
     # A date is not automatically a historical question: “mức đóng năm
     # 2026” asks for the current/future regime. Only a clearly older date (or
     # explicit historical wording) permits obsolete sources to compete on an
@@ -467,6 +468,13 @@ def rerank_legal_candidates(
             sum(1.0 / triple_frequency[triple] for triple in set(triples) & source_triples),
         )
         raw_score = float(item.score)
+        # Repository operative scans score by the number of matching query
+        # terms. That raw count is useful for recall but rewards verbose,
+        # generic administrative passages over a short governing statute.
+        # Keep it bounded before applying source authority/currentness so the
+        # legal ranker, rather than term-count magnitude, decides the winner.
+        if any(channel in item.channels for channel in ("document_operatives", "document_recall_operatives")):
+            raw_score = min(raw_score, 2.0)
         # Coverage is a bounded tie-breaker over semantic relevance, not an
         # independent legal conclusion.  It prevents a single generic term
         # from dominating a multi-condition query.
@@ -586,6 +594,16 @@ def weighted_rrf(
         "legal_reference": 1.5,
         "document_operatives": 1.45,
         "title_document_operatives": 1.55,
+        # Candidate documents are recalled independently from the passage
+        # ANN/BM25 lists. Their passages have already passed a minimum
+        # query-derived term match and the shared legal reranker, so this
+        # channel can rescue a concise operative clause without making a
+        # document title itself evidence.
+        # A document-bounded exact passage is stronger evidence than a
+        # corpus-wide semantic hit. Give it enough rank weight to survive
+        # fusion when the clause appears only in the lexical view.
+        "document_recall_operatives": 5.0,
+        "document_recall_semantic": 1.7,
         "document_anchor": 3.5,
         "legal_graph": 0.7,
         "page_index": 1.35,
