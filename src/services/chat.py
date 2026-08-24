@@ -189,7 +189,21 @@ class GraphRagRuntime:
         # current law that the clause-shaped rewrite found only once. Reapply
         # the same source-authority/currentness policy after fusion; it does
         # not add documents or facts, only orders the already verified set.
-        ranked = rerank_legal_candidates(query, merged.evidence)
+        # RRF is intentionally consensus-biased.  A useful HyDE view may
+        # surface one decisive operative clause that the original colloquial
+        # wording cannot retrieve, so retain the best source-derived anchors
+        # from *each* view before the final legal ranking.  This is bounded
+        # and query-agnostic; it does not map a question to a document.
+        anchors = [
+            item
+            for bundle in valid
+            for item in rerank_legal_candidates(query, bundle.evidence)[:3]
+        ]
+        candidates = {item.chunk_id: item for item in merged.evidence}
+        for anchor in anchors:
+            if anchor.chunk_id not in candidates:
+                candidates[anchor.chunk_id] = anchor
+        ranked = rerank_legal_candidates(query, list(candidates.values()))
         return RetrievalBundle(
             evidence=ranked[: settings.max_llm_evidence],
             relations=merged.relations,
