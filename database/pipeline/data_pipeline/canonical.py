@@ -30,6 +30,7 @@ CHUNK_OVERLAP_WORDS = 32
 LEGAL_UNIT_VERSION = PAGE_INDEX_VERSION
 AUTHORITY_FILES = ("metadata.csv", "content.csv", "relationships.csv")
 OPTIONAL_AUTHORITY_FILES = ("aliases.csv",)
+OFFICIAL_INSTRUMENT_DIR = "official_instruments"
 PROJECTION_FILES = ("documents.csv", "metadata_bhyt.csv", "metadata_vien_phi.csv")
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _SPACE = re.compile(r"\s+")
@@ -260,6 +261,58 @@ def _split_by_token_budget(
     return result
 
 
+def _read_official_instruments(
+    base: Path, *, overlay_dir: str | Path | None = None
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Load small, provenance-locked official provision overlays.
+
+    The CSV export is the normal corpus authority.  This narrow extension
+    exists for an omitted foundational provision where using a quotation from
+    a lower-ranking administrative document would create a false citation.
+    Every overlay is an immutable JSON object with its official source URL and
+    response SHA-256 retained in metadata.  It must never replace an existing
+    CSV instrument silently.
+    """
+    directory = Path(overlay_dir) if overlay_dir is not None else base / OFFICIAL_INSTRUMENT_DIR
+    if not directory.is_dir():
+        return [], []
+    metadata_rows: list[dict[str, str]] = []
+    content_rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for path in sorted(directory.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise SnapshotValidationError(f"Invalid official instrument JSON: {path.name}") from exc
+        if not isinstance(payload, dict) or set(payload) - {"metadata", "content_html", "provenance"}:
+            raise SnapshotValidationError(f"Invalid official instrument shape: {path.name}")
+        metadata = payload.get("metadata")
+        content_html = payload.get("content_html")
+        provenance = payload.get("provenance")
+        if not isinstance(metadata, dict) or not isinstance(content_html, str) or not isinstance(provenance, dict):
+            raise SnapshotValidationError(f"Official instrument lacks metadata/content/provenance: {path.name}")
+        identifier = _clean(str(metadata.get("id", "")))
+        source_url = _clean(str(metadata.get("official_status_url", "")))
+        response_sha256 = _clean(str(provenance.get("response_sha256", "")))
+        if not identifier or identifier in seen:
+            raise SnapshotValidationError(f"Duplicate/missing official instrument id: {path.name}")
+        if not source_url.startswith("https://") or not re.fullmatch(r"[0-9a-f]{64}", response_sha256):
+            raise SnapshotValidationError(f"Official instrument provenance is incomplete: {path.name}")
+        if not normalize_html(content_html):
+            raise SnapshotValidationError(f"Official instrument has no visible legal text: {path.name}")
+        seen.add(identifier)
+        normalized_metadata = {str(key): _clean(str(value)) for key, value in metadata.items()}
+        normalized_metadata["id"] = identifier
+        metadata_rows.append(normalized_metadata)
+        content_rows.append({
+            "id": identifier,
+            "content_html": content_html,
+            "source_kind": "official_provision_overlay",
+            "source_document_id": identifier,
+        })
+    return metadata_rows, content_rows
+
+
 def _sentence_spans(text: str) -> list[tuple[int, int]]:
     """Return conservative Vietnamese sentence spans without breaking source offsets."""
 
@@ -376,7 +429,17 @@ def _retrieval_blocks(
             label = _clean(str(unit.get("label", ""))).casefold()
             heading = _clean(str(unit.get("heading", ""))).casefold()
             pure_number_or_marks = not re.search(r"[A-Za-zÀ-ỹĐđ]", compact)
-            structural_echo = normalized in {label, heading} and len(compact) < 40
+            # A short numbered/lettered legal provision can be the entire
+            # operative rule (for example a statutory exclusion).  It may
+            # equal its PageIndex heading, but is evidence, not decoration.
+            operative_enumeration = bool(
+                re.match(r"^(?:\d{1,3}\.|[a-zđ]\))\s+\S+", compact, re.IGNORECASE)
+            )
+            structural_echo = (
+                normalized in {label, heading}
+                and len(compact) < 40
+                and not operative_enumeration
+            )
             low_value = (
                 not compact
                 or normalized in _LOW_VALUE_RETRIEVAL_TEXT
@@ -512,7 +575,9 @@ def _projection_issues(base: Path, documents: dict[str, dict[str, str]], content
     return issues
 
 
-def build_snapshot(source_dir: str | Path) -> CanonicalSnapshot:
+def build_snapshot(
+    source_dir: str | Path, *, official_instrument_dir: str | Path | None = None
+) -> CanonicalSnapshot:
     """Load authority CSVs and return an immutable deterministic snapshot.
 
     Projection discrepancies are reported in ``validation_issues``; authority
@@ -522,6 +587,17 @@ def build_snapshot(source_dir: str | Path) -> CanonicalSnapshot:
     base = Path(source_dir)
     metadata_rows = _read_csv(base / "metadata.csv")
     content_rows = _read_csv(base / "content.csv", preserve_fields=frozenset({"content_html"}))
+    official_metadata, official_content = _read_official_instruments(
+        base, overlay_dir=official_instrument_dir
+    )
+    csv_ids = {_clean(row.get("id")) for row in metadata_rows}
+    overlap = csv_ids & {_clean(row.get("id")) for row in official_metadata}
+    if overlap:
+        raise SnapshotValidationError(
+            "Official instrument duplicates CSV authority: " + ", ".join(sorted(overlap))
+        )
+    metadata_rows.extend(official_metadata)
+    content_rows.extend(official_content)
     relationship_rows = _read_csv(base / "relationships.csv")
     alias_rows = _read_csv(base / "aliases.csv") if (base / "aliases.csv").is_file() else []
     documents: dict[str, dict[str, str]] = {}

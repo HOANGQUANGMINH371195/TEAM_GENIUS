@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from sqlalchemy import text
@@ -8,6 +9,39 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.integrations.neo4j import Neo4jGraphStore
 from src.models.graph import DocumentCandidate, Relation, RetrievalResult
 from src.services.retrieval import normalize_identifier
+
+_LEXICAL_TOKEN = re.compile(r"[0-9A-Za-zÀ-ỹĐđ]+", re.IGNORECASE)
+
+
+def lexical_phrases(query: str, *, limit: int = 48) -> list[str]:
+    """Return bounded query-derived phrases for lexical recall.
+
+    Legal provisions frequently express the decisive exception in a short
+    phrase while the user supplies additional facts. Keeping both bi-grams and
+    tri-grams avoids turning full-text search into an all-terms filter, and is
+    entirely derived from the query rather than a domain keyword catalogue.
+    """
+    tokens = [token.casefold() for token in _LEXICAL_TOKEN.findall(query)]
+    phrases = list(
+        dict.fromkeys(
+            " ".join(tokens[index : index + width])
+            for width in (3, 2)
+            for index in range(len(tokens) - width + 1)
+        )
+    )
+    return phrases[: max(0, limit)]
+
+
+def lexical_disjunction(query: str, *, limit: int = 32) -> str:
+    """Build a safe, bounded OR query from user-supplied lexical tokens."""
+    terms = list(
+        dict.fromkeys(
+            token.casefold()
+            for token in _LEXICAL_TOKEN.findall(query)
+            if len(token) > 1
+        )
+    )[: max(0, limit)]
+    return " | ".join(terms)
 
 
 class GraphRepository:
@@ -180,12 +214,69 @@ class GraphRepository:
             for row in result
         ]
 
+    async def document_ranking_metadata(
+        self, document_ids: Sequence[str], *, dataset_id: str
+    ) -> dict[str, dict[str, object]]:
+        """Load verified legal-ranking features without exposing them publicly."""
+        identifiers = list(dict.fromkeys(str(item) for item in document_ids if item))
+        if not identifiers:
+            return {}
+        result = await self.session.execute(
+            text(
+                """
+                SELECT d.id,
+                       COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
+                       COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', d.payload ->> 'loai_van_ban', '') AS document_type,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_ban_hanh', d.payload ->> 'ngay_ban_hanh', '') AS issued_date,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', d.payload ->> 'ngay_co_hieu_luc', '') AS effective_from,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_het_hieu_luc', d.payload ->> 'ngay_het_hieu_luc', '') AS effective_to,
+                       COALESCE(d.payload -> 'metadata' ->> 'status_filter', d.payload ->> 'status_filter', '') AS legal_status,
+                       COALESCE(d.payload -> 'metadata' ->> 'co_quan_ban_hanh', d.payload ->> 'co_quan_ban_hanh', '') AS issuer,
+                       COALESCE(d.payload -> 'metadata' ->> 'pham_vi', d.payload ->> 'pham_vi', '') AS jurisdiction,
+                       d.categories AS categories,
+                       COALESCE(d.payload -> 'metadata' ->> 'official_status_url', d.payload ->> 'official_status_url', '') AS source_url,
+                       COALESCE(d.payload -> 'metadata' ->> 'status_checked_at', d.payload ->> 'status_checked_at', '') AS source_checked_at,
+                       (
+                           COALESCE(d.payload -> 'metadata' ->> 'status_checked_at', d.payload ->> 'status_checked_at', '') <> ''
+                           -- A curated CSV is useful corpus metadata, but it
+                           -- is not independently verifiable proof that a
+                           -- legal status remains current.  Only a retained
+                           -- official source URL may produce a public status
+                           -- assertion or a currentness ranking bonus.
+                           AND COALESCE(d.payload -> 'metadata' ->> 'official_status_url', d.payload ->> 'official_status_url', '') <> ''
+                       ) AS legal_status_verified
+                FROM documents d
+                WHERE d.dataset_id = :dataset_id
+                  AND d.id = ANY(CAST(:document_ids AS text[]))
+                """
+            ),
+            {"dataset_id": dataset_id, "document_ids": identifiers},
+        )
+        return {
+            str(row.id): {
+                "document_number": str(row.document_number or ""),
+                "document_type": str(row.document_type or ""),
+                "issued_date": str(row.issued_date or ""),
+                "effective_from": str(row.effective_from or ""),
+                "effective_to": str(row.effective_to or ""),
+                "legal_status": str(row.legal_status or ""),
+                "legal_status_verified": bool(row.legal_status_verified),
+                "issuer": str(row.issuer or ""),
+                "jurisdiction": str(row.jurisdiction or ""),
+                "categories": [str(value) for value in (row.categories or [])],
+                "source_url": str(row.source_url or ""),
+                "source_checked_at": str(row.source_checked_at or ""),
+            }
+            for row in result
+        }
+
     async def hydrate_chunks_with_scope(
         self,
         chunk_ids: Sequence[str],
         *,
         dataset_id: str,
         scope_limit: int = 12,
+        scope_seed_limit: int = 6,
         channel: str = "semantic",
     ) -> tuple[list[RetrievalResult], list[RetrievalResult]]:
         """Hydrate semantic hits and enumerate sibling units in one DB round trip.
@@ -210,13 +301,23 @@ class GraphRepository:
                     JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
                     WHERE c.semantic_eligible IS TRUE OR c.lexical_eligible IS TRUE
                 ),
-                parents AS (
-                    SELECT DISTINCT u.parent_unit_id
+                scope_roots AS (
+                    SELECT CASE
+                               WHEN h.section_title ~ '^[[:space:]]*[0-9]+\\.' THEN u.unit_id
+                               ELSE u.parent_unit_id
+                           END AS root_unit_id,
+                           min(h.ordinality) AS seed_rank
                     FROM hydrated h
                     JOIN legal_units u
                       ON u.dataset_id = :dataset_id AND u.unit_id = h.unit_id
-                    WHERE h.section_title ~ '^[[:space:]]*[a-zđ]\\)'
-                      AND u.parent_unit_id IS NOT NULL
+                    WHERE h.section_title ~ '^[[:space:]]*(?:[a-zđ]\\)|[0-9]+\\.)'
+                      AND (
+                          h.section_title ~ '^[[:space:]]*[0-9]+\\.'
+                          OR u.parent_unit_id IS NOT NULL
+                      )
+                    GROUP BY root_unit_id
+                    ORDER BY seed_rank
+                    LIMIT :scope_seed_limit
                 ),
                 scoped AS (
                     SELECT u.unit_id, u.document_id, u.label, u.heading,
@@ -226,9 +327,9 @@ class GraphRepository:
                                u.heading, u.label
                            ) AS text,
                            u.source_start, u.source_end, u.text_sha256, d.title,
-                           row_number() OVER (ORDER BY u.document_id, u.source_start NULLS LAST, u.unit_id) AS scope_ordinal
+                           row_number() OVER (ORDER BY p.seed_rank, u.source_start NULLS LAST, u.unit_id) AS scope_ordinal
                     FROM legal_units u
-                    JOIN parents p ON p.parent_unit_id = u.parent_unit_id
+                    JOIN scope_roots p ON p.root_unit_id = u.parent_unit_id
                     JOIN documents d ON d.dataset_id = u.dataset_id AND d.id = u.document_id
                     WHERE u.dataset_id = :dataset_id
                       AND NOT d.is_external
@@ -250,7 +351,12 @@ class GraphRepository:
                 ORDER BY row_order
                 """
             ),
-            {"dataset_id": dataset_id, "chunk_ids": identifiers, "scope_limit": max(0, scope_limit)},
+            {
+                "dataset_id": dataset_id,
+                "chunk_ids": identifiers,
+                "scope_limit": max(0, scope_limit),
+                "scope_seed_limit": max(1, scope_seed_limit),
+            },
         )
         hydrated: list[RetrievalResult] = []
         scope: list[RetrievalResult] = []
@@ -288,27 +394,54 @@ class GraphRepository:
         if not needle:
             return []
         ids = list(dict.fromkeys(document_ids or []))
+        phrases = lexical_phrases(needle)
+        disjunction = lexical_disjunction(needle)
         result = await self.session.execute(
             text(
                 """
-                WITH ranked AS (
+                WITH phrase_queries AS (
+                    SELECT phraseto_tsquery('simple', phrase) AS phrase_query
+                    FROM unnest(CAST(:phrases AS text[])) AS phrase
+                ), ranked AS (
                     SELECT c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
                            c.source_start, c.source_end, c.text_sha256, c.embedding_input_sha256, d.title,
-                           ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', :query)) AS score
+                           GREATEST(
+                               ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', :query)),
+                               COALESCE(ts_rank_cd(c.search_vector, to_tsquery('simple', :disjunction)) * 1.5, 0.0),
+                               COALESCE((
+                                   SELECT max(ts_rank_cd(c.search_vector, pq.phrase_query)) * 3.0
+                                   FROM phrase_queries pq
+                                   WHERE c.search_vector @@ pq.phrase_query
+                               ), 0.0)
+                           ) AS score
                     FROM chunks c
                     JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
                     WHERE c.dataset_id = :dataset_id
                       AND c.lexical_eligible IS TRUE
                       AND NOT d.is_external
                       AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
-                      AND c.search_vector @@ websearch_to_tsquery('simple', :query)
+                      AND (
+                          c.search_vector @@ websearch_to_tsquery('simple', :query)
+                          OR (:disjunction <> '' AND c.search_vector @@ to_tsquery('simple', :disjunction))
+                          OR EXISTS (
+                              SELECT 1 FROM phrase_queries pq
+                              WHERE c.search_vector @@ pq.phrase_query
+                          )
+                      )
                       AND (cardinality(CAST(:document_ids AS text[])) = 0
                            OR c.document_id = ANY(CAST(:document_ids AS text[])))
                 )
                 SELECT * FROM ranked ORDER BY score DESC, document_id, chunk_id LIMIT :limit
                 """
             ),
-            {"dataset_id": dataset_id, "query": needle, "document_ids": ids, "limit": limit},
+            {
+                "dataset_id": dataset_id,
+                "query": needle,
+                "phrases": phrases,
+                "disjunction": disjunction,
+                "document_ids": ids,
+                "limit": limit,
+            },
         )
         return [
             RetrievalResult(
@@ -321,6 +454,40 @@ class GraphRepository:
             )
             for row in result
         ]
+
+    async def search_lexical_document_ids(
+        self, query: str, *, dataset_id: str, limit: int = 64
+    ) -> list[str]:
+        """Return a bounded, query-derived document recall set.
+
+        This is deliberately document-level: a decisive short provision can
+        score below verbose passages in a corpus-wide passage search, while
+        still belonging to a highly relevant current law. Callers must fetch
+        a matching passage afterwards; document IDs are never evidence.
+        """
+        disjunction = lexical_disjunction(query)
+        if not disjunction or limit <= 0:
+            return []
+        result = await self.session.execute(
+            text(
+                """
+                SELECT c.document_id,
+                       max(ts_rank_cd(c.search_vector, to_tsquery('simple', :disjunction))) AS score
+                FROM chunks c
+                JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
+                WHERE c.dataset_id = :dataset_id
+                  AND c.lexical_eligible IS TRUE
+                  AND NOT d.is_external
+                  AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                  AND c.search_vector @@ to_tsquery('simple', :disjunction)
+                GROUP BY c.document_id
+                ORDER BY score DESC, c.document_id
+                LIMIT :limit
+                """
+            ),
+            {"dataset_id": dataset_id, "disjunction": disjunction, "limit": limit},
+        )
+        return [str(row.document_id) for row in result]
 
     async def resolve_legal_units(
         self, labels: Sequence[str], *, dataset_id: str, document_ids: Sequence[str], limit: int = 8
@@ -446,6 +613,158 @@ class GraphRepository:
                 source_end=int(row.source_end) if row.source_end is not None else None,
                 text_sha256=str(row.text_sha256 or ""),
                 channels=["page_index", "semantic_scope"], score=1.0,
+            )
+            for row in result
+        ]
+
+    async def expand_internal_references(
+        self,
+        reference_targets: Sequence[tuple[str, str]],
+        *,
+        dataset_id: str,
+        limit: int = 8,
+    ) -> list[RetrievalResult]:
+        """Find operative clauses in a selected document sharing a legal reference.
+
+        This is a bounded canonical join, used for questions that need an
+        amount, duration or condition.  For example, an implementation clause
+        may identify students by ``điểm b khoản 4 Điều 12`` while a separate
+        clause states the support percentage for that same reference.
+        """
+        targets = list(
+            dict.fromkeys(
+                (str(document_id), " ".join(reference.split()))
+                for document_id, reference in reference_targets
+                if document_id and reference.strip()
+            )
+        )
+        if not targets or limit <= 0:
+            return []
+        result = await self.session.execute(
+            text(
+                """
+                WITH matched AS (
+                    SELECT c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
+                           c.source_start, c.source_end, c.text_sha256,
+                           c.embedding_input_sha256, d.title,
+                           min(ref.ordinality) AS reference_rank
+                    FROM chunks c
+                    JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
+                    JOIN unnest(CAST(:reference_document_ids AS text[]), CAST(:references AS text[]))
+                         WITH ORDINALITY AS ref(document_id, reference, ordinality)
+                      ON c.document_id = ref.document_id
+                     AND (
+                         regexp_replace(lower(COALESCE(c.section_title, '') || ' ' || c.text), '\\s+', ' ', 'g')
+                         LIKE '%' || lower(ref.reference) || '%'
+                      -- A current rule can cite several beneficiaries in a
+                      -- compact form (for example “điểm b, c, đ, e và h
+                      -- khoản 4 Điều 12”).  The article/paragraph tail is
+                      -- still an exact legal boundary, while this branch
+                      -- recovers the grouped-reference spelling.
+                      OR regexp_replace(lower(COALESCE(c.section_title, '') || ' ' || c.text), '\\s+', ' ', 'g')
+                         LIKE '%' || regexp_replace(lower(ref.reference), '^điểm [a-zđ] ', '') || '%'
+                     )
+                    WHERE c.dataset_id = :dataset_id
+                      AND c.lexical_eligible IS TRUE
+                      AND NOT d.is_external
+                      AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                    GROUP BY c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
+                             c.source_start, c.source_end, c.text_sha256,
+                             c.embedding_input_sha256, d.title
+                )
+                SELECT * FROM matched
+                ORDER BY reference_rank, document_id, source_start NULLS LAST, chunk_id
+                LIMIT :limit
+                """
+            ),
+            {
+                "dataset_id": dataset_id,
+                "reference_document_ids": [item[0] for item in targets],
+                "references": [item[1] for item in targets],
+                "limit": limit,
+            },
+        )
+        return [
+            RetrievalResult(
+                chunk_id=str(row.chunk_id), document_id=str(row.document_id), dataset_id=dataset_id,
+                content=str(row.text or ""), source=str(row.document_id), title=str(row.title or ""),
+                section_title=str(row.section_title or ""), unit_id=str(row.unit_id or ""),
+                source_start=int(row.source_start) if row.source_start is not None else None,
+                source_end=int(row.source_end) if row.source_end is not None else None,
+                text_sha256=str(row.text_sha256 or ""), input_sha256=str(row.embedding_input_sha256 or ""),
+                channels=["legal_reference"], score=1.0,
+            )
+            for row in result
+        ]
+
+    async def search_document_operatives(
+        self,
+        document_ids: Sequence[str],
+        *,
+        dataset_id: str,
+        terms: Sequence[str],
+        limit: int = 12,
+        minimum_matches: int | None = None,
+    ) -> list[RetrievalResult]:
+        """Retrieve operative passages from an already selected legal document.
+
+        Passage ANN can find the beneficiary clause while missing the separate
+        percentage, duration or payment clause in the same decree.  This is a
+        document-bounded lexical expansion, never a corpus-wide fallback.
+        """
+        ids = list(dict.fromkeys(str(value) for value in document_ids if value))
+        needles = list(dict.fromkeys(" ".join(value.split()) for value in terms if len(value.strip()) >= 3))
+        if not ids or not needles or limit <= 0:
+            return []
+        required_matches = minimum_matches if minimum_matches is not None else (2 if len(needles) > 1 else 1)
+        required_matches = max(1, min(required_matches, len(needles)))
+        result = await self.session.execute(
+            text(
+                """
+                WITH matched AS (
+                    SELECT c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
+                           c.source_start, c.source_end, c.text_sha256,
+                           c.embedding_input_sha256, d.title,
+                           count(DISTINCT term.value) AS matched_terms
+                    FROM chunks c
+                    JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
+                    JOIN unnest(CAST(:terms AS text[])) AS term(value)
+                      ON lower(COALESCE(c.section_title, '') || ' ' || c.text)
+                         LIKE '%' || lower(term.value) || '%'
+                    WHERE c.dataset_id = :dataset_id
+                      AND c.document_id = ANY(CAST(:document_ids AS text[]))
+                      AND c.lexical_eligible IS TRUE
+                      AND NOT d.is_external
+                      AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                    GROUP BY c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
+                             c.source_start, c.source_end, c.text_sha256,
+                             c.embedding_input_sha256, d.title
+                    HAVING count(DISTINCT term.value) >= :minimum_matches
+                )
+                SELECT * FROM matched
+                ORDER BY matched_terms DESC,
+                         array_position(CAST(:document_ids AS text[]), document_id),
+                         source_start NULLS LAST, chunk_id
+                LIMIT :limit
+                """
+            ),
+            {
+                "dataset_id": dataset_id,
+                "document_ids": ids,
+                "terms": needles,
+                "minimum_matches": required_matches,
+                "limit": limit,
+            },
+        )
+        return [
+            RetrievalResult(
+                chunk_id=str(row.chunk_id), document_id=str(row.document_id), dataset_id=dataset_id,
+                content=str(row.text or ""), source=str(row.document_id), title=str(row.title or ""),
+                section_title=str(row.section_title or ""), unit_id=str(row.unit_id or ""),
+                source_start=int(row.source_start) if row.source_start is not None else None,
+                source_end=int(row.source_end) if row.source_end is not None else None,
+                text_sha256=str(row.text_sha256 or ""), input_sha256=str(row.embedding_input_sha256 or ""),
+                channels=["document_operatives"], score=float(row.matched_terms or 0),
             )
             for row in result
         ]

@@ -30,7 +30,10 @@ def encode_snapshot(source_dir: str | Path, output_root: str | Path, *, batch_si
     np.save(target / "embeddings.float32.npy", np.asarray(vectors, dtype=np.float32))
     with (target / "passages.jsonl").open("w", encoding="utf-8") as handle:
         for row, text in zip(passages, inputs, strict=True):
-            handle.write(json.dumps({"passage_id": row["passage_id"], "document_id": row["document_id"], "unit_id": row["unit_id"], "source_start": row["source_start"], "source_end": row["source_end"], "input_sha256": hashlib.sha256(text.encode()).hexdigest()}, ensure_ascii=False) + "\n")
+            # Keep the exact input beside the dense vector artifact.  It lets
+            # a later Qdrant release add a sparse BM25 representation without
+            # recomputing paid dense embeddings or guessing a passage span.
+            handle.write(json.dumps({"passage_id": row["passage_id"], "document_id": row["document_id"], "unit_id": row["unit_id"], "source_start": row["source_start"], "source_end": row["source_end"], "input_sha256": hashlib.sha256(text.encode()).hexdigest(), "lexical_text": text}, ensure_ascii=False) + "\n")
     manifest = {"artifact_type": "openai_embedding_snapshot", "dataset_id": snapshot.dataset_id, "model": model_name(), "dimensions": dimensions(), "rows": len(vectors), "normalized": True}
     (target / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return target

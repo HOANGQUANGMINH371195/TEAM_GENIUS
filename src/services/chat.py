@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -24,17 +25,23 @@ from src.models.graph import Citation, DocumentCandidate, RetrievalResult
 from src.services.circuit import AsyncCircuitBreaker
 from src.services.llm import get_llm
 from src.services.metrics import metrics
+from src.services.query_rewrite import rewrite_retrieval_query, should_rewrite_query
 from src.services.retrieval import (
+    exclude_unverified_legacy_subordinate_sources,
     extract_document_numbers,
+    extract_internal_legal_references,
     extract_legal_labels,
+    extract_query_phrases,
+    extract_query_terms,
     is_metadata_question,
     is_simple_status_metadata_question,
     normalize_identifier,
     policy_response,
+    requires_clause_expansion,
     requires_evidence_verification,
+    rerank_legal_candidates,
     retrieval_intent,
-    rerank_semantic_by_query_overlap,
-    semantic_document_focus,
+    scope_evidence_matches_query,
     weighted_rrf,
 )
 
@@ -47,7 +54,10 @@ class ChatProviderError(RuntimeError):
     """The configured chat provider failed to generate a response."""
 
 
-_RETRIEVAL_POLICY_VERSION = "hybrid-v4"
+# Bump whenever ranking/selection semantics change.  This is part of each
+# in-process cache namespace, so an answer produced before the domain/scope
+# policy cannot be replayed after a rolling deployment.
+_RETRIEVAL_POLICY_VERSION = "hybrid-v9-query-derived"
 logger = logging.getLogger(__name__)
 _ProviderResult = TypeVar("_ProviderResult")
 
@@ -84,8 +94,13 @@ class GraphRagRuntime:
             failure_threshold=get_settings().provider_circuit_failure_threshold,
             cooldown_seconds=get_settings().provider_circuit_cooldown_seconds,
         )
+        self._rewrite_breaker = AsyncCircuitBreaker(
+            failure_threshold=get_settings().provider_circuit_failure_threshold,
+            cooldown_seconds=get_settings().provider_circuit_cooldown_seconds,
+        )
         self._exact_cache: dict[tuple[str, str], tuple[list[DocumentCandidate], float]] = {}
         self._retrieval_cache: dict[tuple[tuple[object, ...], str], tuple[RetrievalBundle, float]] = {}
+        self._rewrite_cache: dict[tuple[str, str], tuple[str, float]] = {}
         # Generated answers are safe to reuse only while the immutable active
         # release and every prompt/input fingerprint remain identical.  Keep
         # this process-local and bounded; a release switch naturally makes
@@ -112,6 +127,93 @@ class GraphRagRuntime:
     async def retrieve(self, query: str) -> tuple[list, list]:
         bundle = await self.retrieve_bundle(query)
         return bundle.evidence, bundle.relations
+
+    async def retrieve_bundle_adaptive(self, query: str) -> RetrievalBundle:
+        """Retrieve the original and a constrained rewrite concurrently.
+
+        The original wording is always retained. Rewrite failure, timeout or
+        rejection therefore cannot turn an otherwise answerable request into
+        an outage, while the two result lists are fused by rank rather than by
+        incomparable provider scores.
+        """
+        settings = get_settings()
+        if not settings.query_rewrite_enabled or not should_rewrite_query(query):
+            return await self.retrieve_bundle(query)
+
+        original_task = asyncio.create_task(self.retrieve_bundle(query))
+        try:
+            rewritten = await asyncio.wait_for(
+                self._rewrite_query(query),
+                timeout=settings.query_rewrite_timeout_seconds,
+            )
+        except Exception:
+            metrics.inc("query_rewrite_total", outcome="fallback")
+            return await original_task
+
+        if " ".join(rewritten.casefold().split()) == " ".join(query.casefold().split()):
+            metrics.inc("query_rewrite_total", outcome="unchanged")
+            return await original_task
+
+        rewritten_task = asyncio.create_task(self.retrieve_bundle(rewritten))
+        original, expanded = await asyncio.gather(
+            original_task,
+            rewritten_task,
+            return_exceptions=True,
+        )
+        valid = [item for item in (original, expanded) if isinstance(item, RetrievalBundle)]
+        if not valid:
+            first_error = original if isinstance(original, BaseException) else expanded
+            raise first_error
+        metrics.inc("query_rewrite_total", outcome="success")
+        if len(valid) == 1:
+            return _copy_bundle(valid[0])
+        merged = _merge_bundles(
+            [original, expanded],
+            channel_weights={"query_0": 1.0, "query_1": 1.2},
+            # Keep a wider candidate pool until the legal ranker has seen
+            # both phrasings.  Cutting to the final context size here let a
+            # duplicated generic match evict a current operative clause that
+            # occurred in only one query view.
+            limit=min(
+                getattr(settings, "retrieval_candidate_k", settings.max_llm_evidence * 4),
+                settings.max_llm_evidence * 4,
+            ),
+            max_per_document=(
+                max(settings.max_chunks_per_document, 6)
+                if requires_clause_expansion(query)
+                else settings.max_chunks_per_document
+            ),
+        )
+        # RRF rewards an item that appears in both views. That is normally
+        # desirable, but an older paraphrase can otherwise beat an operative
+        # current law that the clause-shaped rewrite found only once. Reapply
+        # the same source-authority/currentness policy after fusion; it does
+        # not add documents or facts, only orders the already verified set.
+        ranked = rerank_legal_candidates(query, merged.evidence)
+        return RetrievalBundle(
+            evidence=ranked[: settings.max_llm_evidence],
+            relations=merged.relations,
+            direct_response=merged.direct_response,
+            direct_citations=merged.direct_citations,
+        )
+
+    async def _rewrite_query(self, query: str) -> str:
+        settings = get_settings()
+        key = (settings.model_name, " ".join(query.casefold().split()))
+        now = time.monotonic()
+        cached = self._rewrite_cache.get(key)
+        if cached and now - cached[1] < 300:
+            return cached[0]
+        rewritten = await self._provider_call(
+            "query_rewrite",
+            self._rewrite_breaker,
+            lambda: rewrite_retrieval_query(query),
+        )
+        if len(self._rewrite_cache) >= 256:
+            oldest = min(self._rewrite_cache, key=lambda item: self._rewrite_cache[item][1])
+            self._rewrite_cache.pop(oldest, None)
+        self._rewrite_cache[key] = (rewritten, now)
+        return rewritten
 
     async def retrieve_bundle(self, query: str) -> RetrievalBundle:
         started = time.perf_counter()
@@ -148,7 +250,8 @@ class GraphRagRuntime:
         ) as span:
             try:
                 bundle = await asyncio.wait_for(
-                    self._retrieve(query), timeout=get_settings().retrieval_timeout_seconds
+                    self._retrieve(query),
+                    timeout=get_settings().retrieval_timeout_seconds,
                 )
             except TimeoutError as exc:
                 metrics.inc("retrieval_requests_total", mode="provider", outcome="timeout")
@@ -220,6 +323,7 @@ class GraphRagRuntime:
             raise GraphRagUnavailableError("No active dataset is available")
         vector_hits = await self._search_vectors_many(
             vectors,
+            query_texts=bounded,
             dataset_id=dataset_id,
             limit=settings.retrieval_candidate_k,
             score_threshold=settings.semantic_similarity_threshold,
@@ -349,10 +453,7 @@ class GraphRagRuntime:
         ) -> list[RetrievalResult]:
             async with session_scope() as lexical_session:
                 return await GraphRepository(lexical_session).search_lexical(
-                    query,
-                    dataset_id=dataset_id,
-                    document_ids=document_ids,
-                    limit=limit,
+                    query, dataset_id=dataset_id, document_ids=document_ids, limit=limit
                 )
 
         try:
@@ -401,6 +502,7 @@ class GraphRagRuntime:
                                 chunk_id=f"metadata:{document.document_id}",
                                 dataset_id=dataset_id,
                                 title=document.title,
+                                document_number=document.so_ky_hieu,
                                 # Keep the complete, provenance-checked metadata
                                 # record in the citation context.  A status-only
                                 # quote made date/title answers look like a
@@ -448,8 +550,16 @@ class GraphRagRuntime:
 
             # Phase 2: independent lexical/provider work. The lexical task owns
             # its own short-lived DB session, so provider wait cannot pin it.
+            # An explicit public document number is a hard retrieval boundary:
+            # searching unrelated documents can only introduce distractors and
+            # can make an exact miss look like a plausible answer.
+            search_document_ids = exact_document_ids or None
             lexical_task = asyncio.create_task(
-                lexical_search(dataset_id=dataset_id, limit=settings.retrieval_candidate_k)
+                lexical_search(
+                    dataset_id=dataset_id,
+                    document_ids=search_document_ids,
+                    limit=settings.retrieval_candidate_k,
+                )
             )
             async with trace_span(
                 "embedding-query",
@@ -469,7 +579,9 @@ class GraphRagRuntime:
                     semantic_task = asyncio.create_task(
                         self._search_vectors(
                             vector,
+                            query_text=query,
                             dataset_id=dataset_id,
+                            document_ids=search_document_ids,
                             limit=settings.retrieval_candidate_k,
                             score_threshold=settings.semantic_similarity_threshold,
                         )
@@ -488,7 +600,20 @@ class GraphRagRuntime:
                     hydrated, semantic_scope = await hydration_repository.hydrate_chunks_with_scope(
                         [item.chunk_id for item in vector_hits],
                         dataset_id=dataset_id,
-                        scope_limit=settings.max_llm_evidence,
+                        # Sibling enumeration is only meaningful when the user
+                        # identified a document and legal unit. Expanding every
+                        # thematic ANN hit used to inject unrelated a)/b) units
+                        # with an artificial score of 1.0.
+                        scope_limit=(
+                            # Scope expansion is a candidate pool, not final
+                            # context. A few older roots can otherwise use
+                            # all 12 slots before the current article's last
+                            # operative point (for example h)) is reached.
+                            max(24, settings.max_llm_evidence)
+                            if (intent == "legal_unit" and exact_document_ids)
+                            or requires_clause_expansion(query)
+                            else 0
+                        ),
                     )
                 else:
                     hydrated = await hydration_repository.hydrate_chunks(
@@ -503,10 +628,198 @@ class GraphRagRuntime:
                         dataset_id=dataset_id,
                         limit=settings.max_llm_evidence,
                     )
-                semantic_results = rerank_semantic_by_query_overlap(
+                legal_reference_results: list[RetrievalResult] = []
+                if requires_clause_expansion(query) and exact_document_ids:
+                    # References such as “điểm b khoản 4 Điều 12” recur in
+                    # many unrelated regulations.  Expand only the few
+                    # strongest directly retrieved documents, then use the
+                    # shared reference inside those documents; expanding
+                    # every broad ANN hit would pull in military/local rules.
+                    reference_seed_items = [*hydrated, *lexical_results, *semantic_scope]
+                    query_terms = {
+                        token.casefold()
+                        for token in re.findall(r"[0-9A-Za-zÀ-ỹĐđ]+", query)
+                        if len(token) > 2
+                    }
+                    reference_targets: list[tuple[str, str]] = []
+                    for item in reference_seed_items:
+                        title_scope = item.title.casefold()
+                        # The cross-reference expansion is for an
+                        # implementing instrument that explicitly guides a
+                        # statute. Other thematic hits frequently reuse the
+                        # same article numbers for finance, police/military
+                        # or local schemes, where an expansion would be a
+                        # false legal chain.
+                        if "hướng dẫn" not in title_scope or "luật" not in title_scope:
+                            continue
+                        source_text = f"{item.title} {item.section_title} {item.content}"
+                        source_terms = {
+                            token.casefold()
+                            for token in re.findall(r"[0-9A-Za-zÀ-ỹĐđ]+", source_text)
+                            if len(token) > 2
+                        }
+                        # Do not let an incidental reference from a broad
+                        # ANN hit seed another document's legal chain.
+                        if len(query_terms & source_terms) < 2:
+                            continue
+                        reference_targets.extend(
+                            (item.document_id, reference)
+                            for reference in extract_internal_legal_references([source_text])
+                        )
+                    if reference_targets:
+                        legal_reference_results = await hydration_repository.expand_internal_references(
+                            reference_targets,
+                            dataset_id=dataset_id,
+                            # A grouped reference can have several preceding
+                            # administrative clauses before its operative
+                            # percentage/duration clause. Keep this bounded
+                            # pool wide enough for the ranker to see it.
+                            limit=min(20, settings.retrieval_candidate_k),
+                        )
+                ranking_metadata = await hydration_repository.document_ranking_metadata(
+                    [
+                        item.document_id
+                        for item in [
+                            *hydrated, *lexical_results, *semantic_scope, *legal_reference_results, *page_results
+                        ]
+                    ],
+                    dataset_id=dataset_id,
+                )
+                _apply_document_ranking_metadata(
+                    [*hydrated, *lexical_results, *semantic_scope, *legal_reference_results, *page_results],
+                    ranking_metadata,
+                )
+                semantic_results = rerank_legal_candidates(
                     query, _verify_hydrated_hits(hydrated, vector_hits)
                 )
-                semantic_focus = semantic_document_focus(semantic_results)
+                lexical_results = rerank_legal_candidates(query, lexical_results)
+                semantic_scope = rerank_legal_candidates(query, semantic_scope)
+                semantic_scope = [
+                    item
+                    for item in semantic_scope
+                    if scope_evidence_matches_query(
+                        query,
+                        item,
+                        candidate_pool=[*semantic_results, *lexical_results, *semantic_scope],
+                    )
+                ]
+                legal_reference_results = rerank_legal_candidates(query, legal_reference_results)
+                if semantic_scope and requires_clause_expansion(query):
+                    # A child point is generated from a high-ranked parent
+                    # legal unit, so its standalone lexical score starts at
+                    # zero. Carry bounded parent relevance forward; otherwise
+                    # the exact a)/b)/c) answer is always outranked by the
+                    # parent heading that merely introduces the list.
+                    parent_scores: dict[str, float] = {}
+                    for item in semantic_results:
+                        parent_scores[item.document_id] = max(
+                            parent_scores.get(item.document_id, 0.0), float(item.score)
+                        )
+                    for item in semantic_scope:
+                        inherited = parent_scores.get(item.document_id, 0.0) * 0.65
+                        item.score += inherited
+                        item.rank_details = {**item.rank_details, "scope_parent_relevance": inherited}
+                    semantic_scope.sort(key=lambda item: (-item.score, item.document_id, item.chunk_id))
+                page_results = rerank_legal_candidates(query, page_results)
+                document_anchor_results: list[RetrievalResult] = []
+                if requires_clause_expansion(query) and not exact_document_ids and all(
+                    hasattr(hydration_repository, name)
+                    for name in ("search_document_operatives", "search_lexical_document_ids")
+                ):
+                    primary_document_ids = await hydration_repository.search_lexical_document_ids(
+                        query,
+                        dataset_id=dataset_id,
+                        limit=max(64, settings.retrieval_candidate_k),
+                    )
+                    query_terms = [
+                        *extract_query_phrases(query, limit=24),
+                        *extract_query_terms(query, limit=24),
+                    ]
+                    if primary_document_ids and query_terms:
+                        anchors = await hydration_repository.search_document_operatives(
+                            primary_document_ids,
+                            dataset_id=dataset_id,
+                            terms=query_terms,
+                            limit=max(24, settings.max_llm_evidence),
+                            minimum_matches=2,
+                        )
+                        anchor_metadata = await hydration_repository.document_ranking_metadata(
+                            [item.document_id for item in anchors], dataset_id=dataset_id
+                        )
+                        _apply_document_ranking_metadata(anchors, anchor_metadata)
+                        anchors = rerank_legal_candidates(query, anchors)
+                        reference_targets = [
+                            (item.document_id, reference)
+                            for item in anchors
+                            for reference in extract_internal_legal_references(
+                                [f"{item.section_title} {item.content}"]
+                            )
+                        ]
+                        if reference_targets:
+                            linked = await hydration_repository.expand_internal_references(
+                                reference_targets,
+                                dataset_id=dataset_id,
+                                limit=min(20, settings.retrieval_candidate_k),
+                            )
+                            _apply_document_ranking_metadata(linked, ranking_metadata)
+                            linked = rerank_legal_candidates(query, linked)
+                            anchor_score = max((float(item.score) for item in anchors), default=0.0)
+                            for item in linked:
+                                item.score += anchor_score * 0.75
+                                item.rank_details = {
+                                    **item.rank_details,
+                                    "anchor_reference_relevance": anchor_score * 0.75,
+                                }
+                            document_anchor_results = sorted(
+                                [*anchors, *linked],
+                                key=lambda item: (-item.score, item.document_id, item.chunk_id),
+                            )
+                document_operatives: list[RetrievalResult] = []
+                # A document-wide term scan is safe only for an explicit
+                # document lookup. Thematic queries must first establish a
+                # legal chain through normal retrieval/cross-reference logic;
+                # otherwise generic words such as “hỗ trợ” pull unrelated
+                # beneficiary groups from the same decree.
+                if (
+                    requires_clause_expansion(query)
+                    and exact_document_ids
+                    and hasattr(
+                    hydration_repository, "search_document_operatives"
+                    )
+                ):
+                    primary_seed = rerank_legal_candidates(
+                        query, [*semantic_results, *lexical_results]
+                    )
+                    primary_document_ids = list(
+                        dict.fromkeys(
+                            item.document_id
+                            for item in primary_seed
+                            if item.document_id
+                        )
+                    )[:2]
+                    query_phrases = extract_query_phrases(query)
+                    if primary_document_ids and query_phrases:
+                        document_operatives = await hydration_repository.search_document_operatives(
+                            primary_document_ids,
+                            dataset_id=dataset_id,
+                            terms=query_phrases,
+                            limit=min(12, settings.max_llm_evidence),
+                        )
+                        _apply_document_ranking_metadata(document_operatives, ranking_metadata)
+                        document_operatives = rerank_legal_candidates(query, document_operatives)
+                        parent_scores = {
+                            item.document_id: float(item.score)
+                            for item in primary_seed
+                            if item.document_id
+                        }
+                        for item in document_operatives:
+                            inherited = parent_scores.get(item.document_id, 0.0) * 0.5
+                            item.score += inherited
+                            item.rank_details = {
+                                **item.rank_details,
+                                "document_parent_relevance": inherited,
+                            }
+                        document_operatives.sort(key=lambda item: (-item.score, item.document_id, item.chunk_id))
 
             channels: dict[str, Sequence[RetrievalResult]] = {
                 "lexical": lexical_results,
@@ -514,70 +827,102 @@ class GraphRagRuntime:
             }
             if page_results:
                 channels["page_index"] = page_results
-            if semantic_focus:
-                channels["semantic_focus"] = semantic_focus
-            if semantic_scope and intent in {"lookup", "legal_unit"}:
+            if semantic_scope and intent == "legal_unit" and exact_document_ids:
                 return RetrievalBundle(evidence=_verified_evidence(semantic_scope), relations=[])
-            if semantic_scope:
+            if semantic_scope and requires_clause_expansion(query):
                 channels["semantic_scope"] = semantic_scope
+            if legal_reference_results:
+                channels["legal_reference"] = legal_reference_results
+            if document_anchor_results:
+                channels["document_anchor"] = document_anchor_results
+            if document_operatives:
+                channels["document_operatives"] = document_operatives
 
             graph_results: list = []
             seed_ids = list(dict.fromkeys(item.document_id for item in weighted_rrf(channels, limit=6)))
             if intent in {"temporal", "relational"} and seed_ids:
-                async with trace_span(
-                    "neo4j-expand", as_type="retriever", metadata={"dataset_id": dataset_id}
-                ) as span:
-                    graph_results = await self._provider_call(
-                        "neo4j",
-                        self._neo4j_breaker,
-                        lambda: self._get_graph_store().expand(
-                            seed_ids,
-                            dataset_id=dataset_id,
-                            hops=min(settings.graph_hops, 2 if intent == "temporal" else 1),
-                            limit=settings.graph_neighbor_limit,
+                try:
+                    async with trace_span(
+                        "neo4j-expand", as_type="retriever", metadata={"dataset_id": dataset_id}
+                    ) as span:
+                        graph_results = await self._provider_call(
+                            "neo4j",
+                            self._neo4j_breaker,
+                            lambda: self._get_graph_store().expand(
+                                seed_ids,
+                                dataset_id=dataset_id,
+                                hops=min(settings.graph_hops, 2 if intent == "temporal" else 1),
+                                limit=settings.graph_neighbor_limit,
+                            )
                         )
-                    )
-                    if span is not None:
-                        span.update(output={"relation_count": len(graph_results)})
-                related_ids = list(
-                    dict.fromkeys(
-                        identifier
-                        for relation in graph_results
-                        for identifier in (relation.source_id, relation.target_id)
-                        if identifier and identifier not in seed_ids
-                    )
-                )[: settings.graph_evidence_limit]
-                if related_ids:
-                    graph_lexical_task = asyncio.create_task(
-                        lexical_search(
+                        if span is not None:
+                            span.update(output={"relation_count": len(graph_results)})
+                    related_ids = list(
+                        dict.fromkeys(
+                            identifier
+                            for relation in graph_results
+                            for identifier in (relation.source_id, relation.target_id)
+                            if identifier and identifier not in seed_ids
+                        )
+                    )[: settings.graph_evidence_limit]
+                    if related_ids:
+                        graph_lexical_task = asyncio.create_task(
+                            lexical_search(
+                                dataset_id=dataset_id,
+                                document_ids=related_ids,
+                                limit=settings.graph_evidence_limit,
+                            )
+                        )
+                        graph_vector_hits = await self._search_vectors(
+                            vector,
+                            query_text=query,
                             dataset_id=dataset_id,
                             document_ids=related_ids,
                             limit=settings.graph_evidence_limit,
+                            score_threshold=settings.semantic_similarity_threshold,
                         )
+                        graph_lexical = await graph_lexical_task
+                        async with session_scope() as graph_session:
+                            graph_repository = GraphRepository(graph_session)
+                            graph_semantic = await _hydrate_vector_hits(
+                                graph_repository, graph_vector_hits, dataset_id
+                            )
+                            graph_evidence = _merge_evidence(graph_lexical, graph_semantic)
+                            graph_metadata = await graph_repository.document_ranking_metadata(
+                                [item.document_id for item in graph_evidence],
+                                dataset_id=dataset_id,
+                            )
+                            _apply_document_ranking_metadata(graph_evidence, graph_metadata)
+                        channels["legal_graph"] = rerank_legal_candidates(query, graph_evidence)
+                except (OSError, RuntimeError, ValueError, TimeoutError) as exc:
+                    # Graph expansion improves recall but is never the sole
+                    # evidence source. A DNS/Aura outage must degrade to the
+                    # independently verified lexical+dense path, not turn a
+                    # valid legal question into a 503/no-answer response.
+                    graph_results = []
+                    metrics.inc("retrieval_optional_dependency_total", dependency="neo4j", outcome="fallback")
+                    logger.warning(
+                        "Neo4j expansion unavailable (%s); using lexical+dense retrieval",
+                        type(exc).__name__,
                     )
-                    graph_vector_hits = await self._search_vectors(
-                        vector,
-                        dataset_id=dataset_id,
-                        document_ids=related_ids,
-                        limit=settings.graph_evidence_limit,
-                        score_threshold=settings.semantic_similarity_threshold,
-                    )
-                    graph_lexical = await graph_lexical_task
-                    async with session_scope() as graph_session:
-                        graph_repository = GraphRepository(graph_session)
-                        graph_semantic = await _hydrate_vector_hits(
-                            graph_repository, graph_vector_hits, dataset_id
-                        )
-                    channels["legal_graph"] = _merge_evidence(graph_lexical, graph_semantic)
 
-            return RetrievalBundle(
-                evidence=_verified_evidence(
-                    weighted_rrf(
+            fused_evidence = weighted_rrf(
                         channels,
                         limit=settings.max_llm_evidence,
-                        max_per_document=3 if semantic_focus else 2,
+                        # Operational legal questions often require the
+                        # beneficiary, the governing group and the operative
+                        # percentage/duration from one statute. Preserve a
+                        # slightly wider same-document chain before the LLM
+                        # audits it; thematic questions retain diversity.
+                        max_per_document=(
+                            max(settings.max_chunks_per_document, 6)
+                            if requires_clause_expansion(query)
+                            else settings.max_chunks_per_document
+                        ),
                     )
-                ),
+            fused_evidence = exclude_unverified_legacy_subordinate_sources(query, fused_evidence)
+            return RetrievalBundle(
+                evidence=_verified_evidence(fused_evidence),
                 relations=graph_results,
             )
         except GraphRagUnavailableError:
@@ -617,7 +962,7 @@ class GraphRagRuntime:
                         HumanMessage(
                             content=(
                                 f"Câu hỏi người dùng:\n{query}\n\n"
-                                f"Evidence và graph relations được phép sử dụng:\n{context}\n\n"
+                                f"Nguồn pháp lý được phép sử dụng:\n{context}\n\n"
                                 f"Định dạng đầu ra bắt buộc:\n{answer_instruction}"
                             )
                         ),
@@ -776,6 +1121,7 @@ class GraphRagRuntime:
             await asyncio.gather(*pending_embeddings, return_exceptions=True)
         self._exact_cache.clear()
         self._retrieval_cache.clear()
+        self._rewrite_cache.clear()
         self._answer_cache.clear()
 
 
@@ -789,6 +1135,32 @@ def _merge_evidence(vector_results: list, graph_results: list) -> list:
         current.channels = sorted(set([*current.channels, *item.channels]))
         current.score = max(current.score, item.score)
     return list(merged.values())
+
+
+def _apply_document_ranking_metadata(
+    evidence: Sequence[RetrievalResult], metadata: dict[str, dict[str, object]]
+) -> None:
+    """Attach private canonical metadata used for ranking and public citations."""
+    fields = (
+        "document_number",
+        "document_type",
+        "issued_date",
+        "effective_from",
+        "effective_to",
+        "legal_status",
+        "legal_status_verified",
+        "issuer",
+        "jurisdiction",
+        "source_url",
+        "source_checked_at",
+        "categories",
+    )
+    for item in evidence:
+        values = metadata.get(item.document_id)
+        if not values:
+            continue
+        for field in fields:
+            setattr(item, field, values.get(field, getattr(item, field)))
 
 
 def _limit_evidence(evidence: list, limit: int) -> list:
@@ -854,7 +1226,12 @@ def _format_metadata_answer(
     asks_status = any(token in lowered for token in ("hiệu lực", "tình trạng"))
     asks_issue_date = "ban hành" in lowered
     asks_category = any(token in lowered for token in ("danh mục", "category", "thuộc nhóm", "nhóm nội dung"))
-    label = document.so_ky_hieu or document.document_id
+    reference = (
+        f"văn bản số hiệu {document.so_ky_hieu}"
+        if document.so_ky_hieu
+        else "văn bản được hỏi"
+    )
+    sentence_reference = reference[0].upper() + reference[1:]
     status = document.legal_status if document.legal_status_verified else "chưa xác minh từ nguồn chính thức"
     # The graph status formatter may append an internal relation summary such
     # as ``không là target ...``.  It is provenance metadata, not the legal
@@ -870,25 +1247,25 @@ def _format_metadata_answer(
     if not include_context:
         focused: list[str] = []
         if asks_title:
-            focused.append(f"Tên đầy đủ của văn bản số hiệu {label} là: {document.title}.")
+            focused.append(f"Tên đầy đủ của {reference} là: {document.title}.")
         if asks_status:
             if document.ngay_co_hieu_luc:
                 focused.append(
-                    f"Văn bản số hiệu {label} có hiệu lực từ ngày {document.ngay_co_hieu_luc} "
+                    f"{sentence_reference} có hiệu lực từ ngày {document.ngay_co_hieu_luc} "
                     f"và có tình trạng {status}."
                 )
             else:
-                focused.append(f"Văn bản số hiệu {label} có tình trạng {status}.")
+                focused.append(f"{sentence_reference} có tình trạng {status}.")
         if asks_issue_date and document.ngay_ban_hanh:
-            focused.append(f"Văn bản số hiệu {label} được ban hành ngày {document.ngay_ban_hanh}.")
+            focused.append(f"{sentence_reference} được ban hành ngày {document.ngay_ban_hanh}.")
         if asks_category and category_values:
             focused.append(
-                f"Nhóm nội dung của văn bản số hiệu {label} là {category_values[-1]} trong bộ dữ liệu."
+                f"Nhóm nội dung của {reference} là {category_values[-1]}."
             )
         if focused:
             return " ".join(focused)
 
-    values: list[str] = [f"Văn bản {label}: {document.title}."]
+    values: list[str] = [f"{sentence_reference}: {document.title}."]
     if asks_status:
         values.append(f"Tình trạng: {status}.")
         if document.ngay_co_hieu_luc:
@@ -899,7 +1276,7 @@ def _format_metadata_answer(
         values.append("Nhóm: " + ", ".join(category_values) + ".")
         if include_context:
             values.append(
-                f"Phân loại: Văn bản số hiệu {label} thuộc nhóm {category_values[-1]} trong bộ dữ liệu."
+                f"Phân loại: {sentence_reference} thuộc nhóm {category_values[-1]}."
             )
     return " ".join(values)
 
@@ -912,8 +1289,8 @@ def _answer_format_instruction(query: str) -> str:
     if intent == "temporal":
         return "Trả lời theo mốc thời gian: văn bản, ngày, trạng thái và nguồn; tối đa 6 gạch đầu dòng."
     if intent == "relational":
-        return "Nêu quan hệ nguồn → đích và ý nghĩa được evidence xác nhận; tối đa 6 gạch đầu dòng."
-    return "Trả lời ngắn gọn trong tối đa 8 gạch đầu dòng; nếu thiếu evidence hãy nói rõ giới hạn."
+        return "Nêu quan hệ nguồn → đích và ý nghĩa được nguồn pháp lý xác nhận; tối đa 6 gạch đầu dòng."
+    return "Trả lời ngắn gọn trong tối đa 8 gạch đầu dòng; nếu nguồn chưa đủ hãy nói rõ giới hạn."
 
 
 def _answer_cache_allowed(query: str) -> bool:
@@ -949,9 +1326,14 @@ def _copy_bundle(bundle: RetrievalBundle) -> RetrievalBundle:
     )
 
 
-def _merge_bundles(bundles: Sequence[RetrievalBundle]) -> RetrievalBundle:
+def _merge_bundles(
+    bundles: Sequence[RetrievalBundle],
+    *,
+    channel_weights: dict[str, float] | None = None,
+    limit: int | None = None,
+    max_per_document: int | None = None,
+) -> RetrievalBundle:
     """Merge sub-query results without allowing one fragment to dominate."""
-    evidence_by_id: dict[str, RetrievalResult] = {}
     relations_by_id: dict[str, object] = {}
     direct_response = ""
     direct_citations: list[Citation] = []
@@ -963,13 +1345,6 @@ def _merge_bundles(bundles: Sequence[RetrievalBundle]) -> RetrievalBundle:
             if citation.chunk_id not in seen_citations:
                 seen_citations.add(citation.chunk_id)
                 direct_citations.append(citation)
-        for item in bundle.evidence:
-            current = evidence_by_id.get(item.chunk_id)
-            if current is None:
-                evidence_by_id[item.chunk_id] = item.model_copy(deep=True)
-            else:
-                current.channels = sorted(set([*current.channels, *item.channels]))
-                current.score = max(current.score, item.score)
         for relation in bundle.relations:
             key = str(getattr(relation, "relationship_id", "")) or (
                 f"{getattr(relation, 'source_id', '')}:"
@@ -987,10 +1362,15 @@ def _merge_bundles(bundles: Sequence[RetrievalBundle]) -> RetrievalBundle:
             direct_response=direct_response,
             direct_citations=direct_citations,
         )
-    evidence = sorted(
-        evidence_by_id.values(),
-        key=lambda item: (-float(item.score), str(item.chunk_id)),
-    )[: get_settings().max_llm_evidence]
+    settings = get_settings()
+    evidence = weighted_rrf(
+        {f"query_{index}": bundle.evidence for index, bundle in enumerate(bundles)},
+        limit=limit if limit is not None else settings.max_llm_evidence,
+        max_per_document=(
+            max_per_document if max_per_document is not None else settings.max_chunks_per_document
+        ),
+        channel_weights=channel_weights,
+    )
     return RetrievalBundle(
         evidence=evidence,
         relations=list(relations_by_id.values()),

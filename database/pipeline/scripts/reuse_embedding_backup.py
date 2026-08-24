@@ -56,22 +56,56 @@ def reusable_vectors(backup: dict[str, Any]) -> dict[tuple[str, str], np.ndarray
     return result
 
 
+def reusable_artifact_vectors(artifact_dir: Path) -> dict[str, np.ndarray]:
+    """Reuse vectors by canonical input hash from a prior local artifact.
+
+    Passage IDs include an ordering component and can change when a newly
+    retained provision is inserted. The canonical input SHA-256, not that
+    position-derived ID, is the safe identity of a paid embedding.
+    """
+    manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    vectors = np.load(artifact_dir / "embeddings.float32.npy", mmap_mode="r")
+    rows = [
+        json.loads(line)
+        for line in (artifact_dir / "passages.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if vectors.shape != (int(manifest.get("rows", 0)), dimensions()) or len(rows) != vectors.shape[0]:
+        raise ValueError("artifact backup has incompatible dimensions or row count")
+    result: dict[str, np.ndarray] = {}
+    for row, vector in zip(rows, vectors, strict=True):
+        digest = str(row.get("input_sha256") or "")
+        if len(digest) != 64:
+            raise ValueError("artifact backup has an invalid input_sha256")
+        parsed = parse_vector(vector)
+        # The input SHA-256 is the immutable identity of an embedding input.
+        # Providers may return slightly different floating-point vectors for
+        # duplicate requests, so retain the first validated vector rather
+        # than paying again or depending on positional passage IDs.
+        result.setdefault(digest, parsed)
+    return result
+
+
 def build_artifact(
-    source_dir: Path, backup_path: Path, output_root: Path, *, batch_size: int
+    source_dir: Path, backup_path: Path, output_root: Path, *, batch_size: int,
+    official_instrument_dir: Path | None = None, artifact_backup: Path | None = None,
 ) -> tuple[Path, dict[str, int]]:
     if batch_size <= 0:
         raise ValueError("batch size must be positive")
-    snapshot = build_snapshot(source_dir)
+    snapshot = build_snapshot(source_dir, official_instrument_dir=official_instrument_dir)
     passages = [row for row in snapshot.passages if bool(row.get("semantic_eligible", True))]
     texts = [input_text(row) for row in passages]
     digests = [input_sha256(text) for text in texts]
     backup = json.loads(backup_path.read_text(encoding="utf-8"))
     old = reusable_vectors(backup)
+    by_input_hash = reusable_artifact_vectors(artifact_backup) if artifact_backup else {}
 
     vectors: list[np.ndarray | None] = [None] * len(passages)
     missing: list[int] = []
     for index, (row, digest) in enumerate(zip(passages, digests, strict=True)):
         vector = old.get((str(row["passage_id"]), digest))
+        if vector is None:
+            vector = by_input_hash.get(digest)
         if vector is None:
             missing.append(index)
         else:
@@ -90,7 +124,7 @@ def build_artifact(
     target.mkdir(parents=True, exist_ok=False)
     np.save(target / "embeddings.float32.npy", matrix)
     with (target / "passages.jsonl").open("w", encoding="utf-8") as handle:
-        for row, digest in zip(passages, digests, strict=True):
+        for row, digest, lexical_text in zip(passages, digests, texts, strict=True):
             handle.write(json.dumps({
                 "passage_id": row["passage_id"],
                 "document_id": row["document_id"],
@@ -98,6 +132,9 @@ def build_artifact(
                 "source_start": row["source_start"],
                 "source_end": row["source_end"],
                 "input_sha256": digest,
+                # The sparse index must be derived from the same canonical
+                # input whose digest was verified before reusing this vector.
+                "lexical_text": lexical_text,
             }, ensure_ascii=False) + "\n")
     manifest = {
         "artifact_type": "openai_embedding_snapshot_reused",
@@ -109,6 +146,7 @@ def build_artifact(
         "reused_rows": len(passages) - len(missing),
         "newly_embedded_rows": len(missing),
         "source_backup_dataset_id": backup.get("active_dataset_id", ""),
+        "source_artifact_backup": str(artifact_backup or ""),
     }
     (target / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -121,10 +159,14 @@ def main() -> int:
     parser.add_argument("--source-dir", type=Path, required=True)
     parser.add_argument("--backup", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--official-instrument-dir", type=Path)
+    parser.add_argument("--artifact-backup", type=Path)
     parser.add_argument("--batch-size", type=int, default=32)
     args = parser.parse_args()
     target, counts = build_artifact(
-        args.source_dir, args.backup, args.output_dir, batch_size=args.batch_size
+        args.source_dir, args.backup, args.output_dir, batch_size=args.batch_size,
+        official_instrument_dir=args.official_instrument_dir,
+        artifact_backup=args.artifact_backup,
     )
     print(json.dumps({"artifact_dir": str(target), **counts}, ensure_ascii=False))
     return 0

@@ -39,11 +39,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!auth) {
-      setLoading(false);
-      return;
-    }
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    const authInstance = auth;
+    // Effects only execute in the browser, where firebase.ts constructs Auth.
+    // Keep the guard for defensive type narrowing without introducing a
+    // synchronous state update that can cause a cascading render.
+    if (!authInstance) return;
+    const unsubscribe = onAuthStateChanged(authInstance, async (firebaseUser) => {
       if (firebaseUser) {
         const idToken = await firebaseUser.getIdToken();
         const role = await fetchUserRole(firebaseUser.uid, idToken);

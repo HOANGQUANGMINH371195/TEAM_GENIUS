@@ -45,6 +45,18 @@ class RetrievalResult(BaseModel):
     dataset_id: str = ""
     source: str = ""
     title: str = ""
+    document_number: str = ""
+    document_type: str = ""
+    issued_date: str = ""
+    effective_from: str = ""
+    effective_to: str = ""
+    legal_status: str = ""
+    legal_status_verified: bool = False
+    issuer: str = ""
+    jurisdiction: str = ""
+    source_url: str = ""
+    source_checked_at: str = ""
+    categories: list[str] = Field(default_factory=list)
     section_title: str = ""
     score: float = 0.0
     unit_id: str = ""
@@ -62,6 +74,7 @@ class Citation(BaseModel):
     chunk_id: str
     dataset_id: str = ""
     title: str = ""
+    document_number: str = ""
     section_title: str = ""
     quote: str = ""
     channels: list[str] = Field(default_factory=list)

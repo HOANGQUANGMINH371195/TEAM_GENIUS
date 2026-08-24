@@ -32,7 +32,8 @@ from src.agents.nodes.graphrag_nodes import (  # noqa: E402
 from src.agents.state import AgentState  # noqa: E402
 
 
-def should_continue(state: AgentState) -> str:
+async def should_continue(state: AgentState) -> str:
+    """Route without dispatching a trivial condition through a thread pool."""
     return END if state.get("error") else "extract_entities"
 
 

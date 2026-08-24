@@ -94,7 +94,7 @@ export default function HomePage() {
   const conversationIdRef = useRef(crypto.randomUUID());
 
   const activeMessage = messages.find((message) => message.id === activeMessageId && message.role === "assistant");
-  const activeEvidence = (activeMessage?.citations ?? []).map((citation) => ({ ...citation, evidenceId: `${activeMessage?.id ?? "active"}-${citation.chunk_id}` }));
+  const activeEvidence = (activeMessage?.citations ?? []).map((citation, index) => ({ ...citation, evidenceId: `${activeMessage?.id ?? "active"}-${index}` }));
 
   useGSAP(() => {
     if (!welcomeRef.current || messages.length || typeof window === "undefined") return;
@@ -416,11 +416,11 @@ function AssistantMessage({ message, evidenceDrawerOpen, onEvidenceToggle }: { m
 function LoadingMessage({ stage, onCancel }: { stage: string; onCancel: () => void }) {
   const labels: Record<string, string> = {
     started: "Đang khởi động truy vấn...",
-    retrieve_vectors: "Đang tìm evidence liên quan...",
-    assemble_context: "Đang đóng gói ngữ cảnh nguồn...",
-    verify_evidence: "Đang kiểm tra provenance...",
+    retrieve_vectors: "Đang tìm văn bản liên quan...",
+    assemble_context: "Đang tổng hợp căn cứ...",
+    verify_evidence: "Đang kiểm tra nguồn...",
     generate: "Đang soạn câu trả lời...",
-    guardrail: "Đang kiểm tra claim và citation...",
+    guardrail: "Đang kiểm tra độ chính xác...",
     verified: "Đã kiểm chứng câu trả lời.",
     cancelled: "Đã hủy truy vấn.",
   };
@@ -432,10 +432,10 @@ function CitationCard({ citation, expanded, onToggle }: { citation: ChatCitation
     <article className={`bhyt-evidence-card${expanded ? " is-expanded" : ""}`}>
       <button type="button" onClick={onToggle} aria-expanded={expanded} aria-controls={`evidence-${citation.evidenceId}`}>
         <span className="bhyt-evidence-icon"><Icon name="document" /></span>
-        <span className="bhyt-evidence-copy"><small>Nguồn pháp lý</small><strong>{citation.title || citation.document_id}</strong><span>{citation.quote}</span></span>
+        <span className="bhyt-evidence-copy"><small>{citation.document_number || "Nguồn pháp lý"}</small><strong>{citation.title || "Văn bản nguồn"}</strong><span>{citation.quote}</span></span>
         <span className="bhyt-evidence-chevron"><Icon name="chevron" /></span>
       </button>
-      {expanded ? <div className="bhyt-evidence-content" id={`evidence-${citation.evidenceId}`}><p>{citation.quote}</p>{citation.section_title ? <strong>{citation.section_title}</strong> : null}<div>{[citation.chunk_id, ...citation.channels].map((tag) => <span key={tag}>{tag}</span>)}</div></div> : null}
+      {expanded ? <div className="bhyt-evidence-content" id={`evidence-${citation.evidenceId}`}><p>{citation.quote}</p>{citation.section_title ? <strong>{citation.section_title}</strong> : null}{citation.source_url ? <a href={citation.source_url} target="_blank" rel="noreferrer">Mở nguồn chính thức</a> : null}</div> : null}
     </article>
   );
 }

@@ -4,8 +4,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from src.agents.nodes.graphrag_nodes import (
+    _audit_claims,
     _claim_facts_supported,
     _deterministic_legal_unit_response,
+    _pack_context,
+    _sanitize_output,
     generate_node,
     guardrail_node,
     verify_evidence_node,
@@ -30,6 +33,81 @@ def test_claim_fact_verifier_rejects_changed_number_and_status_polarity():
     assert not _claim_facts_supported("Văn bản hết hiệu lực.", evidence)
 
 
+def test_claim_audit_does_not_stitch_numeric_facts_across_sources():
+    citations = [
+        Citation(
+            document_id="doc-a",
+            chunk_id="chunk-a",
+            title="Nguồn A",
+            quote="Người bệnh tham gia BHYT 5 năm liên tục.",
+        ),
+        Citation(
+            document_id="doc-b",
+            chunk_id="chunk-b",
+            title="Nguồn B",
+            quote="Một trường hợp khác được hưởng 100% chi phí khám chữa bệnh.",
+        ),
+    ]
+
+    claims = _audit_claims(
+        "Người bệnh tham gia BHYT 5 năm liên tục được hưởng 100% chi phí khám chữa bệnh.",
+        citations,
+    )
+
+    assert claims[0]["verification"] == "unsupported"
+    assert claims[0]["evidence_ids"] == []
+
+
+def test_model_context_and_output_never_expose_storage_identifiers():
+    evidence = RetrievalResult(
+        chunk_id="chunk-private-123",
+        document_id="113135",
+        dataset_id="release-private-456",
+        title="Luật bảo hiểm y tế",
+        document_number="25/2008/QH12",
+        section_title="Điều 22",
+        content="Quy định mức hưởng bảo hiểm y tế.",
+    )
+
+    context = _pack_context([evidence], [], 10_000)
+    answer = _sanitize_output(
+        "Theo Document 113135 và CHUNK=chunk-private-123, quyền lợi được quy định.",
+        [evidence],
+    )
+
+    assert "113135" not in context
+    assert "chunk-private-123" not in context
+    assert "release-private-456" not in context
+    assert "25/2008/QH12" in context
+    assert "113135" not in answer
+    assert "chunk-private-123" not in answer
+    assert "25/2008/QH12" in answer
+
+
+@pytest.mark.asyncio
+async def test_guardrail_removes_citations_when_it_abstains():
+    evidence = RetrievalResult(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        dataset_id="release-1",
+        title="Nguồn không liên quan",
+        content="Một nội dung khác.",
+        channels=["semantic"],
+    )
+
+    result = await guardrail_node(
+        {
+            "query": "Câu hỏi không có trong nguồn",
+            "retrieved_evidence": [evidence],
+            "response": "Kết luận không được nguồn nào hỗ trợ.",
+        }
+    )
+
+    assert result["response"] == NO_EVIDENCE_RESPONSE
+    assert result["citations"] == []
+    assert result["claims"] == []
+
+
 def test_langsmith_tracing_is_disabled_before_graph_use():
     import src.agents.graph  # noqa: F401
 
@@ -47,14 +125,14 @@ async def test_agent_basic_flow():
     with patch("src.agents.nodes.graphrag_nodes.get_runtime") as runtime_factory:
         runtime = runtime_factory.return_value
         runtime.retrieve_bundle = AsyncMock(return_value=RetrievalBundle([evidence], []))
-        runtime.generate = AsyncMock(return_value="Câu trả lời grounded.")
-        from src.agents.graph import get_agent
+        runtime.generate = AsyncMock(return_value="Mức hưởng BHYT được quy định tại Điều 22.")
+        from src.agents.graph import build_graph
 
-        result = await get_agent().ainvoke({"query": "Quyền lợi BHYT?"})
+        result = await build_graph().ainvoke({"query": "Quyền lợi BHYT?"})
 
-    assert result["response"] == "Câu trả lời grounded."
+    assert result["response"] == "Mức hưởng BHYT được quy định tại Điều 22."
     assert result["citations"][0]["chunk_id"] == "chunk-1"
-    assert result["claims"][0]["claim_type"] == "general"
+    assert result["claims"][0]["claim_type"] == "entitlement"
 
 
 @pytest.mark.asyncio
@@ -63,10 +141,10 @@ async def test_agent_state_structure():
     with patch("src.agents.nodes.graphrag_nodes.get_runtime") as runtime_factory:
         runtime = runtime_factory.return_value
         runtime.retrieve_bundle = AsyncMock(return_value=RetrievalBundle([evidence], []))
-        runtime.generate = AsyncMock(return_value="Answer")
-        from src.agents.graph import get_agent
+        runtime.generate = AsyncMock(return_value="Evidence 11.")
+        from src.agents.graph import build_graph
 
-        result = await get_agent().ainvoke({"query": "Test query"})
+        result = await build_graph().ainvoke({"query": "Test query"})
 
     assert isinstance(result, dict)
     assert "query" in result
@@ -83,9 +161,9 @@ async def test_metadata_direct_answer_keeps_document_provenance():
         runtime = runtime_factory.return_value
         runtime.retrieve_bundle = AsyncMock(return_value=RetrievalBundle([], [], "Tên văn bản.", [citation]))
         runtime.generate = AsyncMock()
-        from src.agents.graph import get_agent
+        from src.agents.graph import build_graph
 
-        result = await get_agent().ainvoke({"query": "Tiêu đề văn bản là gì?"})
+        result = await build_graph().ainvoke({"query": "Tiêu đề văn bản là gì?"})
 
     assert result["response"] == "Tên văn bản."
     assert result["citations"] == [citation.model_dump()]
@@ -140,13 +218,13 @@ async def test_high_risk_guardrail_downgrades_unmapped_claim():
         }
     )
 
-    assert "chưa đủ cơ sở" in result["response"]
-    assert result["claims"]
-    assert result["claims"][0]["verification"] in {"partial", "unsupported"}
+    assert result["response"] == NO_EVIDENCE_RESPONSE
+    assert result["claims"] == []
+    assert result["citations"] == []
 
 
 @pytest.mark.asyncio
-async def test_generation_does_not_discard_retrieved_evidence_when_model_falls_back():
+async def test_generation_does_not_replace_model_abstention_with_raw_chunks():
     evidence = RetrievalResult(
         chunk_id="chunk-1",
         document_id="doc-1",
@@ -168,8 +246,8 @@ async def test_generation_does_not_discard_retrieved_evidence_when_model_falls_b
             {"query": "Đối tượng nào được hỗ trợ?", "context": "evidence", "retrieved_evidence": [evidence]}
         )
 
-    assert "Người cao tuổi" in result["response"]
-    assert result["response"] != NO_EVIDENCE_RESPONSE
+    assert result["response"].startswith("Hiện tại hệ thống không tìm thấy")
+    assert "Người cao tuổi" not in result["response"]
 
 
 @pytest.mark.asyncio
@@ -181,7 +259,7 @@ async def test_context_can_exceed_public_citation_budget(monkeypatch):
         RetrievalResult(
             chunk_id=f"chunk-{index}",
             document_id="doc-1",
-            content=f"Evidence {index}",
+            content=f"Nội dung kiểm thử {index}.",
             score=index / 10,
         )
         for index in range(12)
@@ -189,15 +267,15 @@ async def test_context_can_exceed_public_citation_budget(monkeypatch):
     with patch("src.agents.nodes.graphrag_nodes.get_runtime") as runtime_factory:
         runtime = runtime_factory.return_value
         runtime.retrieve_bundle = AsyncMock(return_value=RetrievalBundle(evidence, []))
-        runtime.generate = AsyncMock(return_value="Answer")
-        from src.agents.graph import get_agent
+        runtime.generate = AsyncMock(return_value="Nội dung kiểm thử 11.")
+        from src.agents.graph import build_graph
 
-        result = await get_agent().ainvoke({"query": "Test query"})
+        result = await build_graph().ainvoke({"query": "Test query"})
 
-    assert "Evidence 0" in runtime.generate.await_args.args[1]
-    assert "EVIDENCE_ID=E1" in runtime.generate.await_args.args[1]
-    assert "EVIDENCE_ID=E12" in runtime.generate.await_args.args[1]
-    assert len(result["citations"]) == 8
+    assert "Nội dung kiểm thử 0" in runtime.generate.await_args.args[1]
+    assert "NGUỒN THỨ 1" in runtime.generate.await_args.args[1]
+    assert "NGUỒN THỨ 12" in runtime.generate.await_args.args[1]
+    assert 0 < len(result["citations"]) <= 8
     get_settings.cache_clear()
 
 

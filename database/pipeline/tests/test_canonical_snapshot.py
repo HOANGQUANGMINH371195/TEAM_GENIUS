@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -103,6 +104,33 @@ class CanonicalSnapshotTest(unittest.TestCase):
             self.assertEqual(snapshot.passages, ())
             self.assertEqual(snapshot.legal_units, ())
             self.assertTrue(snapshot.content[0]["content_available"])
+
+    def test_official_provision_overlay_is_source_distinct_and_provenance_locked(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            self.source(path)
+            overlays = path / "official_instruments"
+            overlays.mkdir()
+            (overlays / "law.json").write_text(json.dumps({
+                "metadata": {
+                    "id": "official-law-article", "title": "Luật B", "agent_category": "bhyt",
+                    "official_status_url": "https://vanban.chinhphu.vn/?docid=1",
+                },
+                "content_html": "<h1>Điều 23</h1><p>6. Sử dụng dịch vụ thẩm mỹ.</p>",
+                "provenance": {"response_sha256": "a" * 64},
+            }, ensure_ascii=False), encoding="utf-8")
+
+            snapshot = build_snapshot(path)
+
+            document = next(row for row in snapshot.documents if row["document_id"] == "official-law-article")
+            self.assertEqual(document["metadata"]["official_status_url"], "https://vanban.chinhphu.vn/?docid=1")
+            self.assertIn("Sử dụng dịch vụ thẩm mỹ.", next(
+                row["normalized_text"] for row in snapshot.content if row["document_id"] == "official-law-article"
+            ))
+            passages = [
+                row["text"] for row in snapshot.passages if row["document_id"] == "official-law-article"
+            ]
+            self.assertIn("6. Sử dụng dịch vụ thẩm mỹ.", passages)
 
 
 if __name__ == "__main__":

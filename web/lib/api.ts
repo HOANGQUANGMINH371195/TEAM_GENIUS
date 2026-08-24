@@ -9,26 +9,17 @@ async function authorizationHeaders(forceRefresh = false): Promise<Record<string
 }
 
 export type ChatCitation = {
-  document_id: string;
-  chunk_id: string;
   title: string;
+  document_number: string;
   section_title: string;
   quote: string;
-  channels: string[];
+  source_url: string;
+  source_checked_at: string;
 };
 
 export type ChatResponse = {
   response: string;
   citations: ChatCitation[];
-  claims?: AnswerClaim[];
-};
-
-export type AnswerClaim = {
-  claim_id: string;
-  text: string;
-  evidence_ids: string[];
-  verification: "entailed" | "partial" | "unsupported";
-  reason: string;
 };
 
 export type ReviewQueueItem = {
@@ -51,7 +42,7 @@ export type ReviewQueueItem = {
 
 export type ChatStreamEvent =
   | { type: "status"; stage: string }
-  | { type: "final"; response: string; citations: ChatCitation[]; claims?: AnswerClaim[] }
+  | { type: "final"; response: string; citations: ChatCitation[] }
   | { type: "done"; ok: boolean }
   | { type: "error"; code: string; message: string };
 
@@ -182,7 +173,7 @@ export async function sendChatMessageStream(
     const payload = { type: eventType, ...JSON.parse(dataLine.slice(5).trimStart()) } as ChatStreamEvent;
     onEvent(payload);
     if (payload.type === "final") {
-      final = { response: payload.response, citations: payload.citations, claims: payload.claims };
+      final = { response: payload.response, citations: payload.citations };
     }
     if (payload.type === "error") throw new Error(payload.message);
   };

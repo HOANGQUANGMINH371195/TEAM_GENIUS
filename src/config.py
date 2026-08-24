@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     llm_timeout_seconds: float = Field(default=45.0, gt=0)
     llm_max_output_tokens: int = Field(default=900, ge=64, le=4_096)
+    llm_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "medium"
+    llm_verbosity: Literal["low", "medium", "high"] = "low"
+    llm_use_responses_api: bool = True
+    query_rewrite_max_tokens: int = Field(default=180, ge=64, le=512)
+    query_rewrite_timeout_seconds: float = Field(default=10.0, gt=0, le=30)
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = Field(default=1536, ge=1)
@@ -72,14 +77,15 @@ class Settings(BaseSettings):
     # an operative clause from a broad document-level embedding match.
     retrieval_candidate_k: int = Field(default=60, ge=10, le=200)
     semantic_similarity_threshold: float = Field(default=0.25, ge=0.0, le=1.0)
+    query_rewrite_enabled: bool = False
     graph_hops: int = Field(default=1, ge=0, le=5)
     graph_neighbor_limit: int = Field(default=20, ge=1, le=100)
     graph_evidence_limit: int = Field(default=10, ge=1, le=100)
-    max_llm_evidence: int = Field(default=8, ge=1, le=100)
-    max_citations: int = Field(default=8, ge=1, le=50)
-    max_chunks_per_document: int = Field(default=2, ge=1, le=20)
-    max_context_chars: int = Field(default=60_000, ge=1_000, le=200_000)
-    max_context_tokens: int = Field(default=12_000, ge=512, le=64_000)
+    max_llm_evidence: int = Field(default=12, ge=1, le=100)
+    max_citations: int = Field(default=12, ge=1, le=50)
+    max_chunks_per_document: int = Field(default=4, ge=1, le=20)
+    max_context_chars: int = Field(default=100_000, ge=1_000, le=200_000)
+    max_context_tokens: int = Field(default=32_000, ge=512, le=64_000)
     chunk_size: int = Field(default=800, ge=100)
     chunk_overlap: int = Field(default=120, ge=0)
 

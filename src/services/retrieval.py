@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Sequence
+from datetime import date
 
 from src.models.graph import RetrievalResult
 
@@ -22,11 +23,19 @@ _DOCUMENT_NUMBER = re.compile(
     re.IGNORECASE,
 )
 _LEGAL_LABEL = re.compile(r"\b(?:điều|khoản)\s+\d+[a-zđ]?|\b[a-zđ]\)", re.IGNORECASE)
+_INTERNAL_REFERENCE = re.compile(
+    r"\bđiểm\s+([a-zđ])\s+khoản\s+(\d+)\s+điều\s+(\d+)\b",
+    re.IGNORECASE,
+)
 _RETRIEVAL_TOKEN = re.compile(r"[0-9A-Za-zÀ-ỹĐđ]+", re.IGNORECASE)
 _RETRIEVAL_STOPWORDS = {
     "và", "là", "có", "được", "cho", "của", "theo", "trong", "với", "từ", "này",
     "khi", "để", "một", "các", "những", "về", "không", "người", "việc", "tại", "đến",
     "thì", "bị", "sẽ", "đã", "hay", "hoặc", "nếu", "cần", "phải", "nên", "gì",
+}
+_SOCIAL_ONLY = {
+    "hi", "hello", "hey", "alo", "xin chào", "chào", "chào bạn",
+    "cảm ơn", "cám ơn", "thank you", "thanks", "tạm biệt", "bye",
 }
 
 
@@ -45,7 +54,14 @@ def extract_legal_labels(query: str) -> list[str]:
 
 def retrieval_intent(query: str) -> str:
     lowered = query.casefold()
-    if any(token in lowered for token in ("hiệu lực", "từ ngày", "trước ngày", "thay thế", "bãi bỏ")):
+    prose_without_signatures = _DOCUMENT_NUMBER.sub("", query)
+    if any(
+        token in lowered
+        for token in (
+            "hiệu lực", "hiện hành", "hiện nay", "từ ngày", "trước ngày",
+            "thay thế", "bãi bỏ",
+        )
+    ) or re.search(r"\b(?:19|20)\d{2}\b", prose_without_signatures):
         return "temporal"
     if any(token in lowered for token in ("liên quan", "dẫn chiếu", "sửa đổi", "căn cứ")):
         return "relational"
@@ -74,6 +90,160 @@ def decompose_query(query: str, *, limit: int = 3) -> list[str]:
     if len(selected) < 2:
         return [normalized]
     return selected[: max(2, min(limit, 3))]
+
+
+def requires_clause_expansion(query: str) -> bool:
+    """Whether a question may need neighbouring units of a legal provision.
+
+    This is deliberately a language-level question detector, not a list of
+    insurance benefits, payment concepts, or expected answers.  The expanded
+    units remain candidates and must still pass source-derived ranking.
+    """
+    normalized = " ".join(query.casefold().split())
+    return bool(
+        re.search(
+            r"\b(?:bao\s+nhiêu|bao\s+lâu|khi\s+nào|từ\s+khi\s+nào|trường\s+hợp\s+nào|điều\s+kiện\s+nào|có\s+được)\b|%",
+            normalized,
+        )
+    )
+
+
+def extract_query_phrases(query: str, *, limit: int = 6) -> list[str]:
+    """Return bounded query-derived phrases for intra-document recall.
+
+    No domain vocabulary is maintained here: phrases are contiguous content
+    tokens from the user's own wording.  Longer phrases rank ahead because
+    they are normally more selective in a legal corpus.
+    """
+    tokens = [
+        token.casefold()
+        for token in _RETRIEVAL_TOKEN.findall(query)
+        if len(token) > 1 and token.casefold() not in _RETRIEVAL_STOPWORDS
+    ]
+    phrases = [" ".join(tokens[index : index + width]) for width in (3, 2) for index in range(len(tokens) - width + 1)]
+    return list(dict.fromkeys(phrases))[: max(0, limit)]
+
+
+def extract_query_terms(query: str, *, limit: int = 24) -> list[str]:
+    """Return bounded, non-stopword tokens from the user's wording."""
+    return list(
+        dict.fromkeys(
+            token.casefold()
+            for token in _RETRIEVAL_TOKEN.findall(query)
+            if len(token) > 2 and token.casefold() not in _RETRIEVAL_STOPWORDS
+        )
+    )[: max(0, limit)]
+
+
+def exclude_unverified_legacy_subordinate_sources(
+    query: str, hits: Sequence[RetrievalResult]
+) -> list[RetrievalResult]:
+    """Do not treat an old administrative reproduction as current law.
+
+    A decision, circular, or guidance document can quote an older statutory
+    rule verbatim.  That is useful research context, but it is not adequate
+    public authority for a present-day entitlement question when its legal
+    status is not tied to a retained official source.  Explicit document
+    lookups and clearly historical questions are deliberately preserved.
+    """
+    if not hits or extract_document_numbers(query):
+        return list(hits)
+    lowered = query.casefold()
+    if any(marker in lowered for marker in ("trước ngày", "vào năm", "lịch sử", "thời điểm đó")):
+        return list(hits)
+
+    retained: list[RetrievalResult] = []
+    for item in hits:
+        years = [
+            int(value)
+            for value in re.findall(
+                r"\b(?:19|20)\d{2}\b",
+                " ".join((item.issued_date, item.effective_from, item.document_number, item.title)),
+            )
+        ]
+        instrument = " ".join((item.document_type, item.title)).casefold()
+        subordinate = any(marker in instrument for marker in ("quyết định", "thông tư", "công văn", "hướng dẫn"))
+        if subordinate and max(years, default=0) < 2024 and not item.legal_status_verified:
+            continue
+        retained.append(item)
+    return retained
+
+
+def scope_evidence_matches_query(
+    query: str, item: RetrievalResult, *, candidate_pool: Sequence[RetrievalResult]
+) -> bool:
+    """Require scoped child evidence to carry a query-specific concept.
+
+    Scope expansion makes nearby clauses recallable, but a broad parent must
+    not make an unrelated sibling look relevant.  Specificity is calculated
+    dynamically from the candidate pool: a query term occurring in no more
+    than half of candidates is informative for this request.  There is no
+    domain vocabulary or question-to-answer mapping here.
+    """
+    query_tokens = [token.casefold() for token in _RETRIEVAL_TOKEN.findall(query)]
+    query_terms = {
+        token for token in query_tokens
+        if len(token) >= 4 and token not in _RETRIEVAL_STOPWORDS
+    }
+    if not query_terms:
+        return True
+    pool = list(candidate_pool) or [item]
+    query_phrases = set(zip(query_tokens, query_tokens[1:], query_tokens[2:]))
+
+    def phrases(candidate: RetrievalResult) -> set[tuple[str, str, str]]:
+        tokens = [
+            token.casefold()
+            for token in _RETRIEVAL_TOKEN.findall(f"{candidate.section_title} {candidate.content}")
+        ]
+        return set(zip(tokens, tokens[1:], tokens[2:]))
+
+    # Exact three-token overlap is a stronger and entirely query-derived
+    # signal than a single legal word.  If any scope candidate has such a
+    # phrase, only those candidates are allowed through.
+    phrase_matches = {candidate.chunk_id: bool(query_phrases & phrases(candidate)) for candidate in pool}
+    if any(phrase_matches.values()):
+        return phrase_matches.get(item.chunk_id, False)
+
+    # If the corpus contains no phrase match, use dynamic term selectivity as
+    # a recall-oriented fallback rather than encoding a domain word list.
+    term_frequency = {
+        term: sum(
+            term in {
+                token.casefold()
+                for token in _RETRIEVAL_TOKEN.findall(f"{candidate.section_title} {candidate.content}")
+            }
+            for candidate in pool
+        )
+        for term in query_terms
+    }
+    distinctive = {term for term in query_terms if term_frequency[term] * 2 <= len(pool)}
+    if not distinctive:
+        return True
+    source_terms = {
+        token.casefold()
+        for token in _RETRIEVAL_TOKEN.findall(f"{item.section_title} {item.content}")
+    }
+    return bool(distinctive & source_terms)
+
+
+def extract_internal_legal_references(values: Sequence[str]) -> list[str]:
+    """Return canonical intra-document legal references found in source text.
+
+    A current implementing decree often names the beneficiary in one clause
+    and gives the percentage in another clause by referring to the same
+    ``điểm/khoản/Điều``.  This extracts only citations already present in
+    canonical evidence; it never manufactures a legal reference from a user
+    query or model output.
+    """
+    found: list[str] = []
+    for value in values:
+        for match in _INTERNAL_REFERENCE.finditer(value):
+            reference = " ".join(
+                ("điểm", match.group(1).casefold(), "khoản", match.group(2), "Điều", match.group(3))
+            )
+            if reference not in found:
+                found.append(reference)
+    return found
 
 
 def is_metadata_question(query: str) -> bool:
@@ -110,10 +280,17 @@ def is_simple_status_metadata_question(query: str) -> bool:
 def policy_response(query: str) -> str | None:
     """Return a deterministic safe response before any external retrieval."""
     lowered = query.casefold()
+    social = " ".join(re.sub(r"[^0-9a-zà-ỹđ]+", " ", lowered).split())
+    if social in _SOCIAL_ONLY:
+        if social in {"cảm ơn", "cám ơn", "thank you", "thanks"}:
+            return "Rất vui được hỗ trợ bạn."
+        if social in {"tạm biệt", "bye"}:
+            return "Tạm biệt bạn. Khi cần, tôi có thể hỗ trợ về BHYT và viện phí."
+        return "Xin chào! Tôi có thể hỗ trợ bạn tra cứu thông tin BHYT và viện phí."
     if any(token in lowered for token in ("bỏ qua hướng dẫn", "ignore previous", "system prompt", "prompt nội bộ")):
         return (
-            "Tôi không thể làm theo yêu cầu thay đổi system prompt hoặc tiết lộ API key, token, secret "
-            "hay hướng dẫn ẩn. Tôi chỉ hỗ trợ câu hỏi BHYT và viện phí dựa trên nguồn hợp lệ."
+            "Tôi không thể thực hiện yêu cầu thay đổi quy tắc vận hành hoặc tiết lộ "
+            "thông tin bảo mật hoặc thông tin bí mật. Tôi chỉ hỗ trợ câu hỏi BHYT và viện phí dựa trên nguồn hợp lệ."
         )
     if any(token in lowered for token in ("otp", "cvv", "mật khẩu")):
         return (
@@ -128,7 +305,7 @@ def policy_response(query: str) -> str | None:
     if any(token in lowered for token in ("kê đơn", "uống thuốc", "chẩn đoán bệnh", "liều thuốc")):
         return "Tôi không thể chẩn đoán hoặc kê đơn. Với triệu chứng hay liều dùng, hãy liên hệ bác sĩ hoặc cơ sở y tế; tôi chỉ hỗ trợ thông tin chính sách và viện phí có nguồn."
     if any(token in lowered for token in ("claim đã được duyệt", "yêu cầu đã được duyệt", "đã được phê duyệt")):
-        return "Tôi không thể xác nhận tình trạng duyệt claim khi không có nguồn trạng thái chính thức. Hãy kiểm tra kênh của cơ quan bảo hiểm hoặc cơ sở tiếp nhận."
+        return "Tôi không thể xác nhận tình trạng phê duyệt yêu cầu thanh toán khi không có thông báo chính thức. Hãy kiểm tra kênh của cơ quan bảo hiểm hoặc cơ sở tiếp nhận."
     # A question about a person's own plan cannot be answered safely without
     # their plan/coverage facts.  Do not treat every general legal question
     # containing "quyền lợi" as an individual-eligibility request: that used
@@ -154,8 +331,8 @@ def no_answer_response(query: str = "", *, reason: str = "no_evidence") -> str:
         )
     if reason == "unverified":
         return (
-            "Tôi chưa thể xác minh claim này từ nguồn chính thức hoặc evidence có span hợp lệ; "
-            "vì vậy không khẳng định nội dung pháp lý."
+            "Tôi chưa thể xác minh nội dung này từ nguồn chính thức có trích dẫn hợp lệ; "
+            "vì vậy chưa thể đưa ra kết luận pháp lý."
         )
     return (
         "Hiện tại hệ thống không tìm thấy thông tin hoặc văn bản pháp lý phù hợp "
@@ -205,16 +382,15 @@ def semantic_document_focus(
     return focused
 
 
-def rerank_semantic_by_query_overlap(
+def rerank_legal_candidates(
     query: str, hits: Sequence[RetrievalResult]
 ) -> list[RetrievalResult]:
-    """Re-rank a wide semantic candidate set by query-term and phrase coverage.
+    """Re-rank candidates from any retrieval channel with one legal policy.
 
-    Dense retrieval is good at recall but can rank a passage about one broad
-    concept above the operative clause that satisfies all concepts in a long
-    legal question.  This general second-stage scorer uses only the user's
-    terms and candidate text—there are no question-to-document mappings or
-    domain-specific answer rules.
+    Dense and lexical channels have incomparable raw scores, so this function
+    is applied inside each channel before rank fusion. It combines query
+    coverage with verified currentness and source authority without any
+    question-to-document mapping or answer-specific rule.
     """
     tokens = [
         token.casefold() for token in _RETRIEVAL_TOKEN.findall(query)
@@ -222,45 +398,181 @@ def rerank_semantic_by_query_overlap(
     ]
     unique_tokens = list(dict.fromkeys(tokens))
     phrases = list(dict.fromkeys(zip(tokens, tokens[1:])))
+    triples = list(dict.fromkeys(zip(tokens, tokens[1:], tokens[2:])))
     if not unique_tokens:
         return [item.model_copy(deep=True) for item in hits]
 
+    query_years = {int(value) for value in re.findall(r"\b(?:19|20)\d{2}\b", query)}
+    current_year = date.today().year
+    asks_current = any(
+        marker in query.casefold() for marker in ("hiện nay", "hiện hành", "mới nhất")
+    ) or any(year >= current_year for year in query_years)
+    # A date is not automatically a historical question: “mức đóng năm
+    # 2026” asks for the current/future regime. Only a clearly older date (or
+    # explicit historical wording) permits obsolete sources to compete on an
+    # equal footing.
+    historical_query = (bool(query_years) and max(query_years) < current_year and not asks_current) or any(
+        marker in query.casefold()
+        for marker in ("trước ngày", "tại ngày", "vào năm", "thời điểm đó", "lịch sử")
+    )
     ranked: list[RetrievalResult] = []
     query_terms = set(unique_tokens)
+    triple_frequency: defaultdict[tuple[str, str, str], int] = defaultdict(int)
+    if triples:
+        for candidate in hits:
+            candidate_tokens = [
+                token.casefold()
+                for token in _RETRIEVAL_TOKEN.findall(f"{candidate.section_title} {candidate.content}")
+            ]
+            for triple in set(zip(candidate_tokens, candidate_tokens[1:], candidate_tokens[2:])) & set(triples):
+                triple_frequency[triple] += 1
     for original in hits:
         item = original.model_copy(deep=True)
-        source_tokens = [
+        passage_tokens = [
             token.casefold()
             for token in _RETRIEVAL_TOKEN.findall(
-                " ".join((item.title, item.section_title, item.content))
+                " ".join((item.section_title, item.content))
             )
         ]
-        source_terms = set(source_tokens)
-        token_coverage = len(query_terms & source_terms) / len(query_terms)
-        source_phrases = set(zip(source_tokens, source_tokens[1:]))
+        metadata_tokens = [
+            token.casefold()
+            for token in _RETRIEVAL_TOKEN.findall(
+                " ".join(
+                    (
+                        item.title,
+                        item.document_number,
+                        item.document_type,
+                        item.issuer,
+                        item.jurisdiction,
+                    )
+                )
+            )
+        ]
+        passage_terms = set(passage_tokens)
+        metadata_terms = set(metadata_tokens)
+        token_coverage = len(query_terms & passage_terms) / len(query_terms)
+        metadata_coverage = len(query_terms & metadata_terms) / len(query_terms)
+        source_phrases = set(zip(passage_tokens, passage_tokens[1:]))
+        source_triples = set(zip(passage_tokens, passage_tokens[1:], passage_tokens[2:]))
         phrase_coverage = (
             sum(phrase in source_phrases for phrase in phrases) / len(phrases)
             if phrases else 0.0
+        )
+        # Exact multi-token matches are high-precision legal anchors. Their
+        # strength is derived from inverse frequency within this candidate
+        # pool, so a rare operative phrase outranks a generic phrase without
+        # encoding any domain vocabulary.
+        phrase_specificity = min(
+            1.0,
+            sum(1.0 / triple_frequency[triple] for triple in set(triples) & source_triples),
         )
         raw_score = float(item.score)
         # Coverage is a bounded tie-breaker over semantic relevance, not an
         # independent legal conclusion.  It prevents a single generic term
         # from dominating a multi-condition query.
-        rerank_score = raw_score + 0.12 * token_coverage + 0.08 * phrase_coverage
+        status_bonus = (
+            0.04
+            if item.legal_status_verified and item.legal_status.casefold().startswith("còn hiệu lực")
+            else 0.0
+        )
+        status_penalty = 0.0
+        known_status = item.legal_status.casefold()
+        # Status imported from a curated corpus can be stale or describe a
+        # partial amendment instead of the particular provision.  It must not
+        # demote a newer law unless the status is backed by the retained
+        # official status source.  Authority and date are still useful
+        # ranking signals for unverified source records.
+        if (
+            item.legal_status_verified
+            and not historical_query
+            and any(marker in known_status for marker in ("hết hiệu lực", "bãi bỏ", "thay thế"))
+        ):
+            status_penalty = -0.45
+        year_values = [
+            int(value)
+            for value in re.findall(
+                r"\b(?:19|20)\d{2}\b",
+                " ".join((item.issued_date, item.effective_from, item.document_number, item.title)),
+            )
+        ]
+        publication_year = max(year_values, default=0)
+        recency_bonus = 0.0
+        if not historical_query and publication_year:
+            recency_bonus = 0.20 * max(0.0, min(1.0, (publication_year - 1990) / 40))
+        # For a question explicitly about the current regime, an old document
+        # whose status cannot be tied to an official source is still useful
+        # historical context, but cannot compete with an official current
+        # source merely because it repeats more query words.  Explicit
+        # document-number lookups are exempt: those ask about that document.
+        currentness_penalty = 0.0
+        if asks_current and not extract_document_numbers(query):
+            if not item.legal_status_verified and publication_year and publication_year < 2024:
+                currentness_penalty = -0.22
+            elif not item.legal_status_verified:
+                currentness_penalty = -0.08
+            # An old source that claims to be active can still be relevant,
+            # but should not displace a newer primary law/decree for a query
+            # explicitly about the present regime. This is a rank penalty,
+            # not an exclusion, so a genuinely still-operative old rule can
+            # remain available when no newer source answers the question.
+            elif publication_year and publication_year < 2024:
+                currentness_penalty = -0.16
+        authority = " ".join((item.document_type, item.title)).casefold()
+        authority_bonus = 0.0
+        title = item.title.strip().casefold()
+        document_type = item.document_type.strip().casefold()
+        if "luật" in document_type or title.startswith(("luật ", "bộ luật ")):
+            authority_bonus = 0.35
+        elif "nghị định" in document_type or title.startswith("nghị định"):
+            authority_bonus = 0.25
+        elif "văn bản hợp nhất" in authority:
+            authority_bonus = 0.20
+        elif any(value in authority for value in ("thông tư", "nghị quyết")):
+            authority_bonus = 0.12
+        elif "quyết định" in authority:
+            authority_bonus = 0.05
+        rerank_score = (
+            raw_score
+            + 0.16 * token_coverage
+            + 0.10 * phrase_coverage
+            + 0.45 * phrase_specificity
+            + 0.03 * metadata_coverage
+            + status_bonus
+            + status_penalty
+            + recency_bonus
+            + authority_bonus
+            + currentness_penalty
+        )
         item.score = rerank_score
         item.rank_details = {
             **item.rank_details,
             "semantic_raw_score": raw_score,
             "query_token_coverage": token_coverage,
             "query_phrase_coverage": phrase_coverage,
+            "query_phrase_specificity": phrase_specificity,
+            "metadata_token_coverage": metadata_coverage,
             "semantic_rerank_score": rerank_score,
+            "current_status_bonus": status_bonus,
+            "superseded_status_penalty": status_penalty,
+            "recency_bonus": recency_bonus,
+            "authority_bonus": authority_bonus,
+            "currentness_penalty": currentness_penalty,
         }
         ranked.append(item)
     return sorted(ranked, key=lambda item: (-item.score, item.document_id, item.chunk_id))
 
 
+# Backward-compatible import for evaluation scripts while callers migrate to
+# the channel-agnostic name above.
+rerank_semantic_by_query_overlap = rerank_legal_candidates
+
+
 def weighted_rrf(
-    channel_hits: dict[str, Sequence[RetrievalResult]], *, limit: int, max_per_document: int = 2
+    channel_hits: dict[str, Sequence[RetrievalResult]],
+    *,
+    limit: int,
+    max_per_document: int = 2,
+    channel_weights: dict[str, float] | None = None,
 ) -> list[RetrievalResult]:
     """Fuse channel ranks while preserving raw scores and evidence provenance."""
     if max_per_document <= 0:
@@ -270,9 +582,15 @@ def weighted_rrf(
         "lexical": 1.15,
         "semantic": 1.0,
         "semantic_focus": 1.35,
+        "semantic_scope": 1.6,
+        "legal_reference": 1.5,
+        "document_operatives": 1.45,
+        "document_anchor": 3.5,
         "legal_graph": 0.7,
         "page_index": 1.35,
     }
+    if channel_weights:
+        weights.update(channel_weights)
     aggregate: defaultdict[str, float] = defaultdict(float)
     selected: dict[str, RetrievalResult] = {}
     details: defaultdict[str, dict[str, float]] = defaultdict(dict)
@@ -295,7 +613,11 @@ def weighted_rrf(
             continue
         per_document[item.document_id] += 1
         item.score = aggregate[identifier]
-        item.rank_details = {**details[identifier], "rrf_score": aggregate[identifier]}
+        item.rank_details = {
+            **item.rank_details,
+            **details[identifier],
+            "rrf_score": aggregate[identifier],
+        }
         diverse.append(item)
         if len(diverse) >= limit:
             break

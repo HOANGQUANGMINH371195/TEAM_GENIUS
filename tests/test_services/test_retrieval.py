@@ -1,15 +1,19 @@
+from src.db.repositories import lexical_phrases
 from src.models.graph import RetrievalResult
 from src.services.retrieval import (
     decompose_query,
+    exclude_unverified_legacy_subordinate_sources,
     extract_document_numbers,
     is_metadata_question,
     is_simple_status_metadata_question,
     no_answer_response,
     normalize_identifier,
     policy_response,
-    rerank_semantic_by_query_overlap,
+    requires_clause_expansion,
     requires_evidence_verification,
+    rerank_legal_candidates,
     retrieval_intent,
+    scope_evidence_matches_query,
     semantic_document_focus,
     weighted_rrf,
 )
@@ -38,6 +42,13 @@ def test_query_decomposition_is_bounded_and_conservative():
     assert decompose_query("một câu hỏi đơn") == ["một câu hỏi đơn"]
 
 
+def test_lexical_phrase_generation_is_query_derived_and_bounded():
+    question = "Theo luật hiện hành BHYT có chi trả dịch vụ thẩm mỹ không"
+    assert "dịch vụ thẩm" in lexical_phrases(question)
+    assert "dịch vụ" in lexical_phrases(question)
+    assert len(lexical_phrases("a " * 200, limit=8)) <= 8
+
+
 def test_simple_status_metadata_route_excludes_relation_questions():
     assert is_simple_status_metadata_question("Văn bản 60/2026/NQ-HĐND còn hiệu lực không?")
     assert is_simple_status_metadata_question("Văn bản 60/2026/NQ-HĐND ban hành khi nào?")
@@ -59,6 +70,13 @@ def test_general_bhyt_entitlement_question_reaches_retrieval():
         "Người tham gia BHYT 5 năm liên tục được hưởng quyền lợi gì khi số tiền cùng chi trả vượt mức quy định?"
     ) is None
     assert policy_response("Tôi còn được hưởng quyền lợi của gói bảo hiểm này không?")
+
+
+def test_social_only_message_is_answered_without_legal_retrieval():
+    assert policy_response("Hi!") == (
+        "Xin chào! Tôi có thể hỗ trợ bạn tra cứu thông tin BHYT và viện phí."
+    )
+    assert policy_response("Xin chào, quyền lợi BHYT 5 năm liên tục là gì?") is None
 
 
 def test_no_answer_explains_ambiguity_and_unverified_risk():
@@ -103,11 +121,209 @@ def test_semantic_reranker_rewards_multi_term_coverage_without_document_mapping(
         chunk_id="operative", document_id="operative", score=0.66,
         content="Người tham gia năm năm liên tục có số tiền cùng chi trả được thanh toán theo mức hưởng.",
     )
-    reranked = rerank_semantic_by_query_overlap(
+    reranked = rerank_legal_candidates(
         "Người tham gia BHYT 5 năm liên tục có số tiền cùng chi trả được hưởng gì?",
         [broad, operative],
     )
 
     assert [item.chunk_id for item in reranked] == ["operative", "broad"]
     assert reranked[0].rank_details["semantic_raw_score"] == 0.66
+    assert reranked[0].rank_details["query_token_coverage"] > reranked[1].rank_details["query_token_coverage"]
+
+
+def test_semantic_reranker_does_not_let_generic_long_title_beat_operational_text():
+    title_only = RetrievalResult(
+        chunk_id="title-only",
+        document_id="title-only",
+        score=0.80,
+        title=(
+            "Quy định người tham gia bảo hiểm y tế liên tục, khoản tự trả "
+            "và quyền lợi khám chữa bệnh"
+        ),
+        content="Thẻ bị thất lạc phải được cấp lại.",
+    )
+    operative = RetrievalResult(
+        chunk_id="operative",
+        document_id="operative",
+        score=0.75,
+        title="Luật bảo hiểm y tế",
+        content=(
+            "Người tham gia bảo hiểm y tế năm năm liên tục có số tiền cùng chi trả "
+            "vượt ngưỡng được thanh toán toàn bộ chi phí tiếp theo."
+        ),
+    )
+
+    reranked = rerank_legal_candidates(
+        "Người tham gia BHYT liên tục năm năm có khoản tự trả vượt ngưỡng được hưởng gì?",
+        [title_only, operative],
+    )
+
+    assert [item.chunk_id for item in reranked] == ["operative", "title-only"]
+    assert reranked[0].rank_details["query_token_coverage"] > 0
+    assert reranked[1].rank_details["metadata_token_coverage"] > 0
+
+
+def test_semantic_reranker_prioritizes_rare_exact_query_phrase():
+    generic = RetrievalResult(
+        chunk_id="generic", document_id="generic", score=0.80,
+        content="Căn cứ pháp lý được nêu trong hồ sơ và quyết định thanh toán.",
+    )
+    operative = RetrievalResult(
+        chunk_id="operative", document_id="operative", score=0.68,
+        document_type="Luật",
+        content="6. Sử dụng dịch vụ thẩm mỹ.",
+    )
+
+    reranked = rerank_legal_candidates(
+        "BHYT có chi trả dịch vụ thẩm mỹ không, hãy nêu căn cứ pháp lý?",
+        [generic, operative],
+    )
+
+    assert reranked[0].chunk_id == "operative"
+    assert reranked[0].rank_details["query_phrase_specificity"] > 0
+
+
+def test_semantic_reranker_prefers_current_authoritative_source_by_default():
+    old = RetrievalResult(
+        chunk_id="old",
+        document_id="old",
+        score=0.75,
+        content="Người tham gia BHYT được miễn phần đồng chi trả.",
+        document_type="Thông tư liên tịch",
+        issued_date="1998-01-01",
+    )
+    current = RetrievalResult(
+        chunk_id="current",
+        document_id="current",
+        score=0.70,
+        content="Người tham gia BHYT được miễn phần đồng chi trả.",
+        document_type="Văn bản hợp nhất",
+        issued_date="2025-07-01",
+        legal_status="Còn hiệu lực",
+        legal_status_verified=True,
+    )
+
+    reranked = rerank_legal_candidates(
+        "Khi nào người tham gia BHYT được miễn phần đồng chi trả?", [old, current]
+    )
+
+    assert [item.chunk_id for item in reranked] == ["current", "old"]
+    assert reranked[0].rank_details["current_status_bonus"] > 0
+    assert reranked[0].rank_details["recency_bonus"] > 0
+
+
+def test_semantic_reranker_does_not_apply_recency_to_historical_question():
+    item = RetrievalResult(
+        chunk_id="historical",
+        document_id="historical",
+        score=0.70,
+        content="Quyền lợi BHYT năm 1998.",
+        document_type="Thông tư",
+        issued_date="1998-01-01",
+    )
+
+    reranked = rerank_legal_candidates("Quyền lợi BHYT vào năm 1998?", [item])
+
+    assert reranked[0].rank_details["recency_bonus"] == 0
+
+
+def test_current_and_year_specific_questions_route_to_temporal_retrieval():
+    assert retrieval_intent("Văn bản nào quy định mức hưởng hiện nay?") == "temporal"
+    assert retrieval_intent("Mức đóng BHYT học sinh năm 2026 là bao nhiêu?") == "temporal"
+
+
+def test_clause_expansion_is_limited_to_operational_questions():
+    assert requires_clause_expansion("Khám trái tuyến tại bệnh viện tỉnh được thanh toán bao nhiêu phần trăm?")
+    assert requires_clause_expansion("Giấy chuyển tuyến có thời hạn bao lâu?")
+    assert not requires_clause_expansion("Hãy tóm tắt lịch sử hình thành bảo hiểm y tế.")
+
+
+def test_unverified_legacy_decision_cannot_be_public_authority_for_current_entitlement():
+    legacy = RetrievalResult(
+        chunk_id="legacy", document_id="legacy", score=0.99,
+        title="Quyết định hướng dẫn chi trả bảo hiểm y tế",
+        document_type="Quyết định", issued_date="2010-01-20",
+        content="Sử dụng dịch vụ thẩm mỹ.",
+    )
+    current_law = RetrievalResult(
+        chunk_id="law", document_id="law", score=0.70,
+        title="Luật Bảo hiểm y tế", document_type="Luật", issued_date="2024-11-27",
+        content="Quy định phạm vi hưởng bảo hiểm y tế.",
+    )
+
+    result = exclude_unverified_legacy_subordinate_sources(
+        "Theo luật hiện hành, BHYT có chi trả dịch vụ thẩm mỹ không?", [legacy, current_law]
+    )
+
+    assert [item.chunk_id for item in result] == ["law"]
+
+
+def test_scope_child_requires_distinctive_term_not_just_generic_legal_words():
+    generic_contract = RetrievalResult(
+        chunk_id="contract", document_id="decree", content="Chi trả chi phí trong phạm vi hưởng theo pháp luật.",
+        section_title="Quyền và nghĩa vụ của các bên trong hợp đồng",
+    )
+    cosmetic_clause = RetrievalResult(
+        chunk_id="cosmetic", document_id="law", content="Sử dụng dịch vụ thẩm mỹ.",
+        section_title="Điều 23. Các trường hợp không được hưởng bảo hiểm y tế",
+    )
+    question = "Theo luật hiện hành, BHYT có chi trả dịch vụ thẩm mỹ không?"
+
+    pool = [generic_contract, cosmetic_clause]
+    assert not scope_evidence_matches_query(question, generic_contract, candidate_pool=pool)
+    assert scope_evidence_matches_query(question, cosmetic_clause, candidate_pool=pool)
+
+
+def test_semantic_reranker_prefers_query_coverage_without_domain_rules():
+    general = RetrievalResult(
+        chunk_id="general",
+        document_id="general",
+        score=0.70,
+        title="Luật Bảo hiểm y tế",
+        document_type="Luật",
+        content="Người tham gia bảo hiểm y tế được hưởng quyền lợi theo quy định về chuyển tuyến.",
+    )
+    military = RetrievalResult(
+        chunk_id="military",
+        document_id="military",
+        score=0.75,
+        title="Thông tư áp dụng với đối tượng thuộc phạm vi quản lý riêng",
+        document_type="Thông tư",
+        content="Người tham gia bảo hiểm y tế được hưởng quyền lợi theo quy định chung.",
+    )
+
+    reranked = rerank_legal_candidates("Người tham gia BHYT chuyển tuyến được hưởng gì?", [military, general])
+
+    assert [item.chunk_id for item in reranked] == ["general", "military"]
+    assert reranked[0].rank_details["query_token_coverage"] > reranked[1].rank_details["query_token_coverage"]
+
+
+def test_semantic_reranker_uses_passage_match_not_category_name():
+    bhyt = RetrievalResult(
+        chunk_id="bhyt",
+        document_id="bhyt",
+        score=0.65,
+        title="Luật Bảo hiểm y tế",
+        document_type="Luật",
+        issued_date="2024-11-27",
+        content="Khám trái tuyến tại bệnh viện tỉnh được thanh toán theo mức hưởng bảo hiểm y tế.",
+        categories=["bhyt"],
+    )
+    hospital_fee = RetrievalResult(
+        chunk_id="hospital-fee",
+        document_id="hospital-fee",
+        score=0.80,
+        title="Quy định về quỹ hỗ trợ viện phí",
+        document_type="Thông tư",
+        issued_date="2024-01-01",
+        content="Tỷ lệ phần trăm viện phí được trích lập quỹ hỗ trợ.",
+        categories=["vien_phi"],
+    )
+
+    reranked = rerank_legal_candidates(
+        "Khám trái tuyến tại bệnh viện tỉnh thì BHYT thanh toán bao nhiêu phần trăm?",
+        [hospital_fee, bhyt],
+    )
+
+    assert [item.chunk_id for item in reranked] == ["bhyt", "hospital-fee"]
     assert reranked[0].rank_details["query_token_coverage"] > reranked[1].rank_details["query_token_coverage"]
