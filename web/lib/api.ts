@@ -169,9 +169,17 @@ export async function sendChatMessageStream(
   let buffer = "";
   let final: ChatResponse | null = null;
   const consumeFrame = (frame: string) => {
+    const eventLine = frame.split("\n").find((line) => line.startsWith("event:"));
     const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
     if (!dataLine) return;
-    const payload = JSON.parse(dataLine.slice(5).trimStart()) as ChatStreamEvent;
+    const eventType = eventLine?.slice(6).trim();
+    if (eventType !== "status" && eventType !== "final" && eventType !== "done" && eventType !== "error") {
+      return;
+    }
+    // The backend follows SSE's standard envelope: event name in `event:` and
+    // event body in `data:`.  Reconstruct the discriminated client event here
+    // instead of incorrectly expecting a duplicate `type` field in JSON.
+    const payload = { type: eventType, ...JSON.parse(dataLine.slice(5).trimStart()) } as ChatStreamEvent;
     onEvent(payload);
     if (payload.type === "final") {
       final = { response: payload.response, citations: payload.citations, claims: payload.claims };
