@@ -96,6 +96,22 @@
   transform: scale(0.98);
 }
 
+.login-google-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.login-error {
+  margin: 0.9rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #f5b6b1;
+  border-radius: 8px;
+  color: #a12b24;
+  background: #fff4f2;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 .login-notice {
   display: flex;
   align-items: flex-start;
