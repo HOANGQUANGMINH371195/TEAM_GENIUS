@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "& { $OutputEncoding = [System.Text.Encoding]::GetEncoding(1252); $input | python scripts/_run_hook.py --tool=cursor }"
+      }
+    ]
+  }
+}

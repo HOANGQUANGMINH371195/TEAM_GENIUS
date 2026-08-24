@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+.eval-ragas-venv/
+env/
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (never commit large data)
+data/*
+!data/raw/
+!data/raw/**
+*.db
+*.sqlite3
+
+# Rebuildable pipeline artifacts; keep raw authority CSVs versioned.
+/data/clean/
+
+# Local corpus exports, release backups and generated audit evidence.
+/database/medical_docs_active.json
+/database/medical_relationships_active.json
+/database/backups/
+/database/audit/results/
+/database/audit/*.json
+
+# Local research inputs and generated evaluation evidence; never release inputs.
+/outsource/
+/eval/results/
+
+# Logs
+logs/
+*.log
+
+# Test coverage
+htmlcov/
+.coverage
+coverage.xml
+
+# Docker
+docker-compose.override.yml
+
+# Node (frontend)
+node_modules/
+.next/
+*.tsbuildinfo
+web/next-env.d.ts
+out/
+.nuxt/
+
+# Build
+*.pyc
+*.pyo
+
+# AI logs — tracked structure, ignored content
+.ai-log/*.jsonl
+.ai-log/archive/
+
+# Local project guidance and status
+/DESIGN_SKILL.md
+/local_project_status.md
