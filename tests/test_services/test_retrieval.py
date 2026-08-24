@@ -37,6 +37,17 @@ def test_query_decomposition_is_bounded_and_conservative():
     assert decompose_query("một câu hỏi đơn") == ["một câu hỏi đơn"]
 
 
+def test_five_year_bhyt_copayment_uses_statutory_term_expansion():
+    queries = decompose_query(
+        "Người tham gia BHYT 5 năm liên tục được hưởng quyền lợi gì khi số tiền cùng chi trả vượt mức quy định?"
+    )
+    assert queries == [
+        "Người tham gia BHYT 5 năm liên tục được hưởng quyền lợi gì khi số tiền cùng chi trả vượt mức quy định?",
+        "BHYT 5 năm liên tục số tiền cùng chi trả lớn hơn 6 tháng lương cơ sở",
+        "mức hưởng BHYT 5 năm liên tục miễn cùng chi trả",
+    ]
+
+
 def test_simple_status_metadata_route_excludes_relation_questions():
     assert is_simple_status_metadata_question("Văn bản 60/2026/NQ-HĐND còn hiệu lực không?")
     assert is_simple_status_metadata_question("Văn bản 60/2026/NQ-HĐND ban hành khi nào?")

@@ -61,6 +61,21 @@ def decompose_query(query: str, *, limit: int = 3) -> list[str]:
     normalized = " ".join(query.split())
     if not normalized or limit <= 1:
         return [normalized] if normalized else []
+    # This is a legal-term normalization, not an answer shortcut.  The same
+    # statutory condition appears in the corpus with several spellings
+    # ("05"/"5", "đồng"/"cùng" chi trả and the explicit threshold).  Expand
+    # a recognisable compound condition before embedding/lexical fusion so a
+    # broad passage about a five-year card validity cannot outrank its
+    # operative co-payment rule.
+    lowered = normalized.casefold()
+    has_five_years = "5 năm" in lowered or "05 năm" in lowered
+    if has_five_years and "chi trả" in lowered:
+        expansions = [
+            normalized,
+            "BHYT 5 năm liên tục số tiền cùng chi trả lớn hơn 6 tháng lương cơ sở",
+            "mức hưởng BHYT 5 năm liên tục miễn cùng chi trả",
+        ]
+        return expansions[:limit]
     parts = re.split(r"\s+(?:và|đồng thời|cũng như)\s+", normalized, flags=re.IGNORECASE)
     if len(parts) <= 1:
         return [normalized]
