@@ -168,21 +168,33 @@ export async function sendChatMessageStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let final: ChatResponse | null = null;
+  const consumeFrame = (frame: string) => {
+    const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
+    if (!dataLine) return;
+    const payload = JSON.parse(dataLine.slice(5).trimStart()) as ChatStreamEvent;
+    onEvent(payload);
+    if (payload.type === "final") {
+      final = { response: payload.response, citations: payload.citations, claims: payload.claims };
+    }
+    if (payload.type === "error") throw new Error(payload.message);
+  };
   while (true) {
     const chunk = await reader.read();
     buffer += decoder.decode(chunk.value ?? new Uint8Array(), { stream: !chunk.done });
+    // SSE permits CRLF line endings. Normalize before looking for event
+    // boundaries because proxies may rewrite the backend's LF-only framing.
+    buffer = buffer.replace(/\r\n/g, "\n");
     const frames = buffer.split("\n\n");
     buffer = frames.pop() ?? "";
     for (const frame of frames) {
-      const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
-      if (!dataLine) continue;
-      const payload = JSON.parse(dataLine.slice(6)) as ChatStreamEvent;
-      onEvent(payload);
-      if (payload.type === "final") final = { response: payload.response, citations: payload.citations, claims: payload.claims };
-      if (payload.type === "error") throw new Error(payload.message);
+      consumeFrame(frame);
     }
     if (chunk.done) break;
   }
+  // Some reverse proxies end a response immediately after the final `data:`
+  // line. Accept that valid terminal frame even if its blank SSE delimiter was
+  // stripped during transport.
+  if (buffer.trim()) consumeFrame(buffer);
   if (!final || !isChatResponse(final)) throw new Error("API trả dữ liệu stream không đúng định dạng");
   return final;
 }
