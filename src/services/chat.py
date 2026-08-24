@@ -722,31 +722,26 @@ class GraphRagRuntime:
                     semantic_scope.sort(key=lambda item: (-item.score, item.document_id, item.chunk_id))
                 page_results = rerank_legal_candidates(query, page_results)
                 document_anchor_results: list[RetrievalResult] = []
-                if requires_clause_expansion(query) and not exact_document_ids and all(
-                    hasattr(hydration_repository, name)
-                    for name in ("search_document_operatives", "search_lexical_document_ids")
+                if requires_clause_expansion(query) and not exact_document_ids and hasattr(
+                    hydration_repository, "search_document_operatives"
                 ):
-                    primary_document_ids = await hydration_repository.search_lexical_document_ids(
-                        query,
-                        dataset_id=dataset_id,
-                        limit=max(64, settings.retrieval_candidate_k),
-                    )
+                    primary_seed = rerank_legal_candidates(query, [*semantic_results, *lexical_results])
+                    primary_document_ids = list(
+                        dict.fromkeys(item.document_id for item in primary_seed if item.document_id)
+                    )[:2]
                     query_terms = [
-                        *extract_query_phrases(query, limit=24),
-                        *extract_query_terms(query, limit=24),
+                        *extract_query_phrases(query, limit=12),
+                        *extract_query_terms(query, limit=12),
                     ]
                     if primary_document_ids and query_terms:
                         anchors = await hydration_repository.search_document_operatives(
                             primary_document_ids,
                             dataset_id=dataset_id,
                             terms=query_terms,
-                            limit=max(24, settings.max_llm_evidence),
+                            limit=min(8, settings.max_llm_evidence),
                             minimum_matches=2,
                         )
-                        anchor_metadata = await hydration_repository.document_ranking_metadata(
-                            [item.document_id for item in anchors], dataset_id=dataset_id
-                        )
-                        _apply_document_ranking_metadata(anchors, anchor_metadata)
+                        _apply_document_ranking_metadata(anchors, ranking_metadata)
                         anchors = rerank_legal_candidates(query, anchors)
                         reference_targets = [
                             (item.document_id, reference)
