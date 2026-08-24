@@ -1,4 +1,4 @@
-from src.db.repositories import lexical_phrases
+from src.db.repositories import canonical_embedding_input_sha256, lexical_phrases
 from src.models.graph import RetrievalResult
 from src.services.retrieval import (
     decompose_query,
@@ -47,6 +47,14 @@ def test_lexical_phrase_generation_is_query_derived_and_bounded():
     assert "dịch vụ thẩm" in lexical_phrases(question)
     assert "dịch vụ" in lexical_phrases(question)
     assert len(lexical_phrases("a " * 200, limit=8)) <= 8
+
+
+def test_canonical_embedding_digest_matches_section_and_content_contract():
+    # This is the same newline contract used by the embedding artifact
+    # builder; it gives legacy staged rows a canonical verification value.
+    assert canonical_embedding_input_sha256("Điều 23", "6. Dịch vụ thẩm mỹ.") == (
+        "8cdb1e7df117ff5401ddc1543d3573ac11668ea0fd2e6be37e0923d3b257dcf9"
+    )
 
 
 def test_simple_status_metadata_route_excludes_relation_questions():

@@ -9,6 +9,9 @@ from src.services.query_rewrite import rewrite_retrieval_query, should_rewrite_q
 def test_rewrite_router_only_accepts_open_ended_thematic_queries():
     assert should_rewrite_query("Quyền lợi bảo hiểm y tế được tính thế nào?")
     assert should_rewrite_query("Mức hưởng bảo hiểm y tế hiện nay là bao nhiêu?")
+    assert should_rewrite_query(
+        "Tôi điều trị nội trú cấp cứu không có giấy chuyển tuyến thì có được hưởng BHYT không?"
+    )
     assert not should_rewrite_query("Hi!")
     assert not should_rewrite_query("Điều 22 Luật BHYT quy định gì?")
     assert not should_rewrite_query("Văn bản 51/2024/QH15 quy định gì?")

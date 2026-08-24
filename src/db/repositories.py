@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Sequence
 
@@ -13,19 +14,35 @@ from src.services.retrieval import normalize_identifier
 _LEXICAL_TOKEN = re.compile(r"[0-9A-Za-zÀ-ỹĐđ]+", re.IGNORECASE)
 
 
+def canonical_embedding_input_sha256(section_title: str, content: str) -> str:
+    """Digest the exact embedding input used by the release builder.
+
+    Older staged releases predate the persistence of
+    ``chunks.embedding_input_sha256``.  Their canonical section/text remains
+    immutable, however, and the embedding artifact has always used this
+    exact join.  Reconstructing the digest lets runtime verify the Qdrant
+    payload against Postgres instead of dropping every valid dense hit or
+    trusting Qdrant without a canonical counterpart.
+    """
+    value = "\n\n".join(part for part in (section_title, content) if part)
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 def lexical_phrases(query: str, *, limit: int = 48) -> list[str]:
     """Return bounded query-derived phrases for lexical recall.
 
     Legal provisions frequently express the decisive exception in a short
-    phrase while the user supplies additional facts. Keeping both bi-grams and
-    tri-grams avoids turning full-text search into an all-terms filter, and is
-    entirely derived from the query rather than a domain keyword catalogue.
+    phrase while the user supplies additional facts.  Four-word Vietnamese
+    concepts (for example a noun phrase made of two compound words) are common
+    enough that only bi-grams/trigrams lose the decisive phrase.  Keeping
+    query-derived 2--5 grams avoids that loss without maintaining a domain
+    keyword catalogue or turning full-text search into an all-terms filter.
     """
     tokens = [token.casefold() for token in _LEXICAL_TOKEN.findall(query)]
     phrases = list(
         dict.fromkeys(
             " ".join(tokens[index : index + width])
-            for width in (3, 2)
+            for width in (5, 4, 3, 2)
             for index in range(len(tokens) - width + 1)
         )
     )
@@ -65,6 +82,44 @@ class GraphRepository:
         )
         dataset_id = result.scalar_one_or_none()
         return str(dataset_id) if dataset_id is not None else None
+
+    async def search_title_documents(
+        self, query: str, *, dataset_id: str, limit: int = 4
+    ) -> list[str]:
+        """Find a small source-authority candidate set from query-derived titles.
+
+        This is not evidence and never emits a document by itself.  It lets a
+        later, document-bounded passage scan find an operative clause whose
+        wording differs from the user's symptoms or administrative phrasing.
+        """
+        phrases = lexical_phrases(query, limit=48)
+        if not phrases or limit <= 0:
+            return []
+        result = await self.session.execute(
+            text(
+                """
+                WITH phrase_queries AS (
+                    SELECT phraseto_tsquery('simple', phrase) AS phrase_query,
+                           cardinality(regexp_split_to_array(phrase, '\\s+')) AS token_count
+                    FROM unnest(CAST(:phrases AS text[])) AS phrase
+                )
+                SELECT d.id,
+                       max(pq.token_count) AS phrase_length,
+                       max(ts_rank_cd(to_tsvector('simple', d.title), pq.phrase_query)) AS score
+                FROM documents d
+                JOIN phrase_queries pq
+                  ON to_tsvector('simple', d.title) @@ pq.phrase_query
+                WHERE d.dataset_id = :dataset_id
+                  AND NOT d.is_external
+                  AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                GROUP BY d.id
+                ORDER BY phrase_length DESC, score DESC, d.id
+                LIMIT :limit
+                """
+            ),
+            {"dataset_id": dataset_id, "phrases": phrases, "limit": limit},
+        )
+        return [str(row.id) for row in result]
 
     async def current_dataset_release(self) -> tuple[str, int] | None:
         """Return the active release and its expected external-vector count."""
@@ -209,7 +264,12 @@ class GraphRepository:
                 source=str(row.document_id), title=str(row.title or ""), section_title=str(row.section_title or ""),
                 unit_id=str(row.unit_id or ""), source_start=int(row.source_start) if row.source_start is not None else None,
                 source_end=int(row.source_end) if row.source_end is not None else None,
-                text_sha256=str(row.text_sha256 or ""), input_sha256=str(row.embedding_input_sha256 or ""), channels=[channel],
+                text_sha256=str(row.text_sha256 or ""),
+                input_sha256=(
+                    str(row.embedding_input_sha256 or "")
+                    or canonical_embedding_input_sha256(str(row.section_title or ""), str(row.text or ""))
+                ),
+                channels=[channel],
             )
             for row in result
         ]
@@ -369,7 +429,13 @@ class GraphRepository:
                         section_title=str(row.section_title or ""), unit_id=str(row.unit_id or ""),
                         source_start=int(row.source_start) if row.source_start is not None else None,
                         source_end=int(row.source_end) if row.source_end is not None else None,
-                        text_sha256=str(row.text_sha256 or ""), input_sha256=str(row.embedding_input_sha256 or ""),
+                        text_sha256=str(row.text_sha256 or ""),
+                        input_sha256=(
+                            str(row.embedding_input_sha256 or "")
+                            or canonical_embedding_input_sha256(
+                                str(row.section_title or ""), str(row.text or "")
+                            )
+                        ),
                         channels=[channel],
                     )
                 )
@@ -400,7 +466,9 @@ class GraphRepository:
             text(
                 """
                 WITH phrase_queries AS (
-                    SELECT phraseto_tsquery('simple', phrase) AS phrase_query
+                    SELECT phrase,
+                           phraseto_tsquery('simple', phrase) AS phrase_query,
+                           cardinality(regexp_split_to_array(phrase, '\\s+')) AS token_count
                     FROM unnest(CAST(:phrases AS text[])) AS phrase
                 ), ranked AS (
                     SELECT c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
@@ -409,7 +477,15 @@ class GraphRepository:
                                ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', :query)),
                                COALESCE(ts_rank_cd(c.search_vector, to_tsquery('simple', :disjunction)) * 1.5, 0.0),
                                COALESCE((
-                                   SELECT max(ts_rank_cd(c.search_vector, pq.phrase_query)) * 3.0
+                                   -- A long exact phrase is normally more
+                                   -- discriminative than a verbose passage
+                                   -- matching many individual query words.
+                                   -- Weight by phrase length, all of which is
+                                   -- derived from the user query.
+                                   SELECT max(
+                                       ts_rank_cd(c.search_vector, pq.phrase_query)
+                                       * pq.token_count * 30.0
+                                   )
                                    FROM phrase_queries pq
                                    WHERE c.search_vector @@ pq.phrase_query
                                ), 0.0)

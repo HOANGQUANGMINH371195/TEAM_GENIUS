@@ -57,7 +57,7 @@ class ChatProviderError(RuntimeError):
 # Bump whenever ranking/selection semantics change.  This is part of each
 # in-process cache namespace, so an answer produced before the domain/scope
 # policy cannot be replayed after a rolling deployment.
-_RETRIEVAL_POLICY_VERSION = "hybrid-v9-query-derived"
+_RETRIEVAL_POLICY_VERSION = "hybrid-v10-source-title-hyde"
 logger = logging.getLogger(__name__)
 _ProviderResult = TypeVar("_ProviderResult")
 
@@ -524,6 +524,17 @@ class GraphRagRuntime:
                 exact_document_ids = [
                     candidate.document_id for candidate in exact_candidates if candidate.answer_ready
                 ]
+                # A rewrite can expand an abbreviation into the formal subject
+                # found in a statute title.  Keep title hits as a tiny
+                # *candidate* set only; no title ever becomes public evidence
+                # without a matching canonical passage below.
+                title_document_ids = (
+                    await repository.search_title_documents(
+                        query, dataset_id=dataset_id, limit=4
+                    )
+                    if requires_clause_expansion(query) and not exact_document_ids
+                    else []
+                )
                 page_results = _verified_evidence(
                     await repository.resolve_legal_units(
                         extract_legal_labels(query),
@@ -682,7 +693,7 @@ class GraphRagRuntime:
                         for item in [
                             *hydrated, *lexical_results, *semantic_scope, *legal_reference_results, *page_results
                         ]
-                    ],
+                    ] + title_document_ids,
                     dataset_id=dataset_id,
                 )
                 _apply_document_ranking_metadata(
@@ -722,6 +733,21 @@ class GraphRagRuntime:
                     semantic_scope.sort(key=lambda item: (-item.score, item.document_id, item.chunk_id))
                 page_results = rerank_legal_candidates(query, page_results)
                 document_anchor_results: list[RetrievalResult] = []
+                title_document_operatives: list[RetrievalResult] = []
+                if title_document_ids and hasattr(hydration_repository, "search_document_operatives"):
+                    title_terms = [
+                        *extract_query_phrases(query, limit=16),
+                        *extract_query_terms(query, limit=16),
+                    ]
+                    title_document_operatives = await hydration_repository.search_document_operatives(
+                        title_document_ids,
+                        dataset_id=dataset_id,
+                        terms=title_terms,
+                        limit=min(12, settings.max_llm_evidence),
+                        minimum_matches=2,
+                    )
+                    _apply_document_ranking_metadata(title_document_operatives, ranking_metadata)
+                    title_document_operatives = rerank_legal_candidates(query, title_document_operatives)
                 if requires_clause_expansion(query) and not exact_document_ids and hasattr(
                     hydration_repository, "search_document_operatives"
                 ):
@@ -830,6 +856,8 @@ class GraphRagRuntime:
                 channels["legal_reference"] = legal_reference_results
             if document_anchor_results:
                 channels["document_anchor"] = document_anchor_results
+            if title_document_operatives:
+                channels["title_document_operatives"] = title_document_operatives
             if document_operatives:
                 channels["document_operatives"] = document_operatives
 
@@ -902,19 +930,25 @@ class GraphRagRuntime:
                     )
 
             fused_evidence = weighted_rrf(
-                        channels,
-                        limit=settings.max_llm_evidence,
-                        # Operational legal questions often require the
-                        # beneficiary, the governing group and the operative
-                        # percentage/duration from one statute. Preserve a
-                        # slightly wider same-document chain before the LLM
-                        # audits it; thematic questions retain diversity.
-                        max_per_document=(
-                            max(settings.max_chunks_per_document, 6)
-                            if requires_clause_expansion(query)
-                            else settings.max_chunks_per_document
-                        ),
-                    )
+                channels,
+                limit=settings.max_llm_evidence,
+                # Operational legal questions often require the beneficiary,
+                # the governing group and the operative percentage/duration
+                # from one statute. Preserve a slightly wider same-document
+                # chain before the LLM audits it; thematic questions retain
+                # diversity.
+                max_per_document=(
+                    max(settings.max_chunks_per_document, 6)
+                    if requires_clause_expansion(query)
+                    else settings.max_chunks_per_document
+                ),
+            )
+            # RRF makes independent retrieval channels comparable, but it
+            # deliberately discards their score scales.  Apply the
+            # source-derived legal ranking once more after fusion so an exact,
+            # distinctive operative phrase is not evicted by several generic
+            # dense/BM25 matches that merely co-occur across channels.
+            fused_evidence = rerank_legal_candidates(query, fused_evidence)
             fused_evidence = exclude_unverified_legacy_subordinate_sources(query, fused_evidence)
             return RetrievalBundle(
                 evidence=_verified_evidence(fused_evidence),

@@ -18,14 +18,20 @@ _NUMBER_TOKEN = re.compile(r"\d+(?:[.,/%-]\d+)*")
 
 _REWRITE_INSTRUCTION = """Bạn chuyển câu hỏi pháp luật BHYT/viện phí thành đúng một đoạn
 giả định ngắn giống câu chữ của điều khoản pháp luật có khả năng trả lời câu hỏi.
-Đoạn này chỉ dùng để tìm kiếm, không phải câu trả lời cho người dùng.
+Đoạn này là HyDE dùng nội bộ để tìm kiếm, không phải câu trả lời cho người dùng
+và không được hiển thị ra ngoài.
 
 Yêu cầu:
 - Giữ nguyên chủ thể, điều kiện, thời điểm, số tiền và số hiệu đã có trong câu hỏi.
 - Có thể mở rộng từ viết tắt và dùng thuật ngữ pháp lý tương đương.
 - Viết thành mệnh đề quy phạm có cả hoàn cảnh và hệ quả pháp lý cần tìm
   (quyền, nghĩa vụ, điều kiện hoặc ngoại lệ), thay vì chỉ đảo thứ tự từ của
-  câu hỏi. Không được tự thêm con số, tên văn bản hay kết luận thực tế.
+  câu hỏi. Có thể thêm thuật ngữ pháp lý không định lượng có khả năng xuất
+  hiện trong điều khoản trả lời (điều kiện, ngoại lệ, phạm vi, mức hưởng,
+  thanh toán, cơ sở khám chữa bệnh) khi giúp làm rõ hệ quả cần tra cứu.
+  Đây chỉ là giả thuyết tìm kiếm, không phải kết luận thực tế.
+- Không được tự thêm con số, tỷ lệ phần trăm, số tiền, tên văn bản, tên cơ
+  quan, địa phương hoặc khẳng định một mức/quyền lợi cụ thể.
 - Không thêm số hiệu văn bản, tên cơ quan hoặc địa phương không có trong câu hỏi.
 - Không viết giải thích, trích dẫn, tiêu đề hay lời dẫn.
 - Trả đúng schema đã yêu cầu."""

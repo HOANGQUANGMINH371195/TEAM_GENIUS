@@ -585,6 +585,7 @@ def weighted_rrf(
         "semantic_scope": 1.6,
         "legal_reference": 1.5,
         "document_operatives": 1.45,
+        "title_document_operatives": 1.55,
         "document_anchor": 3.5,
         "legal_graph": 0.7,
         "page_index": 1.35,
