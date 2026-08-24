@@ -52,6 +52,14 @@ def test_policy_queries_do_not_reach_retrieval():
     assert not requires_evidence_verification("Tên văn bản là gì?")
 
 
+def test_general_bhyt_entitlement_question_reaches_retrieval():
+    """General statutory rules must not be mistaken for a personal-plan lookup."""
+    assert policy_response(
+        "Người tham gia BHYT 5 năm liên tục được hưởng quyền lợi gì khi số tiền cùng chi trả vượt mức quy định?"
+    ) is None
+    assert policy_response("Tôi còn được hưởng quyền lợi của gói bảo hiểm này không?")
+
+
 def test_no_answer_explains_ambiguity_and_unverified_risk():
     assert "nhiều văn bản" in no_answer_response("", reason="ambiguous")
     assert "xác minh" in no_answer_response("", reason="unverified")

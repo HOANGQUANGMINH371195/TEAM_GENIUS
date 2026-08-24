@@ -123,7 +123,16 @@ def policy_response(query: str) -> str | None:
         return "Tôi không thể chẩn đoán hoặc kê đơn. Với triệu chứng hay liều dùng, hãy liên hệ bác sĩ hoặc cơ sở y tế; tôi chỉ hỗ trợ thông tin chính sách và viện phí có nguồn."
     if any(token in lowered for token in ("claim đã được duyệt", "yêu cầu đã được duyệt", "đã được phê duyệt")):
         return "Tôi không thể xác nhận tình trạng duyệt claim khi không có nguồn trạng thái chính thức. Hãy kiểm tra kênh của cơ quan bảo hiểm hoặc cơ sở tiếp nhận."
-    if ("quyền lợi" in lowered and "được hưởng" in lowered) or "gói bảo hiểm" in lowered:
+    # A question about a person's own plan cannot be answered safely without
+    # their plan/coverage facts.  Do not treat every general legal question
+    # containing "quyền lợi" as an individual-eligibility request: that used
+    # to bypass retrieval entirely for questions such as the statutory BHYT
+    # five-consecutive-years co-payment rule.
+    personal_plan_markers = (
+        "gói bảo hiểm này", "gói của tôi", "gói bhyt của tôi",
+        "quyền lợi của tôi", "tôi còn được hưởng", "tôi được hưởng",
+    )
+    if any(marker in lowered for marker in personal_plan_markers):
         return "Để xác định quyền lợi, cần tên hoặc mã gói bảo hiểm/văn bản áp dụng và ngày điều trị hoặc ngày hiệu lực. Tôi không thể khẳng định quyền lợi khi thiếu các thông tin này."
     if "viện phí" in lowered and any(token in lowered for token in ("bao nhiêu", "ước tính", "tổng tiền", "tính", "cuối cùng")):
         return "Để đối chiếu viện phí an toàn, cần hóa đơn hoặc bảng kê chi tiết, nơi khám, tuyến/chuyển tuyến, mức hưởng BHYT và thời điểm điều trị. Không nên kết luận số tiền khi thiếu các đầu vào này."
