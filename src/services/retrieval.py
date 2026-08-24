@@ -22,6 +22,12 @@ _DOCUMENT_NUMBER = re.compile(
     re.IGNORECASE,
 )
 _LEGAL_LABEL = re.compile(r"\b(?:điều|khoản)\s+\d+[a-zđ]?|\b[a-zđ]\)", re.IGNORECASE)
+_RETRIEVAL_TOKEN = re.compile(r"[0-9A-Za-zÀ-ỹĐđ]+", re.IGNORECASE)
+_RETRIEVAL_STOPWORDS = {
+    "và", "là", "có", "được", "cho", "của", "theo", "trong", "với", "từ", "này",
+    "khi", "để", "một", "các", "những", "về", "không", "người", "việc", "tại", "đến",
+    "thì", "bị", "sẽ", "đã", "hay", "hoặc", "nếu", "cần", "phải", "nên", "gì",
+}
 
 
 def normalize_identifier(value: str) -> str:
@@ -61,21 +67,6 @@ def decompose_query(query: str, *, limit: int = 3) -> list[str]:
     normalized = " ".join(query.split())
     if not normalized or limit <= 1:
         return [normalized] if normalized else []
-    # This is a legal-term normalization, not an answer shortcut.  The same
-    # statutory condition appears in the corpus with several spellings
-    # ("05"/"5", "đồng"/"cùng" chi trả and the explicit threshold).  Expand
-    # a recognisable compound condition before embedding/lexical fusion so a
-    # broad passage about a five-year card validity cannot outrank its
-    # operative co-payment rule.
-    lowered = normalized.casefold()
-    has_five_years = "5 năm" in lowered or "05 năm" in lowered
-    if has_five_years and "chi trả" in lowered:
-        expansions = [
-            normalized,
-            "BHYT 5 năm liên tục số tiền cùng chi trả lớn hơn 6 tháng lương cơ sở",
-            "mức hưởng BHYT 5 năm liên tục miễn cùng chi trả",
-        ]
-        return expansions[:limit]
     parts = re.split(r"\s+(?:và|đồng thời|cũng như)\s+", normalized, flags=re.IGNORECASE)
     if len(parts) <= 1:
         return [normalized]
@@ -212,6 +203,60 @@ def semantic_document_focus(
     for _, _, _, rows in sorted(candidates)[:documents]:
         focused.extend(hit.model_copy(deep=True) for _, hit in rows[:chunks_per_document])
     return focused
+
+
+def rerank_semantic_by_query_overlap(
+    query: str, hits: Sequence[RetrievalResult]
+) -> list[RetrievalResult]:
+    """Re-rank a wide semantic candidate set by query-term and phrase coverage.
+
+    Dense retrieval is good at recall but can rank a passage about one broad
+    concept above the operative clause that satisfies all concepts in a long
+    legal question.  This general second-stage scorer uses only the user's
+    terms and candidate text—there are no question-to-document mappings or
+    domain-specific answer rules.
+    """
+    tokens = [
+        token.casefold() for token in _RETRIEVAL_TOKEN.findall(query)
+        if len(token) > 1 and token.casefold() not in _RETRIEVAL_STOPWORDS
+    ]
+    unique_tokens = list(dict.fromkeys(tokens))
+    phrases = list(dict.fromkeys(zip(tokens, tokens[1:])))
+    if not unique_tokens:
+        return [item.model_copy(deep=True) for item in hits]
+
+    ranked: list[RetrievalResult] = []
+    query_terms = set(unique_tokens)
+    for original in hits:
+        item = original.model_copy(deep=True)
+        source_tokens = [
+            token.casefold()
+            for token in _RETRIEVAL_TOKEN.findall(
+                " ".join((item.title, item.section_title, item.content))
+            )
+        ]
+        source_terms = set(source_tokens)
+        token_coverage = len(query_terms & source_terms) / len(query_terms)
+        source_phrases = set(zip(source_tokens, source_tokens[1:]))
+        phrase_coverage = (
+            sum(phrase in source_phrases for phrase in phrases) / len(phrases)
+            if phrases else 0.0
+        )
+        raw_score = float(item.score)
+        # Coverage is a bounded tie-breaker over semantic relevance, not an
+        # independent legal conclusion.  It prevents a single generic term
+        # from dominating a multi-condition query.
+        rerank_score = raw_score + 0.12 * token_coverage + 0.08 * phrase_coverage
+        item.score = rerank_score
+        item.rank_details = {
+            **item.rank_details,
+            "semantic_raw_score": raw_score,
+            "query_token_coverage": token_coverage,
+            "query_phrase_coverage": phrase_coverage,
+            "semantic_rerank_score": rerank_score,
+        }
+        ranked.append(item)
+    return sorted(ranked, key=lambda item: (-item.score, item.document_id, item.chunk_id))
 
 
 def weighted_rrf(

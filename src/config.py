@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     provider_circuit_cooldown_seconds: float = Field(default=30.0, ge=1, le=600)
 
     retrieval_top_k: int = Field(default=5, ge=1, le=50)
+    # Candidate pool is intentionally wider than the final evidence pack: a
+    # lexical/coverage re-ranker needs enough semantic candidates to recover
+    # an operative clause from a broad document-level embedding match.
+    retrieval_candidate_k: int = Field(default=60, ge=10, le=200)
     semantic_similarity_threshold: float = Field(default=0.25, ge=0.0, le=1.0)
     graph_hops: int = Field(default=1, ge=0, le=5)
     graph_neighbor_limit: int = Field(default=20, ge=1, le=100)

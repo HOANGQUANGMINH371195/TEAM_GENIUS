@@ -7,6 +7,7 @@ from src.services.retrieval import (
     no_answer_response,
     normalize_identifier,
     policy_response,
+    rerank_semantic_by_query_overlap,
     requires_evidence_verification,
     retrieval_intent,
     semantic_document_focus,
@@ -35,17 +36,6 @@ def test_query_decomposition_is_bounded_and_conservative():
     parts = decompose_query("mức hưởng BHYT hiện hành và điều kiện thanh toán chi phí")
     assert parts == ["mức hưởng BHYT hiện hành", "điều kiện thanh toán chi phí"]
     assert decompose_query("một câu hỏi đơn") == ["một câu hỏi đơn"]
-
-
-def test_five_year_bhyt_copayment_uses_statutory_term_expansion():
-    queries = decompose_query(
-        "Người tham gia BHYT 5 năm liên tục được hưởng quyền lợi gì khi số tiền cùng chi trả vượt mức quy định?"
-    )
-    assert queries == [
-        "Người tham gia BHYT 5 năm liên tục được hưởng quyền lợi gì khi số tiền cùng chi trả vượt mức quy định?",
-        "BHYT 5 năm liên tục số tiền cùng chi trả lớn hơn 6 tháng lương cơ sở",
-        "mức hưởng BHYT 5 năm liên tục miễn cùng chi trả",
-    ]
 
 
 def test_simple_status_metadata_route_excludes_relation_questions():
@@ -102,3 +92,22 @@ def test_semantic_document_focus_retains_neighbouring_answer_passages():
 
     assert [item.chunk_id for item in focused] == ["scope", "preamble", "answer"]
     assert "answer" in [item.chunk_id for item in fused]
+
+
+def test_semantic_reranker_rewards_multi_term_coverage_without_document_mapping():
+    broad = RetrievalResult(
+        chunk_id="broad", document_id="broad", score=0.72,
+        content="Thẻ bảo hiểm y tế có thời hạn sử dụng năm năm.",
+    )
+    operative = RetrievalResult(
+        chunk_id="operative", document_id="operative", score=0.66,
+        content="Người tham gia năm năm liên tục có số tiền cùng chi trả được thanh toán theo mức hưởng.",
+    )
+    reranked = rerank_semantic_by_query_overlap(
+        "Người tham gia BHYT 5 năm liên tục có số tiền cùng chi trả được hưởng gì?",
+        [broad, operative],
+    )
+
+    assert [item.chunk_id for item in reranked] == ["operative", "broad"]
+    assert reranked[0].rank_details["semantic_raw_score"] == 0.66
+    assert reranked[0].rank_details["query_token_coverage"] > reranked[1].rank_details["query_token_coverage"]

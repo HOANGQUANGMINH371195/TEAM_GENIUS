@@ -33,6 +33,7 @@ from src.services.retrieval import (
     policy_response,
     requires_evidence_verification,
     retrieval_intent,
+    rerank_semantic_by_query_overlap,
     semantic_document_focus,
     weighted_rrf,
 )
@@ -129,6 +130,7 @@ class GraphRagRuntime:
             settings.model_name,
             settings.qdrant_collection,
             settings.retrieval_top_k,
+            settings.retrieval_candidate_k,
             settings.semantic_similarity_threshold,
             settings.graph_hops,
             settings.max_llm_evidence,
@@ -174,6 +176,7 @@ class GraphRagRuntime:
                         settings.model_name,
                         settings.qdrant_collection,
                         settings.retrieval_top_k,
+                        settings.retrieval_candidate_k,
                         settings.semantic_similarity_threshold,
                         settings.graph_hops,
                         settings.max_llm_evidence,
@@ -218,7 +221,7 @@ class GraphRagRuntime:
         vector_hits = await self._search_vectors_many(
             vectors,
             dataset_id=dataset_id,
-            limit=max(20, settings.retrieval_top_k * 3),
+            limit=settings.retrieval_candidate_k,
             score_threshold=settings.semantic_similarity_threshold,
         )
         bundles = await asyncio.gather(*(
@@ -446,7 +449,7 @@ class GraphRagRuntime:
             # Phase 2: independent lexical/provider work. The lexical task owns
             # its own short-lived DB session, so provider wait cannot pin it.
             lexical_task = asyncio.create_task(
-                lexical_search(dataset_id=dataset_id, limit=max(20, settings.retrieval_top_k * 3))
+                lexical_search(dataset_id=dataset_id, limit=settings.retrieval_candidate_k)
             )
             async with trace_span(
                 "embedding-query",
@@ -467,7 +470,7 @@ class GraphRagRuntime:
                         self._search_vectors(
                             vector,
                             dataset_id=dataset_id,
-                            limit=max(20, settings.retrieval_top_k * 3),
+                            limit=settings.retrieval_candidate_k,
                             score_threshold=settings.semantic_similarity_threshold,
                         )
                     )
@@ -500,7 +503,9 @@ class GraphRagRuntime:
                         dataset_id=dataset_id,
                         limit=settings.max_llm_evidence,
                     )
-                semantic_results = _verify_hydrated_hits(hydrated, vector_hits)
+                semantic_results = rerank_semantic_by_query_overlap(
+                    query, _verify_hydrated_hits(hydrated, vector_hits)
+                )
                 semantic_focus = semantic_document_focus(semantic_results)
 
             channels: dict[str, Sequence[RetrievalResult]] = {
