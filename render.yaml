@@ -3,7 +3,7 @@ services:
     name: medipay-api
     runtime: docker
     plan: starter
-    branch: feat/data
+    branch: main
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /health
