@@ -33,10 +33,14 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(() => Boolean(auth));
+  // Keep the server and first browser render identical. `auth` is deliberately
+  // null during SSR, but exists in the browser; deriving initial state from it
+  // causes a hydration mismatch before Firebase finishes restoring the session.
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!auth) {
+      setLoading(false);
       return;
     }
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
