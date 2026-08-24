@@ -4,7 +4,8 @@ import csv
 import json
 from pathlib import Path
 
-from eval.golden_eval import build_dataset, make_case
+from eval.golden_eval import _policy_behavior_pass, _policy_cases, build_dataset, make_case
+from src.services.retrieval import policy_response
 
 
 def _write_metadata(path: Path, rows: list[dict[str, str]]) -> None:
@@ -81,3 +82,11 @@ def test_build_dataset_is_deterministic_and_source_backed(tmp_path: Path) -> Non
     assert document_cases
     assert all(case["evidence_refs"] for case in document_cases)
     assert all("gold_facts" not in case["agent_input"] for case in first_cases)
+
+
+def test_synthetic_policy_checker_accepts_deterministic_safety_routes() -> None:
+    for case in _policy_cases():
+        question = case["agent_input"]["messages"][0]["content"]
+        answer = policy_response(question)
+        assert answer
+        assert _policy_behavior_pass(case, answer), case["case_id"]

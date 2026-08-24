@@ -23,7 +23,7 @@ Query
 
 ### Boundaries
 
-- `src/graph_rag/retrieval.py`: phối hợp exact/lexical/semantic result và graph result.
+- `src/services/chat.py`: production retrieval service, phối hợp exact/lexical/Qdrant/PageIndex/graph.
 - `src/db/repositories.py`: SQL query, không chứa prompt hay LLM logic.
 - `src/integrations/embeddings.py`: OpenAI `text-embedding-3-small`, 1536 dimensions.
 - `src/integrations/neo4j.py`: bounded graph traversal trên Neo4j Aura/local.
@@ -42,7 +42,7 @@ truncate vector hoặc fallback sang model local nếu chưa tạo release mới
 
 ### Supabase schema
 
-`database/schema.sql` tạo documents, chunks, legal units, tables và pgvector.
+`database/postgres/schema.sql` tạo documents, chunks, legal units và tables; Qdrant giữ vector semantic derived.
 PageIndex được sinh từ dữ liệu raw và ánh xạ vào legal units. Knowledge graph
 được lưu trong Neo4j; embedding dùng `text-embedding-3-small` với vector 1536
 chiều. Text dùng làm citation luôn phải lấy lại từ Supabase.

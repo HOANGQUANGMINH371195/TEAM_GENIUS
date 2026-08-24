@@ -37,6 +37,18 @@ completeness, trùng case ID, secret pattern và gold leakage.
 
 ## Chạy lại
 
+Trước RAGAS, luôn chạy deterministic retrieval gates của active release:
+
+```bash
+PYTHONPATH=database/pipeline:. .venv/bin/python database/corpus/evaluate_qdrant_semantic.py \
+  --benchmark data/clean/medical_active_v31_fully_reviewed/semantic_question_benchmark.jsonl \
+  --dataset-id snapshot-c439751724ab7f10 \
+  --output /tmp/qdrant-semantic-eval.json
+```
+
+Suite này đo thematic semantic Recall@20 và ANN-vs-exact Qdrant; benchmark
+document-number dùng exact route, không phải semantic gate.
+
 RAGAS được tách khỏi `.venv` production để không làm thay đổi dependency dự án:
 
 ```powershell

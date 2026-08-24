@@ -15,7 +15,7 @@ Dự án được xây dựng trong khuôn khổ chương trình **VinUni AI20K 
 | Họ và tên | Vai trò chính | Trách nhiệm chính | Tech Stack phụ trách |
 | :--- | :--- | :--- | :--- |
 | **HOÀNG QUANG MINH** | **Team Lead / DevOps** | Quản lý dự án, Hạ tầng Docker, Vercel CI/CD & Security | Docker, Vercel, GitHub Actions |
-| **LÝ MINH HẢI** | **FullStack (Backend)** | RESTful API FastAPI, Database PostgreSQL/pgvector & Caching | Python, FastAPI, PostgreSQL, pgvector |
+| **LÝ MINH HẢI** | **FullStack (Backend)** | RESTful API FastAPI, Supabase/Qdrant retrieval & Caching | Python, FastAPI, PostgreSQL, Qdrant |
 | **TRẦN QUỐC HÙNG** | **FullStack (Frontend)** | Giao diện Next.js, UI/UX Mobile, Admin Dashboard & Export PDF | Next.js, Tailwind CSS, TypeScript |
 | **NGUYỄN TIẾN DŨNG** | **Kỹ sư AI** | RAG Pipeline, LangGraph Agent, Module OCR & Langfuse | LangChain, LangGraph, Langfuse, OCR |
 
@@ -23,9 +23,9 @@ Dự án được xây dựng trong khuôn khổ chương trình **VinUni AI20K 
 
 ## 🛠️ Tech Stack & Kiến Trúc Hệ Thống
 
-* **Frontend:** Next.js 14, Tailwind CSS, TypeScript (Triển khai trên **Vercel**)
+* **Frontend:** Next.js 16, React, TypeScript (Triển khai trên **Vercel**)
 * **Backend:** Python 3.11, FastAPI, Pydantic, Uvicorn (Đóng gói **Docker Container**)
-* **Database & Vector Search:** PostgreSQL với extension `pgvector`
+* **Database & Vector Search:** Supabase PostgreSQL cho dữ liệu chuẩn/lexical; Qdrant cho vector semantic
 * **AI & Agentic Framework:**
   * **LangChain & LangGraph:** Điều phối luồng Agent, định tuyến ý định (Intent Routing) & State Management.
   * **Langfuse:** Giám sát chất lượng phản hồi AI, theo dõi độ trễ (Latency) & quản lý chi phí token.
@@ -33,7 +33,7 @@ Dự án được xây dựng trong khuôn khổ chương trình **VinUni AI20K 
 
 ### Cấu trúc dự án hiện tại và hướng phát triển
 
-Backend và GraphRAG nằm trong `src`. Frontend Next.js sẽ đặt tại `web/`. Supabase quản lý PostgreSQL + `pgvector` cho document/chunk; Neo4j quản lý knowledge graph; Firebase được chuẩn bị cho đăng nhập. Embedding dùng `text-embedding-3-small` (1536 chiều).
+Backend và GraphRAG nằm trong `src`. Supabase quản lý document/chunk, lexical search và PageIndex; Qdrant giữ vector semantic theo collection versioned + alias `medical_legal_active`; Neo4j chỉ navigation graph. Embedding dùng `text-embedding-3-small` (1536 chiều).
 
 ```text
 .
@@ -51,12 +51,15 @@ Backend và GraphRAG nằm trong `src`. Frontend Next.js sẽ đặt tại `web/
 │   ├── app/                          # App Router pages/layout
 │   ├── components/                   # Chat/document/shared UI
 │   └── lib/                          # Typed API client, env helpers
-├── database/                         # PostgreSQL, pipeline, Neo4j và Firebase
-│   ├── neo4j/                         # Knowledge graph và importer
+├── database/                         # Database boundaries and offline release tooling
+│   ├── postgres/                      # Canonical schema and ordered migrations
+│   ├── qdrant/                        # Semantic projection contract
+│   ├── neo4j/                         # Knowledge graph and importer
+│   ├── pipeline/                      # Offline canonical build/indexing
 │   └── firebase/                      # Firebase Authentication scaffold
 ├── docker-compose.yml                # Chạy backend, kết nối Supabase
 ├── Dockerfile                        # FastAPI image
-├── requirements.txt                  # Python dependencies
+├── requirements/                     # Runtime, migration, pipeline and dev locks
 └── ARCHITECTURE.md                   # Chi tiết kiến trúc
 ```
 
@@ -66,10 +69,12 @@ Xem [ARCHITECTURE.md](ARCHITECTURE.md) để biết GraphRAG flow, data model v�
 
 ## API và Swagger
 
-Chạy backend ở thư mục gốc:
+Chạy toàn bộ môi trường local ở thư mục gốc:
 
 ```bash
-uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+cp .env.example .env  # chỉ khi chưa có .env
+make setup
+make dev
 ```
 
 FastAPI tự cung cấp giao diện Swagger tại [http://localhost:8000/docs](http://localhost:8000/docs)
@@ -110,8 +115,9 @@ Ví dụ response analyze:
 Chạy kiểm tra:
 
 ```bash
-ruff check src/ tests/
-pytest tests/ -v --tb=short
+make check
 ```
+
+`/ready` chỉ trả `ready` khi active Supabase release, Qdrant alias/parity và Neo4j đều sẵn sàng. Không commit `.env`; copy `.env.example` và điền secrets riêng.
 
 ---

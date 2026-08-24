@@ -86,12 +86,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements trước — tận dụng Docker layer caching
-COPY requirements.txt .
+COPY requirements/runtime.lock .
 
 # Cài Python dependencies vào virtual environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r runtime.lock
 
 # ============================================
 # Stage 2: Production — image cuối cùng
@@ -384,14 +384,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements/dev.lock') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --require-hashes -r requirements/dev.lock
           pip install pytest pytest-asyncio pytest-cov httpx
 
       - name: Run tests with coverage
@@ -437,7 +437,7 @@ Workflow này có 3 jobs chạy tuần tự: lint → test → build. Nếu lint
 
 **Lint với Ruff:** Ruff là Python linter và formatter siêu nhanh (viết bằng Rust), thay thế Flake8, isort, Black. Nó kiểm tra code style, import order, unused imports, và nhiều lỗi phổ biến khác. Output format `github` tạo annotation trực tiếp trên pull request — reviewer thấy lỗi ngay trên diff.
 
-**Cache pip dependencies:** Action `actions/cache` lưu cache của pip, tránh download lại 100+ packages mỗi lần chạy. Key cache dựa trên hash của `requirements.txt` — chỉ invalidate khi dependencies thay đổi.
+**Cache pip dependencies:** Action `actions/cache` lưu cache của pip, tránh download lại 100+ packages mỗi lần chạy. Key cache dựa trên hash của `requirements/dev.lock` — chỉ invalidate khi dependencies thay đổi.
 
 > 🔑 **ĐIỂM CHÍNH:** Luôn có ít nhất lint + test trong CI pipeline. Đây là dấu hiệu chuyên nghiệp nhất cho BTC. Phần lớn đội không có CI/CD — chỉ cần bạn có, bạn đã vượt xa.
 

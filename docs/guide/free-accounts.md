@@ -23,8 +23,8 @@ Trước khi đăng ký tài khoản, hãy hiểu bạn sẽ cần gì:
 | Backend | FastAPI + Python 3.11 | Render / Railway | API server cho AI Agent |
 | AI Agent | LangGraph + LangChain | — | Xử lý logic & workflow của agent |
 | LLM | GPT-4o-mini / Gemini / Mistral | OpenAI / Google / Mistral API | Bộ não AI — xử lý ngôn ngữ |
-| Database | PostgreSQL + pgvector | Supabase | Lưu trữ dữ liệu & vector |
-| Vector Store | ChromaDB / Pinecone / Qdrant | Self-host / Cloud | Lưu trữ embedding để tìm kiếm ngữ nghĩa |
+| Database | PostgreSQL | Supabase | Nguồn canonical, lexical và PageIndex |
+| Vector Store | Qdrant Cloud | Cloud | Embedding semantic versioned |
 | Frontend | Next.js / Streamlit | Vercel / Streamlit Cloud | Giao diện người dùng |
 | DevOps | Docker + GitHub Actions | GitHub | Đóng gói & tự động deploy |
 | Monitoring | Langfuse / LangSmith | Cloud / Self-host | Theo dõi hoạt động của AI Agent |
@@ -139,16 +139,16 @@ Bạn cần cloud hosting để deploy ứng dụng lên internet, để ban gi�
 
 Ứng dụng AI Agent cần 2 loại lưu trữ: (1) Database truyền thống cho dữ liệu người dùng, và (2) Vector Store cho tìm kiếm ngữ nghĩa (RAG).
 
-### Supabase — KHUYÊN DÙNG (PostgreSQL + pgvector)
+### Supabase — KHUYÊN DÙNG (PostgreSQL canonical)
 
 - **Gói miễn phí:** 500 MB database, 500 MB RAM, 5 GB egress/tháng
 - **Projects:** Tối đa 2 active projects
-- **Vector Search:** Có pgvector extension — tìm kiếm vector ngay trong PostgreSQL!
+- **Vai trò trong MediPay:** source text, metadata, lexical search và legal-unit/PageIndex; không lưu embedding production.
 - **Tính năng:** Bao gồm Auth (50K MAU), Storage (1 GB), Edge Functions (500K/tháng)
 - **Lưu ý:** Tự động pause sau 7 ngày không dùng
 - **Đăng ký:** https://supabase.com
 
-> 💡 **MẸO:** Supabase là lựa chọn TỐT NHẤT cho AI20K vì: (1) PostgreSQL tương thích với template, (2) pgvector thay thế Vector Store riêng, (3) Auth sẵn có, (4) 2 projects đủ cho dev + demo.
+> 💡 **MẸO:** Với quota 500 MB, giữ Supabase cho source/provenance và dùng Qdrant cho embedding sẽ bền vững hơn.
 
 ### Pinecone — Vector Database chuyên dụng
 

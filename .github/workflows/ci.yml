@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   lint-and-test:
@@ -20,13 +20,51 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install --require-hashes -r requirements/dev.lock
 
-      - name: Lint with ruff
-        run: ruff check src/ tests/
+      - name: Lint
+        run: ruff check src/ tests/ database/corpus/ database/pipeline/tests/ eval/
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: |
+          pytest tests/ -v --tb=short
+          PYTHONPATH=database/pipeline:. pytest -q database/pipeline/tests database/corpus/tests database/neo4j/tests eval/test_*.py
         env:
           APP_ENV: test
           OPENAI_API_KEY: test-key
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Frontend lint, typecheck and build
+        working-directory: web
+        run: |
+          npm ci
+          npm run lint
+          npx tsc --noEmit
+          npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+          NEXT_PUBLIC_FIREBASE_API_KEY: test-api-key
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: test.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: test-project
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: test.firebasestorage.app
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "000000000000"
+          NEXT_PUBLIC_FIREBASE_APP_ID: 1:000000000000:web:test
+
+      - name: Build production container
+        run: docker build --pull --tag medipay-api:ci .
+
+      - name: Verify container runs as non-root
+        run: |
+          test "$(docker image inspect medipay-api:ci --format '{{.Config.User}}')" = "appuser"
+          test "$(docker image inspect medipay-api:ci --format '{{json .Config.Cmd}}')" != "null"
+
+      - name: Build migration job image
+        run: |
+          docker build --pull --file Dockerfile.migrate --tag medipay-migrate:ci .
+          test "$(docker image inspect medipay-migrate:ci --format '{{.Config.User}}')" = "migrator"

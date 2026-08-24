@@ -13,7 +13,7 @@ graph TB
     API --> Agent[LangGraph GraphRAG]
     Agent --> Exact[Exact identifiers]
     Agent --> Lexical[Lexical PostgreSQL]
-    Agent --> Semantic[Semantic pgvector]
+    Agent --> Semantic[OpenAI embedding → Qdrant]
     Agent --> PageIndex[PageIndex / legal units]
     Semantic --> Graph[Neo4j bounded traversal]
     Exact --> Fusion[RRF + provenance]
@@ -38,10 +38,11 @@ FastAPI routes gọi services. Services gọi GraphRAG workflow. `src/db` quản
 
 ### Database: Supabase PostgreSQL
 
-Supabase là PostgreSQL managed, dùng full-text search và `pgvector` cho chunks.
+Supabase là PostgreSQL managed, dùng full-text search cho chunks và là nguồn
+canonical của text/provenance. Qdrant giữ semantic vector derived theo active alias.
 `legal_units`/PageIndex giữ cấu trúc và source spans. Neo4j lưu document graph
 và predicates có hướng. Schema PostgreSQL quản lý bằng SQL tại
-`database/schema.sql`; không dùng SQLite hay Alembic.
+`database/postgres/schema.sql`; không dùng SQLite hay Alembic.
 
 ### Model runtime
 
@@ -64,7 +65,7 @@ LLM và embedding chưa chốt. `src/integrations/llm.py` và `src/integrations/
 | Framework | FastAPI | Async, auto-docs, type-safe |
 | Agent | LangGraph | Stateful workflow |
 | Database | Supabase PostgreSQL | Shared managed PostgreSQL |
-| Vector | pgvector | Vector search cùng DB |
+| Vector | Qdrant Cloud | Semantic search versioned, không chiếm quota Supabase |
 | Graph | Neo4j Aura/local | Directed predicates và graph traversal native |
 | Frontend | Next.js trong `web/` | Tách boundary khỏi Python `src` |
 | Migration | Supabase SQL | Không thêm Alembic |

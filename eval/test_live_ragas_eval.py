@@ -12,7 +12,6 @@ from eval.golden_eval import (
     validate_golden_dataset,
 )
 
-
 METADATA_FIELDS = [
     "id",
     "title",
