@@ -34,6 +34,32 @@ Important outputs:
 Do not overwrite `data/raw/` or publish to Supabase until the candidate passes
 the canonical build and storage-capacity gates.
 
+## Selective Hugging Face intake (review-only)
+
+`intake_hf_vbpl.py` turns explicitly named documents from
+[`tmquan/vbpl-vn`](https://huggingface.co/datasets/tmquan/vbpl-vn) into a
+local, immutable review intake. It rejects provincial rows, missing bodies and
+non-VBPL URLs. It does **not** index, publish or activate anything: that
+dataset has no legal-force field, so each record is initially
+`needs_official_status_verification`.
+
+Download only the necessary Parquet shards to a temporary location, then run:
+
+```bash
+uv run --with pyarrow python database/corpus/intake_hf_vbpl.py \
+  --input /tmp/documents-00013-of-00032.parquet \
+  --input /tmp/documents-00015-of-00032.parquet \
+  --document-number 51/2024/QH15 \
+  --document-number 01/2025/TT-BYT \
+  --document-number 188/2025/NĐ-CP \
+  --output-dir data/intake/hf-vbpl-bhyt-2026-08-24
+```
+
+The resulting `selected_documents.jsonl` and `manifest.json` remain ignored
+local data. Review legal force against VBPL, map approved content into the
+canonical candidate format, run `validate_candidate.py`, ingest only to a
+new staging snapshot, and pass the locked evaluation suite before activation.
+
 ## Free-tier external-vector release
 
 Release production `snapshot-c439751724ab7f10` (2026-08-18) giữ canonical
