@@ -16,17 +16,6 @@ export default function LoginPage() {
     }
   }, [user, loading, router]);
 
-  if (loading) {
-    return (
-      <main className="login-page">
-        <div className="login-card">
-          <div className="login-spinner" />
-          <p>Đang tải...</p>
-        </div>
-      </main>
-    );
-  }
-
   const handleGoogleSignIn = useCallback(async () => {
     setSignInError("");
     setIsSigningIn(true);
@@ -50,6 +39,17 @@ export default function LoginPage() {
       setIsSigningIn(false);
     }
   }, [signInWithGoogle]);
+
+  if (loading) {
+    return (
+      <main className="login-page">
+        <div className="login-card">
+          <div className="login-spinner" />
+          <p>Đang tải...</p>
+        </div>
+      </main>
+    );
+  }
 
   if (user) return null;
 
