@@ -60,6 +60,23 @@ local data. Review legal force against VBPL, map approved content into the
 canonical candidate format, run `validate_candidate.py`, ingest only to a
 new staging snapshot, and pass the locked evaluation suite before activation.
 
+### Completeness gate
+
+Before a staging release, compare the candidate with the compact metadata
+export from [`th1nhng0/vietnamese-legal-documents`](https://huggingface.co/datasets/th1nhng0/vietnamese-legal-documents):
+
+```bash
+uv run --with pyarrow python database/corpus/audit_hf_bhyt_coverage.py \
+  --hf-metadata /tmp/hf-vietnamese-legal-metadata.parquet \
+  --candidate-dir /absolute/path/to/medical_active_candidate \
+  --output /absolute/path/to/medical_active_candidate/HF_BHYT_COVERAGE.json
+```
+
+The gate covers only `Trung ương` documents marked `Còn hiệu lực` or `Hết
+hiệu lực một phần` and explicitly labelled BHYT by the source. It accepts
+benign differences such as `Luật số 51/2024/QH15` versus `51/2024/QH15`, but
+fails if any legal identity is absent.
+
 ## Free-tier external-vector release
 
 Release production `snapshot-c439751724ab7f10` (2026-08-18) giữ canonical
