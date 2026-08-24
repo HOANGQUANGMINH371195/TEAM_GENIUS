@@ -60,11 +60,15 @@ def deploy_vercel(path: Path) -> int:
     token = _required(path, "VERCEL_TOKEN")
     env = os.environ.copy()
     env["VERCEL_TOKEN"] = token
-    # These are non-secret identifiers and allow fully non-interactive deploys.
-    for name in ("VERCEL_ORG_ID", "VERCEL_PROJECT_ID"):
-        value = _dotenv_value(path, name)
+    # The local dotenv names deliberately avoid the reserved VERCEL_* prefix.
+    # Translate them only in the child process that invokes the Vercel CLI.
+    for dotenv_name, vercel_name in (
+        ("DEPLOY_VERCEL_ORG_ID", "VERCEL_ORG_ID"),
+        ("DEPLOY_VERCEL_PROJECT_ID", "VERCEL_PROJECT_ID"),
+    ):
+        value = _dotenv_value(path, dotenv_name)
         if value:
-            env[name] = value
+            env[vercel_name] = value
     command = ["npx", "--yes", "vercel", "deploy", "--prod", "--cwd", "web", "--yes"]
     print("Starting Vercel production deploy for web/...")
     completed = subprocess.run(command, env=env, check=False)
