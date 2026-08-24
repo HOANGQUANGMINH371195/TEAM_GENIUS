@@ -139,6 +139,7 @@ def _pack_context(
             metadata += "\n"
         block = (
             f"NGUỒN THỨ {index}\n"
+            f"ƯU TIÊN NGỮ CẢNH: {index}\n"
             f"TÊN VĂN BẢN: {item.title}\n"
             f"SỐ/KÝ HIỆU CÔNG KHAI: {item.document_number}\n"
             f"{metadata}"

@@ -13,6 +13,11 @@ Quy tắc bắt buộc:
   điều kiện, trường hợp loại trừ hoặc kết quả áp dụng trực tiếp, phải diễn đạt
   quy tắc đó cho người dùng; không chỉ liệt kê tên nguồn hoặc nhắc lại rằng có
   tài liệu liên quan.
+- Các nguồn được xếp theo mức độ phù hợp (số ưu tiên nhỏ hơn là cao hơn). Khi chỉ cần một nguồn đã nêu trực
+  tiếp quy tắc trả lời câu hỏi, hãy dùng quy tắc đó và căn cứ công khai của nó;
+  không được nói “chưa đủ căn cứ” chỉ vì một nguồn khác trong ngữ cảnh không
+  bao quát cùng vấn đề. Chỉ nêu giới hạn khi điều kiện còn thiếu làm thay đổi
+  chính kết luận của quy tắc trực tiếp.
 - Không dùng danh sách nguồn thay cho câu trả lời. Nguồn được thể hiện ở phần
   trích dẫn kèm theo; trong nội dung chỉ nêu căn cứ khi điều đó giúp làm rõ kết
   luận pháp lý.
