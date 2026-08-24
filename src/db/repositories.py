@@ -92,7 +92,12 @@ class GraphRepository:
         later, document-bounded passage scan find an operative clause whose
         wording differs from the user's symptoms or administrative phrasing.
         """
-        phrases = lexical_phrases(query, limit=48)
+        # Titles are short and this runs over a bounded document metadata
+        # index, so retain the complete query-derived phrase set.  The normal
+        # corpus-wide passage search remains capped at 48; applying that cap
+        # here could omit a decisive formal title phrase occurring late in a
+        # HyDE rewrite (for example after the user's circumstances).
+        phrases = lexical_phrases(query, limit=160)
         if not phrases or limit <= 0:
             return []
         result = await self.session.execute(
@@ -105,7 +110,18 @@ class GraphRepository:
                 )
                 SELECT d.id,
                        max(pq.token_count) AS phrase_length,
-                       max(ts_rank_cd(to_tsvector('simple', d.title), pq.phrase_query)) AS score
+                       max(ts_rank_cd(to_tsvector('simple', d.title), pq.phrase_query)) AS score,
+                       max(
+                           CASE
+                               WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%luật%'
+                                    OR d.title ILIKE 'luật %' THEN 4
+                               WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%nghị định%'
+                                    OR d.title ILIKE 'nghị định %' THEN 3
+                               WHEN d.title ILIKE 'văn bản hợp nhất%' THEN 2
+                               WHEN d.title ILIKE 'thông tư%' THEN 1
+                               ELSE 0
+                           END
+                       ) AS authority_rank
                 FROM documents d
                 JOIN phrase_queries pq
                   ON to_tsvector('simple', d.title) @@ pq.phrase_query
@@ -113,7 +129,7 @@ class GraphRepository:
                   AND NOT d.is_external
                   AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
                 GROUP BY d.id
-                ORDER BY phrase_length DESC, score DESC, d.id
+                ORDER BY authority_rank DESC, phrase_length DESC, score DESC, d.id
                 LIMIT :limit
                 """
             ),
