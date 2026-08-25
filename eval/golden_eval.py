@@ -818,6 +818,7 @@ def generate_actual_answers(dataset_path: Path, output_path: Path, run_id: str) 
     # Keep a local, redacted trace instead; remote Langfuse can be explicitly
     # opted into for a separate observability check.
     if os.getenv("P151_EVAL_ALLOW_REMOTE_TRACING", "").casefold() not in {"1", "true", "yes"}:
+        os.environ["P151_EVAL_DISABLE_REMOTE_TRACING"] = "1"
         for _name in (
             "LANGFUSE_PUBLIC_KEY",
             "LANGFUSE_SECRET_KEY",

@@ -208,6 +208,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
+    # Keep the read-only acceptance run independent of external telemetry DNS.
+    os.environ.setdefault("P151_EVAL_DISABLE_REMOTE_TRACING", "1")
     if args.qdrant_collection == "medical_legal_active":
         raise SystemExit("Refusing production alias medical_legal_active; provide a physical staging collection")
     if not args.dataset_id.startswith("snapshot-"):

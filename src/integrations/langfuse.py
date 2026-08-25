@@ -15,6 +15,11 @@ _runtime_available: bool | None = None
 
 
 def tracing_enabled() -> bool:
+    # Read-only evals must remain independent of remote telemetry availability.
+    # This guard is checked before Settings so a cached pydantic-settings value
+    # loaded from a developer .env cannot re-enable Langfuse mid-run.
+    if os.getenv("P151_EVAL_DISABLE_REMOTE_TRACING", "").casefold() in {"1", "true", "yes"}:
+        return False
     settings = get_settings()
     if settings.app_env == "test":
         return False
