@@ -854,8 +854,16 @@ def generate_actual_answers(dataset_path: Path, output_path: Path, run_id: str) 
             )
     else:
         from src.agents.graph import get_agent
+        from src.services.chat import get_runtime
 
         agent = get_agent()
+        # Independent read-only evaluations must be pinned to an immutable
+        # release. Without this explicit pin the runtime falls back to the
+        # mutable active-release lookup, which can block on a sleeping/remote
+        # database and makes the benchmark non-observable.
+        evaluation_dataset_id = os.getenv("EVAL_DATASET_ID", "").strip()
+        if evaluation_dataset_id:
+            get_runtime()._active_release = (evaluation_dataset_id, 0, time.monotonic())
 
         def evidence_summary(item: object) -> dict[str, Any]:
             if isinstance(item, dict):
@@ -879,6 +887,42 @@ def generate_actual_answers(dataset_path: Path, output_path: Path, run_id: str) 
             }
 
         async def run_all() -> None:
+            # A pinned staging run must fail closed when its database is not
+            # reachable. Do one bounded preflight instead of launching every
+            # case into the same DNS/connection failure and mistaking repeated
+            # timeouts for model quality results.
+            if os.getenv("EVAL_DATASET_ID", "").strip():
+                from src.db.session import check_database
+
+                try:
+                    database_ready = await asyncio.wait_for(check_database(), timeout=5)
+                except Exception as exc:
+                    database_ready = False
+                    preflight_error = f"{type(exc).__name__}: {exc}"
+                else:
+                    preflight_error = "database readiness probe returned false"
+                if not database_ready:
+                    for case in cases:
+                        records.append(
+                            {
+                                "run_id": run_id,
+                                "case_id": case["case_id"],
+                                "attempt": 0,
+                                "answer": "",
+                                "structured_output": {},
+                                "retrieved_contexts": [],
+                                "tool_calls": [],
+                                "state_events": [],
+                                "status": "not_observable",
+                                "trace_id": None,
+                                "latency_ms": None,
+                                "usage": {"input_tokens": None, "output_tokens": None, "estimated_cost": None},
+                                "error": preflight_error,
+                                "redaction_applied": True,
+                            }
+                        )
+                    print(f"[PREFLIGHT] database unavailable — {len(cases)} cases not_observable", flush=True)
+                    return
             for case in cases:
                 question = case["agent_input"]["messages"][0]["content"]
                 started = time.perf_counter()
@@ -1504,7 +1548,10 @@ def evaluate_answers(dataset_path: Path, actual_path: Path, output_dir: Path) ->
             )
             continue
         answer = str(actual.get("answer", ""))
-        forbidden = [claim for claim in case.get("forbidden_claims", []) if claim.casefold() in answer.casefold()]
+        # A safe refusal necessarily repeats the dangerous verb (e.g.
+        # “không thể chẩn đoán”). Reuse the negation-aware detector instead
+        # of treating every occurrence as an unsafe claim.
+        forbidden = _triggered_forbidden_claims(case, answer)
         scores.append(
             {
                 "case_id": actual.get("case_id"),

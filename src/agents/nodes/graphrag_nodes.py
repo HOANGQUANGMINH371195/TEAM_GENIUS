@@ -81,6 +81,15 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
     else:
         bundle = await runtime.retrieve_bundle(query)
     evidence, relations = bundle.evidence, bundle.relations
+    metadata_shortcut = bool(
+        bundle.direct_response
+        and bundle.direct_citations
+        and all(
+            citation.evidence_kind == "document_metadata"
+            and citation.provenance_verified
+            for citation in bundle.direct_citations
+        )
+    )
     return {
         "vector_results": [item for item in evidence if "semantic" in item.channels],
         "graph_results": relations,
@@ -89,7 +98,11 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
         # legal questions, always pass evidence through the source extractor
         # and guardrail so required conditions cannot be hidden in a provider
         # shortcut.
-        "response": bundle.direct_response if not requires_evidence_verification(query) else "",
+        "response": (
+            bundle.direct_response
+            if (not requires_evidence_verification(query) or metadata_shortcut)
+            else ""
+        ),
         "direct_citations": bundle.direct_citations or [],
     }
 
