@@ -240,6 +240,16 @@ async def _stream_agent(
             request_id=request_id or "",
         )
         yield _sse_event("done", {"ok": True})
+    except GraphRagUnavailableError as exc:
+        logger.exception("Agent stream retrieval failure")
+        timed_out = "deadline" in str(exc).casefold()
+        yield _sse_event(
+            "error",
+            {
+                "code": "retrieval_timeout" if timed_out else "retrieval_unavailable",
+                "message": "Retrieval deadline exceeded" if timed_out else "GraphRAG service unavailable",
+            },
+        )
     except Exception as exc:
         logger.exception("Agent stream failure")
         del exc

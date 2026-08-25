@@ -152,7 +152,10 @@ export async function sendChatMessageStream(
   }
   if (!response.ok || !response.body) {
     const error = (await response.json().catch(() => null)) as ApiError | null;
-    throw new Error(error?.message ?? "Không thể kết nối MediPay Agent");
+    if (response.status === 401) {
+      throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại rồi thử lại.");
+    }
+    throw new Error(error?.message ?? `MediPay Agent không khả dụng (HTTP ${response.status})`);
   }
 
   const reader = response.body.getReader();
@@ -175,7 +178,13 @@ export async function sendChatMessageStream(
     if (payload.type === "final") {
       final = { response: payload.response, citations: payload.citations };
     }
-    if (payload.type === "error") throw new Error(payload.message);
+    if (payload.type === "error") {
+      throw new Error(
+        payload.code === "retrieval_timeout"
+          ? "Kho dữ liệu đang phản hồi chậm. Vui lòng thử lại sau ít giây."
+          : payload.message,
+      );
+    }
   };
   while (true) {
     const chunk = await reader.read();
