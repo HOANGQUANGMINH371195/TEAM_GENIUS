@@ -42,13 +42,19 @@ def connection() -> psycopg.Connection:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-dir", default=os.getenv("DATA_INPUT_DIR", "data/raw"))
+    parser.add_argument(
+        "--official-instrument-dir",
+        help="Optional provenance-locked official provision overlays outside source-dir.",
+    )
     parser.add_argument("--dataset-id", help="Optional unique dataset identifier for a controlled rerun")
     parser.add_argument(
         "--publish-without-embeddings", action="store_true",
         help="Emergency passage-only publish; normal production flow embeds then calls publish_dataset.",
     )
     args = parser.parse_args()
-    snapshot = build_snapshot(args.source_dir)
+    snapshot = build_snapshot(
+        args.source_dir, official_instrument_dir=args.official_instrument_dir
+    )
     with connection() as conn:
         if args.publish_without_embeddings:
             dataset_id, report = ingest_canonical_snapshot(

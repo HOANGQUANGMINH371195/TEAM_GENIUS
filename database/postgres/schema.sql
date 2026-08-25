@@ -189,6 +189,9 @@ create table if not exists documents (
     raw_html text not null default '',
     raw_html_sha256 text not null default '',
     raw_html_encoding text not null default 'utf-8',
+    document_search_vector tsvector generated always as (
+        to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content_text, ''))
+    ) stored,
     categories text[] not null default '{}',
     facets jsonb not null default '[]'::jsonb,
     payload jsonb not null,
@@ -351,6 +354,8 @@ create table if not exists chunks (
 
 create index if not exists dataset_nodes_title_idx
     on documents (dataset_id, title);
+create index if not exists dataset_documents_lexical_idx
+    on documents using gin (document_search_vector);
 create index if not exists dataset_chunks_search_idx
     on chunks using gin (search_vector);
 

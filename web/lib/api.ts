@@ -9,26 +9,17 @@ async function authorizationHeaders(forceRefresh = false): Promise<Record<string
 }
 
 export type ChatCitation = {
-  document_id: string;
-  chunk_id: string;
   title: string;
+  document_number: string;
   section_title: string;
   quote: string;
-  channels: string[];
+  source_url: string;
+  source_checked_at: string;
 };
 
 export type ChatResponse = {
   response: string;
   citations: ChatCitation[];
-  claims?: AnswerClaim[];
-};
-
-export type AnswerClaim = {
-  claim_id: string;
-  text: string;
-  evidence_ids: string[];
-  verification: "entailed" | "partial" | "unsupported";
-  reason: string;
 };
 
 export type ReviewQueueItem = {
@@ -51,7 +42,7 @@ export type ReviewQueueItem = {
 
 export type ChatStreamEvent =
   | { type: "status"; stage: string }
-  | { type: "final"; response: string; citations: ChatCitation[]; claims?: AnswerClaim[] }
+  | { type: "final"; response: string; citations: ChatCitation[] }
   | { type: "done"; ok: boolean }
   | { type: "error"; code: string; message: string };
 
@@ -168,21 +159,41 @@ export async function sendChatMessageStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let final: ChatResponse | null = null;
+  const consumeFrame = (frame: string) => {
+    const eventLine = frame.split("\n").find((line) => line.startsWith("event:"));
+    const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
+    if (!dataLine) return;
+    const eventType = eventLine?.slice(6).trim();
+    if (eventType !== "status" && eventType !== "final" && eventType !== "done" && eventType !== "error") {
+      return;
+    }
+    // The backend follows SSE's standard envelope: event name in `event:` and
+    // event body in `data:`.  Reconstruct the discriminated client event here
+    // instead of incorrectly expecting a duplicate `type` field in JSON.
+    const payload = { type: eventType, ...JSON.parse(dataLine.slice(5).trimStart()) } as ChatStreamEvent;
+    onEvent(payload);
+    if (payload.type === "final") {
+      final = { response: payload.response, citations: payload.citations };
+    }
+    if (payload.type === "error") throw new Error(payload.message);
+  };
   while (true) {
     const chunk = await reader.read();
     buffer += decoder.decode(chunk.value ?? new Uint8Array(), { stream: !chunk.done });
+    // SSE permits CRLF line endings. Normalize before looking for event
+    // boundaries because proxies may rewrite the backend's LF-only framing.
+    buffer = buffer.replace(/\r\n/g, "\n");
     const frames = buffer.split("\n\n");
     buffer = frames.pop() ?? "";
     for (const frame of frames) {
-      const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
-      if (!dataLine) continue;
-      const payload = JSON.parse(dataLine.slice(6)) as ChatStreamEvent;
-      onEvent(payload);
-      if (payload.type === "final") final = { response: payload.response, citations: payload.citations, claims: payload.claims };
-      if (payload.type === "error") throw new Error(payload.message);
+      consumeFrame(frame);
     }
     if (chunk.done) break;
   }
+  // Some reverse proxies end a response immediately after the final `data:`
+  // line. Accept that valid terminal frame even if its blank SSE delimiter was
+  // stripped during transport.
+  if (buffer.trim()) consumeFrame(buffer);
   if (!final || !isChatResponse(final)) throw new Error("API trả dữ liệu stream không đúng định dạng");
   return final;
 }

@@ -3,7 +3,7 @@ services:
     name: medipay-api
     runtime: docker
     plan: starter
-    branch: feat/data
+    branch: main
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /health
@@ -39,6 +39,16 @@ services:
         sync: false
       - key: LLM_MAX_OUTPUT_TOKENS
         value: "900"
+      - key: LLM_REASONING_EFFORT
+        value: medium
+      - key: LLM_VERBOSITY
+        value: low
+      - key: LLM_USE_RESPONSES_API
+        value: "true"
+      - key: QUERY_REWRITE_ENABLED
+        value: "true"
+      - key: QUERY_REWRITE_TIMEOUT_SECONDS
+        value: "10"
       - key: EMBEDDING_MODEL
         sync: false
       - key: EMBEDDING_DIMENSIONS

@@ -37,6 +37,26 @@ completeness, trùng case ID, secret pattern và gold leakage.
 
 ## Chạy lại
 
+### Bảy câu acceptance BHYT trên staging
+
+Không dùng alias `medical_legal_active` cho suite này. Runner bắt buộc nhận cả
+dataset snapshot và collection Qdrant vật lý, thực hiện luồng agent read-only,
+ghi citation công khai/đầu ra/thời gian, rồi luôn để kết luận pháp lý ở trạng
+thái `HUMAN_REVIEW_REQUIRED`.
+
+```bash
+cd P-151
+PYTHONPATH=. uv run --offline --python 3.11 --with-requirements requirements/dev.lock \
+  python eval/critical_bhyt_eval.py \
+  --dataset-id snapshot-8dee10dd6798b9ac \
+  --qdrant-collection medical_legal_hybrid_snapshot-8dee10dd6798b9ac \
+  --out /tmp/critical-bhyt-staging.json
+```
+
+Exit code khác `0` nghĩa là một gate cơ học đã thất bại; exit code `0` vẫn
+không thay thế việc reviewer kiểm căn cứ pháp lý, phạm vi áp dụng và p95 từ
+nhiều lần chạy độc lập.
+
 Trước RAGAS, luôn chạy deterministic retrieval gates của active release:
 
 ```bash

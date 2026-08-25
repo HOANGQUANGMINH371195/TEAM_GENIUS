@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from src.agents.graph import get_agent
 from src.api.auth import get_current_user
+from src.api.public_contract import public_citations
 from src.application.adapters import LangGraphAgentAdapter
 from src.application.answer import AnswerLegalQuestion, StreamLegalQuestion
 from src.config import get_settings
@@ -17,8 +18,6 @@ from src.models.schemas import (
     AgentStatusResponse,
     AnalyzeRequest,
     AnalyzeResponse,
-    AnswerClaim,
-    ChatCitation,
     ChatRequest,
     ChatResponse,
 )
@@ -224,12 +223,12 @@ async def _stream_agent(
         response = final.get("response")
         if not isinstance(response, str) or not response.strip():
             raise RuntimeError("Agent returned an empty response")
+        browser_citations = public_citations(final.get("citations") or [])
         yield _sse_event(
             "final",
             {
                 "response": response.strip(),
-                "citations": final.get("citations") or [],
-                "claims": final.get("claims") or [],
+                "citations": [citation.model_dump() for citation in browser_citations],
             },
         )
         await _persist_chat_turn(
@@ -251,17 +250,16 @@ async def _stream_agent(
     "/chat",
     response_model=ChatResponse,
     status_code=status.HTTP_200_OK,
-    summary="Chat with the BHYT GraphRAG agent",
+    summary="Chat with the BHYT legal assistant",
     description=(
-        "Send a BHYT or hospital-fee question. The agent retrieves evidence from "
-        "the active Supabase release, Qdrant semantic index, and approved Neo4j graph before generating "
-        "a grounded answer. No evidence means no answer is invented."
+        "Send a BHYT or hospital-fee question. The assistant answers only from "
+        "the active, verified legal corpus and returns public source citations."
     ),
     responses={
-        200: {"description": "Grounded answer and provenance-checked citations."},
+        200: {"description": "Source-backed answer and public citations."},
         422: {"description": "Invalid request payload."},
         502: {"description": "OpenAI chat provider unavailable."},
-        503: {"description": "Required GraphRAG dependency unavailable."},
+        503: {"description": "Required retrieval dependency unavailable."},
         500: {"description": "Unexpected internal error."},
     },
 )
@@ -283,31 +281,22 @@ async def chat(
         logger.error("Agent returned empty response")
         raise HTTPException(status_code=502, detail="Chat provider returned an empty response")
 
-    citations = []
-    for citation in result.get("citations", []):
-        if isinstance(citation, dict):
-            allowed = {
-                key: citation[key]
-                for key in ChatCitation.model_fields
-                if key in citation
-            }
-            citations.append(ChatCitation(**allowed))
-    claims = []
-    for claim in result.get("claims", []):
-        if isinstance(claim, dict):
-            try:
-                claims.append(AnswerClaim(**claim))
-            except ValueError:
-                logger.warning("Dropping malformed claim audit", extra={"request_id": http_request.state.request_id})
+    internal_citations = [
+        citation for citation in result.get("citations", []) if isinstance(citation, dict)
+    ]
+    internal_claims = [
+        claim for claim in result.get("claims", []) if isinstance(claim, dict)
+    ]
+    citations = public_citations(internal_citations)
     await _persist_chat_turn(
         owner_uid=str(user.get("uid") or ""),
         request=request,
         response=response.strip(),
-        citations=[citation.model_dump() for citation in citations],
-        claims=[claim.model_dump() for claim in claims],
+        citations=internal_citations,
+        claims=internal_claims,
         request_id=getattr(http_request.state, "request_id", "") or "",
     )
-    return ChatResponse(response=response.strip(), citations=citations, claims=claims)
+    return ChatResponse(response=response.strip(), citations=citations)
 
 
 @router.post(

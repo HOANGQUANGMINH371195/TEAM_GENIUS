@@ -1,0 +1,19 @@
+{
+  "purpose": "Research evidence only; no outsource code is imported into runtime or Docker images.",
+  "generated_at": "2026-08-22T00:00:00Z",
+  "review": "License and provenance must be rechecked before copying any implementation.",
+  "repositories": [
+    {"path": "outsource/graphrag", "url": "https://github.com/microsoft/graphrag.git", "commit": "6dad6d2b059589624035714d8dcfde94ecc0a5fb", "license": "MIT", "decision": "patterns_only"},
+    {"path": "outsource/LightRAG", "url": "https://github.com/HKUDS/LightRAG.git", "commit": "300d9df1fb0789a1b16f4fe40cc841984bc192e7", "license": "MIT", "decision": "patterns_only"},
+    {"path": "outsource/HippoRAG", "url": "https://github.com/OSU-NLP-Group/HippoRAG.git", "commit": "c617143f01477243992a63b2e2151cc003dd3b21", "license": "MIT", "decision": "patterns_only"},
+    {"path": "outsource/MemGraphRAG", "url": "https://github.com/XMUDeepLIT/MemGraphRAG.git", "commit": "cd6fabda1ec31a302bb283089e17c087ab7713e8", "license": "MIT", "decision": "patterns_only"},
+    {"path": "outsource/youtu-graphrag", "url": "https://github.com/TencentCloudADP/youtu-graphrag.git", "commit": "d9825b5a8df1a269ee0e57a1d0ebd55feb719832c", "license": "repository_license_review_required", "decision": "patterns_only"},
+    {"path": "outsource/LegalGraphRAG", "url": "https://github.com/XMUDeepLIT/LegalGraphRAG.git", "commit": "a3c9c3070cadb72ec317d2ecc2cce99da4b37c57", "license": "not_found_in_checkout", "decision": "no_copy_pending_review"}
+  ],
+  "papers": [
+    {"path": "outsource/2603.07379v1.pdf", "url": "https://arxiv.org/abs/2603.07379", "sha256": "8b0453f1044655dc0144fc1f3904d5e6d8b4efb3531e918affe0fbccc0e2d34a", "license": "unknown"},
+    {"path": "outsource/2604.08304v3.pdf", "url": "https://arxiv.org/abs/2604.08304", "sha256": "f2577f7ba47ad2a190aa7561cb31bd4767a7a11fe36bb4a757649d08abfd7483", "license": "unknown"},
+    {"path": "outsource/2605.01495v1.pdf", "url": "https://arxiv.org/abs/2605.01495", "sha256": "8545f1c41eb1e87b7e0723a70d00d2483a43ea666aa3de1f5cac01fa6d560068", "license": "unknown"},
+    {"path": "outsource/2605.28120v1.pdf", "url": "https://arxiv.org/abs/2605.28120", "sha256": "18249b6f921995d83fd8b49aa60a86e88baa3dee9392a8fe40ceeeeb5a1adc12", "license": "unknown"}
+  ]
+}

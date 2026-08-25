@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from src.api.auth import get_current_user, require_admin
+from src.api.public_contract import public_citations
 from src.db.session import session_scope
 from src.models.schemas import (
     ConversationSummary,
@@ -120,7 +121,14 @@ async def list_conversations(
     limit: int = Query(default=50, ge=1, le=50),
 ) -> list[ConversationSummary]:
     rows = await get_conversation_store().list_conversations(owner_uid=str(user.get("uid") or ""), limit=limit)
-    return [ConversationSummary(**row) for row in rows]
+    return [
+        ConversationSummary(
+            conversation_id=str(row["conversation_id"]),
+            title=str(row.get("title") or ""),
+            updated_at=row["updated_at"],
+        )
+        for row in rows
+    ]
 
 
 @router.get("/conversations/{conversation_id}/turns", response_model=list[ConversationTurn])
@@ -135,7 +143,16 @@ async def conversation_turns(
         )
     except ConversationStoreError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    return [ConversationTurn(**row) for row in rows]
+    return [
+        ConversationTurn(
+            turn_id=str(row["turn_id"]),
+            user_message=str(row.get("user_message") or ""),
+            assistant_response=str(row.get("assistant_response") or ""),
+            citations=public_citations(row.get("citations") or []),
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)

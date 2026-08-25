@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     llm_timeout_seconds: float = Field(default=45.0, gt=0)
     llm_max_output_tokens: int = Field(default=900, ge=64, le=4_096)
+    llm_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "medium"
+    llm_verbosity: Literal["low", "medium", "high"] = "low"
+    llm_use_responses_api: bool = True
+    query_rewrite_max_tokens: int = Field(default=180, ge=64, le=512)
+    query_rewrite_timeout_seconds: float = Field(default=10.0, gt=0, le=30)
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = Field(default=1536, ge=1)
@@ -50,6 +55,7 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=5, ge=1)
     db_max_overflow: int = Field(default=10, ge=0)
     db_pool_timeout: int = Field(default=30, ge=1)
+    db_connect_timeout: int = Field(default=10, ge=1)
     db_pool_recycle: int = Field(default=1800, ge=60)
 
     neo4j_uri: str = ""
@@ -61,21 +67,33 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_collection: str = "medical_legal_active"
     qdrant_timeout_seconds: float = Field(default=30.0, gt=0)
-    retrieval_timeout_seconds: float = Field(default=15.0, gt=0)
+    # Supabase pool checkout plus the bounded original/HyDE retrieval cascade
+    # can legitimately exceed 15s on a cold/free-tier connection.  A timeout
+    # shorter than the measured staging path turns a recoverable slow request
+    # into an agent_error before answer generation starts.
+    # Legal-unit expansion may require two bounded PostgreSQL passes on the
+    # free-tier pool; allow the verified request to finish instead of turning
+    # a slow cold connection into an agent error.
+    retrieval_timeout_seconds: float = Field(default=45.0, gt=0)
     provider_concurrency: int = Field(default=8, ge=1, le=64)
     provider_circuit_failure_threshold: int = Field(default=3, ge=1, le=20)
     provider_circuit_cooldown_seconds: float = Field(default=30.0, ge=1, le=600)
 
     retrieval_top_k: int = Field(default=5, ge=1, le=50)
+    # Candidate pool is intentionally wider than the final evidence pack: a
+    # lexical/coverage re-ranker needs enough semantic candidates to recover
+    # an operative clause from a broad document-level embedding match.
+    retrieval_candidate_k: int = Field(default=60, ge=10, le=200)
     semantic_similarity_threshold: float = Field(default=0.25, ge=0.0, le=1.0)
+    query_rewrite_enabled: bool = False
     graph_hops: int = Field(default=1, ge=0, le=5)
     graph_neighbor_limit: int = Field(default=20, ge=1, le=100)
     graph_evidence_limit: int = Field(default=10, ge=1, le=100)
-    max_llm_evidence: int = Field(default=8, ge=1, le=100)
-    max_citations: int = Field(default=8, ge=1, le=50)
-    max_chunks_per_document: int = Field(default=2, ge=1, le=20)
-    max_context_chars: int = Field(default=60_000, ge=1_000, le=200_000)
-    max_context_tokens: int = Field(default=12_000, ge=512, le=64_000)
+    max_llm_evidence: int = Field(default=12, ge=1, le=100)
+    max_citations: int = Field(default=12, ge=1, le=50)
+    max_chunks_per_document: int = Field(default=4, ge=1, le=20)
+    max_context_chars: int = Field(default=100_000, ge=1_000, le=200_000)
+    max_context_tokens: int = Field(default=32_000, ge=512, le=64_000)
     chunk_size: int = Field(default=800, ge=100)
     chunk_overlap: int = Field(default=120, ge=0)
 

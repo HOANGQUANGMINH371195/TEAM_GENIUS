@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -48,7 +49,18 @@ async def test_chat_success(client):
 
     assert response.status_code == 200
     assert response.json()["response"] == "Đã xử lý"
-    assert response.json()["citations"][0]["chunk_id"] == "chunk-1"
+    assert response.json()["citations"] == [{
+        "title": "Luật BHYT",
+        "document_number": "",
+        "section_title": "",
+        "quote": "",
+        "source_url": "",
+        "source_checked_at": "",
+    }]
+    serialized = response.text
+    assert "chunk-1" not in serialized
+    assert "doc-1" not in serialized
+    assert "semantic" not in serialized
 
 
 @pytest.mark.asyncio
@@ -58,7 +70,24 @@ async def test_chat_stream_emits_only_verified_final_event(client):
         yield {
             "event": "on_chain_end",
             "name": "guardrail",
-            "data": {"output": {"response": "Đã kiểm chứng", "citations": []}},
+            "data": {
+                "output": {
+                    "response": "Đã kiểm chứng",
+                    "citations": [
+                        {
+                            "document_id": "private-doc-id",
+                            "chunk_id": "private-chunk-id",
+                            "dataset_id": "private-dataset-id",
+                            "title": "Luật BHYT",
+                            "document_number": "01/2026/QH15",
+                            "quote": "Nội dung được trích dẫn.",
+                            "channels": ["semantic"],
+                            "text_sha256": "private-hash",
+                        }
+                    ],
+                    "claims": [{"claim_id": "private-claim-id"}],
+                }
+            },
         }
 
     with patch("src.api.routes.get_agent") as get_agent:
@@ -68,6 +97,13 @@ async def test_chat_stream_emits_only_verified_final_event(client):
     assert response.status_code == 200
     assert "event: status" in response.text
     assert '"response": "Đã kiểm chứng"' in response.text
+    assert '"document_number": "01/2026/QH15"' in response.text
+    assert "private-doc-id" not in response.text
+    assert "private-chunk-id" not in response.text
+    assert "private-dataset-id" not in response.text
+    assert "private-hash" not in response.text
+    assert "private-claim-id" not in response.text
+    assert "semantic" not in response.text
     assert "event: done" in response.text
 
 
@@ -191,6 +227,51 @@ async def test_agent_failure_does_not_expose_internal_error(client):
 
 
 @pytest.mark.asyncio
+async def test_conversation_history_projects_internal_audit_fields(client):
+    row = {
+        "turn_id": "550e8400-e29b-41d4-a716-446655440001",
+        "user_message": "Quyền lợi là gì?",
+        "assistant_response": "Quyền lợi được quy định trong Luật BHYT.",
+        "citations": [
+            {
+                "document_id": "private-doc-id",
+                "chunk_id": "private-chunk-id",
+                "dataset_id": "private-dataset-id",
+                "text_sha256": "private-hash",
+                "channels": ["semantic", "legal_graph"],
+                "title": "Luật bảo hiểm y tế",
+                "document_number": "25/2008/QH12",
+                "section_title": "Điều 22",
+                "quote": "Quy định về mức hưởng bảo hiểm y tế.",
+                "source_url": "https://vbpl.vn/example",
+            }
+        ],
+        "claims": [{"claim_id": "private-claim-id"}],
+        "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+    }
+    with patch("src.api.auth_routes.get_conversation_store") as store_factory:
+        store_factory.return_value.recent_turns = AsyncMock(return_value=[row])
+        response = await client.get(
+            "/api/v1/auth/conversations/550e8400-e29b-41d4-a716-446655440000/turns"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()[0]
+    assert payload["citations"][0]["document_number"] == "25/2008/QH12"
+    serialized = response.text
+    for private_value in (
+        "private-doc-id",
+        "private-chunk-id",
+        "private-dataset-id",
+        "private-hash",
+        "private-claim-id",
+        "semantic",
+        "legal_graph",
+    ):
+        assert private_value not in serialized
+
+
+@pytest.mark.asyncio
 async def test_swagger_and_openapi(client):
     docs_response = await client.get("/docs")
     openapi_response = await client.get("/openapi.json")
@@ -201,3 +282,12 @@ async def test_swagger_and_openapi(client):
     assert {"/health", "/ready", "/api/v1/status", "/api/v1/chat", "/api/v1/chat/stream", "/api/v1/analyze"} <= paths.keys()
     assert paths["/api/v1/chat"]["post"]["requestBody"]
     assert paths["/api/v1/chat"]["post"]["responses"]["200"]
+    schemas = openapi_response.json()["components"]["schemas"]
+    public_properties = {
+        model: set(schemas[model].get("properties", {}))
+        for model in ("ChatCitation", "ChatResponse", "ConversationTurn")
+    }
+    forbidden = {
+        "document_id", "chunk_id", "dataset_id", "text_sha256", "channels", "claims"
+    }
+    assert all(not (properties & forbidden) for properties in public_properties.values())

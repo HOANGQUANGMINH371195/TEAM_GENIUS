@@ -1,5 +1,25 @@
 # MediPay Agent — Final System Audit & Modernization Plan
 
+## Deployment and quality update — 2026-08-24 UTC
+
+- Production code is deployed from `main` at `026fa4a`; Vercel production is
+  ready and Render `/health` returns HTTP 200. The current application
+  regression suite passed 125 tests before deployment.
+- Retrieval no longer uses category/domain or audience keyword lists to rank
+  BHYT/viện-phí material. Ranking is query-derived (lexical phrase recall,
+  candidate specificity, verified status and source authority); output strips
+  internal storage identifiers and removes citations whenever it abstains.
+- The versioned hybrid candidate release
+  `snapshot-8dee10dd6798b9ac` remains **staging only**. It has verified
+  PostgreSQL/Qdrant parity, but the seven-question live benchmark still shows
+  corpus/retrieval misses (notably the emergency-transfer phrasing). It must
+  not replace the active release until the end-to-end factuality and latency
+  gates pass.
+- Consequently, deployment is complete but release-quality work is **not**
+  complete. The next acceptance artifact must record the online-agent answer,
+  public citations, timing and provider metadata for each benchmark case; a
+  projection-parity check alone is insufficient.
+
 > Audit refreshed: 2026-08-22 (UTC)
 > Audited branch: `feat/data` at `d51c416`
 > Baseline: `origin/develop` at `55a271b`; `feat/data` contains the baseline and is 20 commits ahead
