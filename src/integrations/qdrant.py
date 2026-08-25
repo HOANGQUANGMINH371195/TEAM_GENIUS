@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -53,11 +54,18 @@ class QdrantVectorStore:
         if self._hybrid_bm25 is not None:
             return self._hybrid_bm25
         try:
-            info = await self.client.get_collection(self.collection)
+            # Capability discovery must never consume the whole chat budget.
+            # A slow/unreachable Qdrant control-plane endpoint should fall
+            # back to dense retrieval, which uses the already published
+            # collection data path.
+            info = await asyncio.wait_for(
+                self.client.get_collection(self.collection),
+                timeout=min(2.0, float(self.timeout)),
+            )
             vectors = info.config.params.vectors
             sparse = info.config.params.sparse_vectors or {}
             self._hybrid_bm25 = isinstance(vectors, dict) and {"dense"} <= set(vectors) and "bm25" in sparse
-        except Exception:
+        except (Exception, asyncio.TimeoutError):
             self._hybrid_bm25 = False
         return self._hybrid_bm25
 
