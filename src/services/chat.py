@@ -664,30 +664,41 @@ class GraphRagRuntime:
                 # is a query-derived candidate stage (not an answer mapping):
                 # title hits, lexical document hits and ANN hits still have to
                 # produce a grounded passage and pass the shared reranker.
-                document_recall_ids = (
-                    await repository.search_lexical_document_ids(
-                        query,
-                        dataset_id=dataset_id,
-                        # Keep the same bounded candidate budget as the
-                        # corpus-wide first stage.  A document-level recall
-                        # pass exists precisely to rescue a short operative
-                        # clause that ranked below broad explanatory text;
-                        # truncating it halfway through would silently lose
-                        # the current governing law for a rewritten query.
-                        limit=settings.retrieval_candidate_k,
-                    )
-                    if (
-                        document_recall_enabled
-                        and hasattr(repository, "search_lexical_document_ids")
-                    )
-                    else []
-                )
+                document_recall_ids: list[str] = []
+                if document_recall_enabled and hasattr(repository, "search_lexical_document_ids"):
+                    try:
+                        # This is an optional document-level recall rescue. It
+                        # scans a larger SQL lexical surface than the primary
+                        # passage query, so a slow/free-tier DB must not hold
+                        # the whole answer hostage. Dense + primary lexical
+                        # retrieval remain valid evidence channels.
+                        document_recall_ids = await asyncio.wait_for(
+                            repository.search_lexical_document_ids(
+                                query,
+                                dataset_id=dataset_id,
+                                limit=settings.retrieval_candidate_k,
+                            ),
+                            timeout=min(4.0, settings.retrieval_timeout_seconds / 3),
+                        )
+                    except (TimeoutError, OSError, RuntimeError) as exc:
+                        logger.warning(
+                            "Optional document recall skipped (%s)", type(exc).__name__
+                        )
                 if current_title_query and hasattr(repository, "search_lexical_document_ids"):
-                    current_recall_ids = await repository.search_lexical_document_ids(
-                        current_title_query,
-                        dataset_id=dataset_id,
-                        limit=settings.retrieval_candidate_k,
-                    )
+                    try:
+                        current_recall_ids = await asyncio.wait_for(
+                            repository.search_lexical_document_ids(
+                                current_title_query,
+                                dataset_id=dataset_id,
+                                limit=settings.retrieval_candidate_k,
+                            ),
+                            timeout=min(4.0, settings.retrieval_timeout_seconds / 3),
+                        )
+                    except (TimeoutError, OSError, RuntimeError) as exc:
+                        logger.warning(
+                            "Optional current-law recall skipped (%s)", type(exc).__name__
+                        )
+                        current_recall_ids = []
                     document_recall_ids = list(
                         dict.fromkeys(
                             [
