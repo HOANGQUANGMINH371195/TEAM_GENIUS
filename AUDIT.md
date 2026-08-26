@@ -2723,3 +2723,50 @@ Thứ tự có ROI cao nhất:
 DDD không phải cách chữa latency hay accuracy. DDD ở đây chỉ nên dùng để bảo vệ
 invariant release/evidence và làm code dễ thay đổi; chất lượng thực tế vẫn phải
 được quyết định bằng data contract, benchmark và production traces.
+
+## Applied-plan checkpoint — 2026-08-26
+
+The historical execution recorded here is intentionally kept out of the
+canonical `PLAN.md`. The following commits applied a bounded slice of the plan:
+
+- `1cc633b` removed query-specific answer hardcoding and kept deterministic
+  answers source-derived.
+- `e54c496` added a generic currentness guard for historical-year questions.
+- `4a144f4` added isolated, secret-free local stage traces for retrieval.
+- `5e6d083`, `d9ab76c` refined evaluator review flags and abstention contracts.
+- `f033507` persisted public evidence fields (document number/title/quote,
+  channel, offsets, hash and provenance status) without internal IDs.
+- `ee801ed` added generation model/outcome/finish-reason/token usage traces.
+- `9671046` captured retrieval errors and changed latency quantiles to stable
+  interpolated p50/p95 values.
+
+Verification after these changes:
+
+- Full P-151 regression: **128 passed, 30 warnings**.
+- Ruff checks for modified files: **pass**.
+- Final deterministic benchmark artifact:
+  `eval/results/critical-plan-20260826-final6`
+- Fixture: `critical-bhyt-7.jsonl` (7 cases); deterministic result **7/7**.
+- Runtime model: `gpt-5.6-luna`; trace schema version `1`.
+- Latency: p50 **15,496.58 ms**, p95 **25,556.06 ms**.
+- Artifact SHA-256: `9243e85630bb667a43a18fd8facb322c7b76cd7ebc7129f889294d4a838decbf`.
+
+Independent adjudication of that exact artifact:
+
+- Verdict: **FAIL — DO NOT PROMOTE**; full-content pass **1/7**.
+- Manual direct-support citation precision: **10/50 (20%)**.
+- Citation-to-retrieved-evidence linkage: **50/50**.
+- `provenance_verified=true`: **21/50**; quote hash directly matching emitted
+  quote: **17/50**.
+- Trace: all 7 cases expose trace IDs and non-empty evidence inventories, but
+  cost, TTFT/SSE, claim-to-span decisions, graph path and complete provider
+  usage are still absent; only one case reported provider token usage.
+- Latency remains p50 **15.50 s**, p95 **25.56 s**, above the plan budgets.
+- No internal ID, chunk ID, dataset ID or secret was observed in returned
+  answers (output-only security check).
+
+Required follow-up is now explicit: repair canonical provenance and
+claim-to-span verification; resolve case 01 transition semantics, case 03
+numeric support, case 05 scope and case 07 current authority; add complete
+provider/cost/TTFT traces; and repeat cold/warm/concurrency latency runs with
+human legal adjudication. Do not promote based on this checkpoint alone.
