@@ -782,16 +782,6 @@ async def guardrail_node(state: AgentState) -> dict:
     response = _sanitize_output(_normalize_response(state.get("response", "")), evidence)
     if not response:
         response = NO_EVIDENCE_RESPONSE
-    if (
-        "học sinh" in state.get("query", "").casefold()
-        and "hỗ trợ" in state.get("query", "").casefold()
-        and response != NO_EVIDENCE_RESPONSE
-    ):
-        response = (
-            f"{response.rstrip()}\n"
-            "- Năm 2026; mức đóng hoặc điều kiện xác định mức đóng được đối chiếu theo mức tham chiếu.\n"
-            "- Hỗ trợ của Nhà nước áp dụng theo nhóm đối tượng; chưa đủ dữ liệu để xác định số tiền cụ thể."
-        )
     # Extractive/deterministic responses are built from the final evidence
     # list. A direct-citation shortcut may belong to an earlier document
     # anchor and causes the claim auditor to discard the correct sentence
