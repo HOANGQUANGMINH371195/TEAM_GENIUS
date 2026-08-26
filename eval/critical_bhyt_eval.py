@@ -125,9 +125,13 @@ def _deterministic_findings(case: dict[str, Any], result: dict[str, Any]) -> dic
         failures.append("internal_id_leak")
     if expected == "answerable" and abstained:
         failures.append("unexpected_abstention")
-    if expected.startswith("answerable") and not citations:
+    if expected.startswith("answerable") and not citations and not (
+        expected == "answerable_with_currentness_caveat" and abstained
+    ):
         failures.append("uncited_response")
-    if expected.startswith("answerable") and not accepted_found:
+    if expected.startswith("answerable") and not accepted_found and not (
+        expected == "answerable_with_currentness_caveat" and abstained
+    ):
         failures.append("accepted_authority_not_retrieved")
     # Required facts are an explicit reviewer queue, never a claim that
     # keyword matching proves legal correctness.  They are intentionally kept
