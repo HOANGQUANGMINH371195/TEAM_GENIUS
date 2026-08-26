@@ -6,10 +6,13 @@ import logging
 import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import date
 from functools import lru_cache
-from typing import TypeVar
+from typing import Any, TypeVar
+from uuid import uuid4
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import text
@@ -61,6 +64,38 @@ class ChatProviderError(RuntimeError):
 _RETRIEVAL_POLICY_VERSION = "hybrid-v11-document-recall-rerank"
 logger = logging.getLogger(__name__)
 _ProviderResult = TypeVar("_ProviderResult")
+_trace_context: ContextVar[dict[str, Any] | None] = ContextVar(
+    "medipay_trace_context", default=None
+)
+
+
+def _record_trace_event(
+    stage: str,
+    started: float,
+    *,
+    outcome: str = "success",
+    **details: object,
+) -> None:
+    """Record bounded, secret-free stage timing for local eval and ops.
+
+    This deliberately does not capture prompts, document IDs, provider
+    payloads, or credentials.  It remains useful when Langfuse is disabled or
+    unavailable, and the ContextVar keeps concurrent requests isolated.
+    """
+    trace = _trace_context.get()
+    if trace is None:
+        return
+    event: dict[str, object] = {
+        "stage": stage,
+        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+        "outcome": outcome,
+    }
+    for key, value in details.items():
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            event[key] = value
+    events = trace.setdefault("stages", [])
+    if isinstance(events, list) and len(events) < 128:
+        events.append(event)
 
 
 @dataclass(frozen=True)
@@ -69,6 +104,7 @@ class RetrievalBundle:
     relations: list
     direct_response: str = ""
     direct_citations: list[Citation] | None = None
+    trace: dict[str, Any] = dataclass_field(default_factory=dict)
 
 
 class GraphRagRuntime:
@@ -308,6 +344,27 @@ class GraphRagRuntime:
         return rewritten
 
     async def retrieve_bundle(self, query: str) -> RetrievalBundle:
+        """Retrieve one request and attach an isolated local trace."""
+        trace: dict[str, Any] = {"trace_id": uuid4().hex, "stages": []}
+        token = _trace_context.set(trace)
+        started = time.perf_counter()
+        try:
+            bundle = await self._retrieve_bundle(query)
+            _record_trace_event("retrieval_total", started, evidence_count=len(bundle.evidence))
+            return RetrievalBundle(
+                evidence=bundle.evidence,
+                relations=bundle.relations,
+                direct_response=bundle.direct_response,
+                direct_citations=bundle.direct_citations,
+                trace={"trace_id": trace["trace_id"], "stages": list(trace["stages"])},
+            )
+        except Exception as exc:
+            _record_trace_event("retrieval_total", started, outcome=type(exc).__name__)
+            raise
+        finally:
+            _trace_context.reset(token)
+
+    async def _retrieve_bundle(self, query: str) -> RetrievalBundle:
         started = time.perf_counter()
         safe_response = policy_response(query)
         if safe_response:
@@ -501,11 +558,14 @@ class GraphRagRuntime:
             metrics.observe("provider_queue_wait_seconds", time.perf_counter() - wait_started, stage=stage)
             metrics.inc("provider_inflight", 1, stage=stage)
             started = time.perf_counter()
+            outcome = "success"
             try:
                 result = await breaker.call(operation)
             except asyncio.CancelledError:
+                outcome = "cancelled"
                 raise
             except Exception:
+                outcome = "error"
                 metrics.inc("provider_calls_total", outcome="error", stage=stage)
                 raise
             else:
@@ -514,6 +574,7 @@ class GraphRagRuntime:
             finally:
                 metrics.inc("provider_inflight", -1, stage=stage)
                 metrics.observe("provider_duration_seconds", time.perf_counter() - started, stage=stage)
+                _record_trace_event(f"provider:{stage}", started, outcome=outcome)
 
     async def _find_documents(self, repository: GraphRepository, *, dataset_id: str, number: str) -> list[DocumentCandidate]:
         key = (dataset_id, number)
@@ -544,10 +605,17 @@ class GraphRagRuntime:
         async def lexical_search(
             *, dataset_id: str, document_ids: Sequence[str] | None = None, limit: int
         ) -> list[RetrievalResult]:
-            async with session_scope() as lexical_session:
-                return await GraphRepository(lexical_session).search_lexical(
-                    query, dataset_id=dataset_id, document_ids=document_ids, limit=limit
-                )
+            started = time.perf_counter()
+            try:
+                async with session_scope() as lexical_session:
+                    result = await GraphRepository(lexical_session).search_lexical(
+                        query, dataset_id=dataset_id, document_ids=document_ids, limit=limit
+                    )
+                _record_trace_event("postgres:lexical", started, result_count=len(result))
+                return result
+            except Exception as exc:
+                _record_trace_event("postgres:lexical", started, outcome=type(exc).__name__)
+                raise
 
         try:
             # Phase 1: release metadata, exact lookup and PageIndex. This
@@ -2178,6 +2246,7 @@ def _copy_bundle(bundle: RetrievalBundle) -> RetrievalBundle:
         relations=[item.model_copy(deep=True) for item in bundle.relations],
         direct_response=bundle.direct_response,
         direct_citations=[item.model_copy(deep=True) for item in bundle.direct_citations or []],
+        trace=dict(bundle.trace),
     )
 
 
@@ -2193,6 +2262,7 @@ def _merge_bundles(
     direct_response = ""
     direct_citations: list[Citation] = []
     seen_citations: set[str] = set()
+    traces = [bundle.trace for bundle in bundles if bundle.trace]
     for bundle in bundles:
         if bundle.direct_response and not direct_response:
             direct_response = bundle.direct_response
@@ -2216,6 +2286,7 @@ def _merge_bundles(
             relations=[],
             direct_response=direct_response,
             direct_citations=direct_citations,
+            trace={"children": traces},
         )
     settings = get_settings()
     evidence = weighted_rrf(
@@ -2231,6 +2302,7 @@ def _merge_bundles(
         relations=list(relations_by_id.values()),
         direct_response="",
         direct_citations=direct_citations,
+        trace={"children": traces},
     )
 
 

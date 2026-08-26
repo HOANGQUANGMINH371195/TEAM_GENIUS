@@ -5,6 +5,7 @@ import time
 from collections.abc import Sequence
 from datetime import date
 from functools import lru_cache
+from uuid import uuid4
 
 from src.agents.prompts import NO_EVIDENCE_RESPONSE
 from src.agents.state import AgentState
@@ -53,7 +54,9 @@ async def intake_node(state: AgentState) -> dict:
     query = state.get("query", "").strip()
     if not query:
         return {"error": "Query must not be empty"}
-    return {"query": query}
+    metadata = dict(state.get("metadata") or {})
+    metadata.setdefault("trace_id", uuid4().hex)
+    return {"query": query, "metadata": metadata}
 
 
 async def extract_entities_node(state: AgentState) -> dict:
@@ -104,6 +107,7 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
             "retrieval_channels": sorted(
                 {channel for item in evidence for channel in item.channels}
             ),
+            "retrieval_trace": bundle.trace,
         }
     )
     return {
@@ -241,13 +245,16 @@ def _count_tokens(value: str, model: str) -> int:
 
 async def verify_evidence_node(state: AgentState) -> dict:
     """Fail closed for high-risk claims when no release-scoped evidence survived retrieval."""
+    started = time.perf_counter()
     query = state.get("query", "")
     evidence: list[RetrievalResult] = state.get("retrieved_evidence", [])
     direct_citations: list[Citation] = state.get("direct_citations", [])
     metadata = dict(state.get("metadata") or {})
     metadata["verification_evidence_count"] = len(evidence)
+    metadata["verification_ms"] = 0.0
     if not requires_evidence_verification(query):
         metadata["verification_failed"] = False
+        metadata["verification_ms"] = round((time.perf_counter() - started) * 1000, 2)
         return {"verification_failed": False, "metadata": metadata}
     valid = [
         item for item in evidence
@@ -288,30 +295,42 @@ async def verify_evidence_node(state: AgentState) -> dict:
             return {
                 "verification_failed": True,
                 "response": no_answer_response(query, reason="unverified"),
-                "metadata": metadata,
+                "metadata": {**metadata, "verification_ms": round((time.perf_counter() - started) * 1000, 2)},
             }
     if any(marker in query.casefold() for marker in _OFFICIAL_STATUS_MARKERS) and not official_status:
         metadata["verification_failed"] = True
-        return {"verification_failed": True, "response": no_answer_response(query, reason="unverified"), "metadata": metadata}
+        return {
+            "verification_failed": True,
+            "response": no_answer_response(query, reason="unverified"),
+            "metadata": {**metadata, "verification_ms": round((time.perf_counter() - started) * 1000, 2)},
+        }
     if valid or official_status:
         metadata["verification_failed"] = False
+        metadata["verification_ms"] = round((time.perf_counter() - started) * 1000, 2)
         return {"verification_failed": False, "metadata": metadata}
     metadata["verification_failed"] = True
+    metadata["verification_ms"] = round((time.perf_counter() - started) * 1000, 2)
     return {"verification_failed": True, "response": no_answer_response(query, reason="unverified"), "metadata": metadata}
 
 
 async def generate_node(state: AgentState) -> dict:
+    started = time.perf_counter()
+    def result(response: str) -> dict:
+        metadata = dict(state.get("metadata") or {})
+        metadata["generation_ms"] = round((time.perf_counter() - started) * 1000, 2)
+        return {"response": response, "metadata": metadata}
+
     if state.get("response"):
-        return {"response": state["response"]}
+        return result(state["response"])
     evidence: list[RetrievalResult] = state.get("retrieved_evidence", [])
     if not evidence:
-        return {"response": no_answer_response(state.get("query", ""))}
+        return result(no_answer_response(state.get("query", "")))
     source_response = _deterministic_source_rule_response(state.get("query", ""), evidence)
     if source_response:
-        return {"response": source_response}
+        return result(source_response)
     fact_response = _deterministic_source_fact_response(state.get("query", ""), evidence)
     if fact_response:
-        return {"response": fact_response}
+        return result(fact_response)
     # Legal-unit enumeration is extractive: render canonical labelled units
     # directly instead of spending an LLM call (and risking reordering or
     # inventing a missing item).  The guardrail still audits the resulting
@@ -320,9 +339,9 @@ async def generate_node(state: AgentState) -> dict:
         retrieval_intent(state.get("query", "")) == "legal_unit"
         and not requires_evidence_verification(state.get("query", ""))
     ):
-        return {"response": _deterministic_legal_unit_response(evidence)}
+        return result(_deterministic_legal_unit_response(evidence))
     response = await get_runtime().generate(state.get("query", ""), state.get("context", ""))
-    return {"response": response}
+    return result(response)
 
 
 def _deterministic_source_rule_response(
@@ -749,6 +768,7 @@ def _normalize_response(value: object) -> str:
 
 
 async def guardrail_node(state: AgentState) -> dict:
+    started = time.perf_counter()
     evidence = state.get("retrieved_evidence", [])
     response = _sanitize_output(_normalize_response(state.get("response", "")), evidence)
     if not response:
@@ -809,6 +829,7 @@ async def guardrail_node(state: AgentState) -> dict:
                 claim.get("verification") == "entailed" for claim in claims
             ),
             "guardrail_response_chars": len(response),
+            "guardrail_ms": round((time.perf_counter() - started) * 1000, 2),
         }
     )
     return {
