@@ -181,7 +181,7 @@ def _safe_answer_for_report(answer: str, private_ids: set[str]) -> str:
 
 
 async def _run_cases(
-    cases: Sequence[dict[str, Any]], *, dataset_id: str, run_id: str
+    cases: Sequence[dict[str, Any]], *, dataset_id: str, run_id: str, concurrency: int = 1
 ) -> list[dict[str, Any]]:
     from src.agents.graph import get_agent
     from src.services.chat import get_runtime
@@ -193,10 +193,31 @@ async def _run_cases(
     runtime._active_release = (dataset_id, 0, time.monotonic())
     agent = get_agent()
     records: list[dict[str, Any]] = []
-    for position, case in enumerate(cases, start=1):
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+
+    async def invoke(case: dict[str, Any]) -> tuple[float, object | None, BaseException | None]:
         started = time.perf_counter()
         try:
-            output = await asyncio.wait_for(agent.ainvoke({"query": case["question"]}), timeout=120)
+            async with semaphore:
+                output = await asyncio.wait_for(
+                    agent.ainvoke({"query": case["question"]}), timeout=120
+                )
+            return started, output, None
+        except BaseException as exc:
+            return started, None, exc
+
+    # Live evaluation is allowed to exercise the same bounded concurrency as
+    # production. Each request still has isolated owner-less context and the
+    # final answer generation is never batched across users.
+    invocations = await asyncio.gather(*(invoke(case) for case in cases))
+    for position, case in enumerate(cases, start=1):
+        started, prefetched_output, prefetched_error = invocations[position - 1]
+        try:
+            if prefetched_error is not None:
+                raise prefetched_error
+            output = prefetched_output
+            if not isinstance(output, dict):
+                raise TypeError("agent output must be an object")
             answer = str(output.get("response") or "").strip()
             findings = _deterministic_findings(case, output)
             public_citations = [
@@ -294,6 +315,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--qdrant-collection", required=True, help="Physical staging Qdrant collection")
     parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help="Maximum concurrent live cases (use 1 for serial latency; >1 for load smoke)",
+    )
     return parser.parse_args(argv)
 
 
@@ -319,7 +346,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     get_settings.cache_clear()
     manifest, cases = _read_fixture(args.fixture)
     run_id = datetime.now(UTC).strftime("critical-bhyt-%Y%m%dT%H%M%SZ")
-    records = asyncio.run(_run_cases(cases, dataset_id=args.dataset_id, run_id=run_id))
+    records = asyncio.run(
+        _run_cases(
+            cases,
+            dataset_id=args.dataset_id,
+            run_id=run_id,
+            concurrency=max(1, args.concurrency),
+        )
+    )
     latencies = sorted(record["latency_ms"] for record in records if record["status"] == "completed")
     failures = sum(record["findings"]["deterministic_status"] == "FAIL" for record in records)
     report = {
@@ -330,6 +364,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "runtime": {
             "model_name": get_settings().model_name,
             "query_rewrite_enabled": get_settings().query_rewrite_enabled,
+            "eval_concurrency": max(1, args.concurrency),
             "provider_observability": "local_stage_trace",
             "trace_schema_version": 1,
         },

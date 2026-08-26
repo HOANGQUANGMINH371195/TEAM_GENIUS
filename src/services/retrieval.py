@@ -287,7 +287,10 @@ def policy_response(query: str) -> str | None:
         if social in {"tạm biệt", "bye"}:
             return "Tạm biệt bạn. Khi cần, tôi có thể hỗ trợ về BHYT và viện phí."
         return "Xin chào! Tôi có thể hỗ trợ bạn tra cứu thông tin BHYT và viện phí."
-    if any(token in lowered for token in ("bỏ qua hướng dẫn", "ignore previous", "system prompt", "prompt nội bộ")):
+    if any(token in lowered for token in (
+        "bỏ qua hướng dẫn", "ignore previous", "system prompt", "prompt nội bộ",
+        "api key", "token", "secret", "credential", "khóa truy cập", "hướng dẫn ẩn",
+    )):
         return (
             "Tôi không thể thực hiện yêu cầu thay đổi quy tắc vận hành hoặc tiết lộ "
             "thông tin bảo mật hoặc thông tin bí mật. Tôi chỉ hỗ trợ câu hỏi BHYT và viện phí dựa trên nguồn hợp lệ."
@@ -297,14 +300,20 @@ def policy_response(query: str) -> str | None:
             "Tôi không tiếp nhận hoặc lặp lại OTP, CVV hay mật khẩu. Không lưu các secret này; hãy dùng "
             "kênh thanh toán an toàn và chính thức."
         )
-    if any(token in lowered for token in ("số thẻ", "cccd", "hồ sơ bệnh án", "bệnh án của")):
+    if any(token in lowered for token in (
+        "số thẻ", "cccd", "hồ sơ bệnh án", "bệnh án của", "dữ liệu của người khác",
+        "dữ liệu bảo hiểm của bệnh nhân khác", "hồ sơ của người thân",
+    )):
         return (
             "Tôi không thể cung cấp hồ sơ hoặc số thẻ của người khác. Cần xác minh danh tính và quyền đại diện "
             "trước khi cung cấp dữ liệu; tôi chỉ có thể hướng dẫn quy trình chung đã ẩn thông tin cá nhân."
         )
     if any(token in lowered for token in ("kê đơn", "uống thuốc", "chẩn đoán bệnh", "liều thuốc")):
         return "Tôi không thể chẩn đoán hoặc kê đơn. Với triệu chứng hay liều dùng, hãy liên hệ bác sĩ hoặc cơ sở y tế; tôi chỉ hỗ trợ thông tin chính sách và viện phí có nguồn."
-    if any(token in lowered for token in ("claim đã được duyệt", "yêu cầu đã được duyệt", "đã được phê duyệt")):
+    if any(token in lowered for token in (
+        "claim đã được duyệt", "yêu cầu đã được duyệt", "đã được phê duyệt",
+        "đã được chấp thuận", "đã được giải quyết", "sẽ chi trả", "chắc chắn là claim",
+    )):
         return "Tôi không thể xác nhận tình trạng phê duyệt yêu cầu thanh toán khi không có thông báo chính thức. Hãy kiểm tra kênh của cơ quan bảo hiểm hoặc cơ sở tiếp nhận."
     # A question about a person's own plan cannot be answered safely without
     # their plan/coverage facts.  Do not treat every general legal question
@@ -317,7 +326,10 @@ def policy_response(query: str) -> str | None:
     )
     if any(marker in lowered for marker in personal_plan_markers):
         return "Để xác định quyền lợi, cần tên hoặc mã gói bảo hiểm/văn bản áp dụng và ngày điều trị hoặc ngày hiệu lực. Tôi không thể khẳng định quyền lợi khi thiếu các thông tin này."
-    if "viện phí" in lowered and any(token in lowered for token in ("bao nhiêu", "ước tính", "tổng tiền", "tính", "cuối cùng")):
+    if "viện phí" in lowered and any(token in lowered for token in (
+        "bao nhiêu", "ước tính", "tổng tiền", "tính", "cuối cùng", "chốt viện phí",
+        "tổng tiền điều trị", "khẳng định số tiền",
+    )):
         return "Để đối chiếu viện phí an toàn, cần hóa đơn hoặc bảng kê chi tiết, nơi khám, tuyến/chuyển tuyến, mức hưởng BHYT và thời điểm điều trị. Không nên kết luận số tiền khi thiếu các đầu vào này."
     return None
 
