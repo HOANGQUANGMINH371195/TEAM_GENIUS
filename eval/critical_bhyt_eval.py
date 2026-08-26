@@ -84,6 +84,20 @@ def _is_abstention(answer: str) -> bool:
     }
 
 
+def _quantile(values: Sequence[float], probability: float) -> float | None:
+    """Return an interpolated quantile with a deterministic small-sample rule."""
+    if not values:
+        return None
+    ordered = sorted(float(value) for value in values)
+    if len(ordered) == 1:
+        return round(ordered[0], 2)
+    position = (len(ordered) - 1) * probability
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return round(ordered[lower] + (ordered[upper] - ordered[lower]) * fraction, 2)
+
+
 def _public_document_numbers(result: dict[str, Any]) -> list[str]:
     values: list[str] = []
     for item in [*(result.get("citations") or []), *(result.get("retrieved_evidence") or [])]:
@@ -249,6 +263,7 @@ async def _run_cases(
                 }
             )
         except Exception as exc:  # retain the type, not provider payloads/secrets
+            error_trace = getattr(exc, "medipay_trace", {})
             records.append(
                 {
                     "case_id": case["case_id"],
@@ -259,7 +274,11 @@ async def _run_cases(
                     "answer_sha256": None,
                     "citations": [],
                     "claims_count": 0,
-                    "metadata": {},
+                    "metadata": {
+                        "trace_id": str(error_trace.get("trace_id") or ""),
+                        "retrieval_trace": error_trace,
+                        "error_stage": "retrieval",
+                    },
                     "retrieved_evidence": [],
                     "findings": {"deterministic_status": "FAIL", "failures": [type(exc).__name__]},
                 }
@@ -318,8 +337,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "cases": len(records),
             "passed": len(records) - failures,
             "failed": failures,
-            "p50_latency_ms": latencies[len(latencies) // 2] if latencies else None,
-            "p95_latency_ms": latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))] if latencies else None,
+            "p50_latency_ms": _quantile(latencies, 0.50),
+            "p95_latency_ms": _quantile(latencies, 0.95),
         },
         "release_gate": "HUMAN_REVIEW_REQUIRED",
         "review_note": "A deterministic pass proves only routing/citation/safety checks. Legal factual correctness and repeated-run p95 remain human-review requirements.",

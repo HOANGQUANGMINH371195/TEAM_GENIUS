@@ -367,6 +367,11 @@ class GraphRagRuntime:
             )
         except Exception as exc:
             _record_trace_event("retrieval_total", started, outcome=type(exc).__name__)
+            setattr(
+                exc,
+                "medipay_trace",
+                {"trace_id": trace["trace_id"], "stages": list(trace["stages"])},
+            )
             raise
         finally:
             _trace_context.reset(token)
