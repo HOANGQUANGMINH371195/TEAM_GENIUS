@@ -130,9 +130,9 @@ def _deterministic_findings(case: dict[str, Any], result: dict[str, Any]) -> dic
     if expected.startswith("answerable") and not accepted_found:
         failures.append("accepted_authority_not_retrieved")
     # Required facts are an explicit reviewer queue, never a claim that
-    # keyword matching proves legal correctness.
-    if required_missing:
-        failures.append("required_fact_review")
+    # keyword matching proves legal correctness.  They are intentionally kept
+    # separate from mechanical failures so a paraphrase does not masquerade
+    # as a legal pass/fail decision.
     return {
         "deterministic_status": "FAIL" if failures else "PASS",
         "failures": failures,
@@ -140,6 +140,7 @@ def _deterministic_findings(case: dict[str, Any], result: dict[str, Any]) -> dic
         "public_document_numbers": numbers,
         "accepted_document_numbers_found": accepted_found,
         "required_facts_missing_for_reviewer": required_missing,
+        "review_flags": ["required_fact_review"] if required_missing else [],
         "citation_count": len(citations),
     }
 

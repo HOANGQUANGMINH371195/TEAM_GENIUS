@@ -179,6 +179,31 @@ async def test_high_risk_query_without_provenance_is_rejected():
 
 
 @pytest.mark.asyncio
+async def test_historical_instrument_is_not_presented_as_current_without_status_evidence():
+    evidence = RetrievalResult(
+        chunk_id="chunk-current",
+        document_id="doc-current",
+        dataset_id="snapshot-test",
+        title="Luật bảo hiểm y tế sửa đổi 2024",
+        document_number="51/2024/QH15",
+        issued_date="2024-06-27",
+        content="Quy định mức hưởng bảo hiểm y tế.",
+        source_start=0,
+        source_end=40,
+    )
+
+    result = await verify_evidence_node(
+        {
+            "query": "Thông tư nào năm 2005 quy định mức hưởng BHYT hiện nay?",
+            "retrieved_evidence": [evidence],
+        }
+    )
+
+    assert result["verification_failed"] is True
+    assert result["metadata"]["verification_failed_reason"] == "historical_currentness_unverified"
+
+
+@pytest.mark.asyncio
 async def test_official_status_metadata_can_pass_status_gate():
     citation = Citation(
         document_id="doc-1",

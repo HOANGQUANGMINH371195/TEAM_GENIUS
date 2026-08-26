@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Sequence
+from datetime import date
 from functools import lru_cache
 
 from src.agents.prompts import NO_EVIDENCE_RESPONSE
@@ -256,6 +257,39 @@ async def verify_evidence_node(state: AgentState) -> dict:
         citation.evidence_kind == "document_metadata" and citation.provenance_verified
         for citation in direct_citations
     )
+    # A question that names an old year but asks for the rule "currently"
+    # needs an explicit currentness check.  Do not let a semantically similar
+    # newer passage silently answer a historical-instrument question.  The
+    # requested year and the candidate instrument metadata are all query/source
+    # derived; no document or answer mapping is involved.
+    requested_years = [
+        int(value) for value in re.findall(r"\b(?:19|20)\d{2}\b", query)
+    ]
+    asks_current_rule = any(
+        marker in query.casefold() for marker in ("hiện nay", "hiện hành", "hiện tại")
+    )
+    if requested_years and asks_current_rule and max(requested_years) < date.today().year:
+        requested_year = max(requested_years)
+        matching_instrument = [
+            item
+            for item in evidence
+            if requested_year
+            in {
+                int(value)
+                for value in re.findall(
+                    r"\b(?:19|20)\d{2}\b",
+                    " ".join((item.issued_date, item.effective_from, item.document_number, item.title)),
+                )
+            }
+        ]
+        if not matching_instrument or not any(item.legal_status_verified for item in matching_instrument):
+            metadata["verification_failed_reason"] = "historical_currentness_unverified"
+            metadata["verification_failed"] = True
+            return {
+                "verification_failed": True,
+                "response": no_answer_response(query, reason="unverified"),
+                "metadata": metadata,
+            }
     if any(marker in query.casefold() for marker in _OFFICIAL_STATUS_MARKERS) and not official_status:
         metadata["verification_failed"] = True
         return {"verification_failed": True, "response": no_answer_response(query, reason="unverified"), "metadata": metadata}
