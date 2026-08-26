@@ -598,40 +598,35 @@ def _select_supported_citations(
     """
     if not citations or limit <= 0:
         return []
-    response_tokens = set(_CLAIM_TOKEN.findall(response.casefold()))
-    query_tokens = set(_CLAIM_TOKEN.findall(query.casefold()))
+    response_sequence = _CLAIM_TOKEN.findall(response.casefold())
+    response_tokens = set(response_sequence)
+    response_triples = set(
+        zip(response_sequence, response_sequence[1:], response_sequence[2:])
+    )
     scored: list[tuple[float, int, Citation]] = []
     for index, citation in enumerate(citations):
         source = " ".join(
             (citation.title, citation.section_title, citation.quote)
         ).casefold()
-        source_tokens = set(_CLAIM_TOKEN.findall(source))
+        source_sequence = _CLAIM_TOKEN.findall(source)
+        source_tokens = set(source_sequence)
+        source_triples = set(
+            zip(source_sequence, source_sequence[1:], source_sequence[2:])
+        )
         answer_overlap = len(response_tokens & source_tokens)
-        query_overlap = len(query_tokens & source_tokens)
-        # Answer overlap is strongest because the citation must support what
-        # was actually rendered; query overlap breaks ties between equally
-        # concise clauses.  A citation with no overlap is navigation noise.
-        score = 2.0 * answer_overlap + query_overlap
-        if answer_overlap or query_overlap:
+        # A citation must support what was actually rendered. Query overlap
+        # alone is insufficient because broad legal terms (for example
+        # “thanh toán” or “BHYT”) occur in many unrelated provisions. Requiring
+        # two answer tokens removes neighbouring retrieval noise while keeping
+        # extractive source responses citeable.
+        triple_overlap = len(response_triples & source_triples)
+        if triple_overlap or answer_overlap >= 4:
+            score = float(3 * triple_overlap + answer_overlap)
             scored.append((score, index, citation))
     if not scored:
-        return list(citations[:limit])
+        return []
     scored.sort(key=lambda item: (-item[0], item[1]))
     selected = [citation for _, _, citation in scored[:limit]]
-    # Keep the strongest primary-authority citation even when the rendered
-    # answer is an abstention/caveat and therefore has little lexical overlap
-    # with its heading.  This preserves a current-law anchor without
-    # re-attaching the entire noisy retrieval bundle.
-    primary = next(
-        (
-            citation
-            for citation in citations
-            if citation.title.casefold().lstrip().startswith(("luật ", "bộ luật "))
-        ),
-        None,
-    )
-    if primary is not None and primary not in selected:
-        selected = [primary, *selected]
     return selected[:limit]
 
 
@@ -798,7 +793,7 @@ async def guardrail_node(state: AgentState) -> dict:
             citations,
             response,
             state.get("query", ""),
-            limit=min(10, get_settings().max_citations),
+            limit=min(6, get_settings().max_citations),
         )
     claims = _audit_claims(response, citations, state.get("query", ""))
     if evidence and not deterministic_response and any(

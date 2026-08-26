@@ -9,6 +9,7 @@ from src.agents.nodes.graphrag_nodes import (
     _deterministic_legal_unit_response,
     _pack_context,
     _sanitize_output,
+    _select_supported_citations,
     generate_node,
     guardrail_node,
     verify_evidence_node,
@@ -56,6 +57,31 @@ def test_claim_audit_does_not_stitch_numeric_facts_across_sources():
 
     assert claims[0]["verification"] == "unsupported"
     assert claims[0]["evidence_ids"] == []
+
+
+def test_supported_citations_drop_query_only_neighbours():
+    citations = [
+        Citation(
+            document_id="doc-core",
+            chunk_id="chunk-core",
+            title="Luật bảo hiểm y tế",
+            quote="Người bệnh được hưởng 100% chi phí khám bệnh, chữa bệnh.",
+        ),
+        Citation(
+            document_id="doc-noise",
+            chunk_id="chunk-noise",
+            title="Hướng dẫn thanh toán BHYT",
+            quote="Thanh toán chi phí theo quy định chung.",
+        ),
+    ]
+
+    selected = _select_supported_citations(
+        citations,
+        "- Người bệnh được hưởng 100% chi phí khám bệnh, chữa bệnh.",
+        "BHYT thanh toán bao nhiêu?",
+    )
+
+    assert [item.chunk_id for item in selected] == ["chunk-core"]
 
 
 def test_model_context_and_output_never_expose_storage_identifiers():
