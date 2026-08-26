@@ -75,6 +75,15 @@ def _normalise_fact(value: str) -> str:
     return re.sub(r"(?<!\d)0+(\d+)(?=\s|$)", r"\1", value)
 
 
+def _is_abstention(answer: str) -> bool:
+    """Recognize the service's bounded abstention variants."""
+    normalized = _normalise(answer)
+    return normalized in {
+        _normalise(NO_EVIDENCE_RESPONSE),
+        _normalise("Tôi chưa thể xác minh nội dung này từ nguồn chính thức có trích dẫn hợp lệ; vì vậy chưa thể đưa ra kết luận pháp lý."),
+    }
+
+
 def _public_document_numbers(result: dict[str, Any]) -> list[str]:
     values: list[str] = []
     for item in [*(result.get("citations") or []), *(result.get("retrieved_evidence") or [])]:
@@ -112,7 +121,7 @@ def _deterministic_findings(case: dict[str, Any], result: dict[str, Any]) -> dic
     accepted = {str(value).casefold() for value in case["accepted_document_numbers"]}
     accepted_found = sorted(number for number in numbers if number.casefold() in accepted)
     expected = str(case["expected_status"])
-    abstained = _normalise(answer) == _normalise(NO_EVIDENCE_RESPONSE)
+    abstained = _is_abstention(answer)
     normalized_answer = _normalise_fact(answer)
     required_missing = [
         fact for fact in case["required_facts"]
@@ -271,7 +280,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "runtime": {
             "model_name": get_settings().model_name,
             "query_rewrite_enabled": get_settings().query_rewrite_enabled,
-            "provider_observability": "not_exposed_by_runtime",
+            "provider_observability": "local_stage_trace",
+            "trace_schema_version": 1,
         },
         "deterministic_summary": {
             "cases": len(records),
