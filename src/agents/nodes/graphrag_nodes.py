@@ -652,7 +652,22 @@ def _select_supported_citations(
     if not scored:
         return list(citations[:limit])
     scored.sort(key=lambda item: (-item[0], item[1]))
-    return [citation for _, _, citation in scored[:limit]]
+    selected = [citation for _, _, citation in scored[:limit]]
+    # Keep the strongest primary-authority citation even when the rendered
+    # answer is an abstention/caveat and therefore has little lexical overlap
+    # with its heading.  This preserves a current-law anchor without
+    # re-attaching the entire noisy retrieval bundle.
+    primary = next(
+        (
+            citation
+            for citation in citations
+            if citation.title.casefold().lstrip().startswith(("luật ", "bộ luật "))
+        ),
+        None,
+    )
+    if primary is not None and primary not in selected:
+        selected = [primary, *selected]
+    return selected[:limit]
 
 
 def _claim_tokens(value: str) -> set[str]:
@@ -813,7 +828,7 @@ async def guardrail_node(state: AgentState) -> dict:
             citations,
             response,
             state.get("query", ""),
-            limit=min(6, get_settings().max_citations),
+            limit=min(10, get_settings().max_citations),
         )
     claims = _audit_claims(response, citations, state.get("query", ""))
     if evidence and not deterministic_response and any(

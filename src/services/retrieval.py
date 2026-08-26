@@ -345,7 +345,8 @@ def requires_evidence_verification(query: str) -> bool:
     lowered = query.casefold()
     return any(token in lowered for token in (
         "hiệu lực", "còn hiệu lực", "hết hiệu lực", "bãi bỏ", "thay thế",
-        "mức hưởng", "mức chi trả", "được chi trả", "được hưởng",
+        "mức hưởng", "mức chi trả", "mức đóng", "tỷ lệ", "hỗ trợ",
+        "được chi trả", "được hưởng",
         "có được", "bao nhiêu tiền", "thanh toán", "hiện nay", "hiện hành",
     ))
 
