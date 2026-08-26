@@ -318,6 +318,15 @@ async def generate_node(state: AgentState) -> dict:
     def result(response: str) -> dict:
         metadata = dict(state.get("metadata") or {})
         metadata["generation_ms"] = round((time.perf_counter() - started) * 1000, 2)
+        runtime = get_runtime()
+        trace_value = runtime.generation_trace() if hasattr(runtime, "generation_trace") else None
+        if isinstance(trace_value, dict) and trace_value:
+            metadata["generation_trace"] = trace_value
+        else:
+            metadata["generation_trace"] = {
+                "stage": "generation",
+                "outcome": "skipped",
+            }
         return {"response": response, "metadata": metadata}
 
     if state.get("response"):

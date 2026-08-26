@@ -67,6 +67,9 @@ _ProviderResult = TypeVar("_ProviderResult")
 _trace_context: ContextVar[dict[str, Any] | None] = ContextVar(
     "medipay_trace_context", default=None
 )
+_generation_context: ContextVar[dict[str, Any] | None] = ContextVar(
+    "medipay_generation_context", default=None
+)
 
 
 def _record_trace_event(
@@ -160,6 +163,10 @@ class GraphRagRuntime:
         if self._vector_store is None:
             self._vector_store = QdrantVectorStore()
         return self._vector_store
+
+    def generation_trace(self) -> dict[str, Any]:
+        """Return the current task's secret-free provider usage snapshot."""
+        return dict(_generation_context.get() or {})
 
     async def retrieve(self, query: str) -> tuple[list, list]:
         bundle = await self.retrieve_bundle(query)
@@ -618,6 +625,7 @@ class GraphRagRuntime:
                 raise
 
         try:
+            phase1_started = time.perf_counter()
             # Phase 1: release metadata, exact lookup and PageIndex. This
             # session closes before embedding, Qdrant or Neo4j calls.
             async with session_scope() as session:
@@ -779,6 +787,7 @@ class GraphRagRuntime:
                         document_ids=exact_document_ids,
                     )
                 )
+            _record_trace_event("postgres:release_recall", phase1_started, result_count=len(page_results))
 
             if page_results and intent in {"lookup", "legal_unit"}:
                 lexical_results = await lexical_search(
@@ -796,6 +805,7 @@ class GraphRagRuntime:
                     relations=[],
                 )
 
+            phase2_started = time.perf_counter()
             # Phase 2: independent lexical/provider work. The lexical task owns
             # its own short-lived DB session, so provider wait cannot pin it.
             # An explicit public document number is a hard retrieval boundary:
@@ -887,8 +897,15 @@ class GraphRagRuntime:
                     document_vector_hits = []
                 if span is not None:
                     span.update(output={"result_count": len(vector_hits)})
+            _record_trace_event(
+                "retrieval:provider_fusion",
+                phase2_started,
+                lexical_count=len(lexical_results),
+                semantic_count=len(vector_hits),
+            )
 
             # Phase 3: bounded hydration/sibling expansion only.
+            phase3_started = time.perf_counter()
             async with session_scope() as hydration_session:
                 hydration_repository = GraphRepository(hydration_session)
                 # Dense passage recall can identify the governing instrument
@@ -1379,6 +1396,12 @@ class GraphRagRuntime:
                             }
                         document_operatives.sort(key=lambda item: (-item.score, item.document_id, item.chunk_id))
 
+            _record_trace_event(
+                "postgres:hydrate_rank",
+                phase3_started,
+                hydrated_count=len(hydrated),
+                operative_count=len(document_recall_operatives),
+            )
             channels: dict[str, Sequence[RetrievalResult]] = {
                 "lexical": lexical_results,
                 "semantic": semantic_results,
@@ -1844,6 +1867,12 @@ class GraphRagRuntime:
                 fused_evidence = operative_anchors[:2] + [
                     item for item in fused_evidence if item.chunk_id not in anchor_ids
                 ]
+            _record_trace_event(
+                "retrieval:rerank_select",
+                phase3_started,
+                selected_count=len(fused_evidence),
+                channel_count=len(channels),
+            )
             return RetrievalBundle(
                 evidence=_verified_evidence(fused_evidence),
                 relations=graph_results,
@@ -1858,6 +1887,12 @@ class GraphRagRuntime:
     async def generate(self, query: str, context: str) -> str:
         started = time.perf_counter()
         settings = get_settings()
+        generation_trace: dict[str, Any] = {
+            "stage": "generation",
+            "model": settings.model_name,
+            "outcome": "pending",
+        }
+        _generation_context.set(generation_trace)
         normalized_query = " ".join(query.casefold().split())
         current_release = self._active_release[0] if self._active_release else ""
         answer_namespace = (
@@ -1872,6 +1907,8 @@ class GraphRagRuntime:
         cache_allowed = _answer_cache_allowed(query)
         cached = self._answer_cache.get(answer_key) if current_release and context and cache_allowed else None
         if cached and time.monotonic() - cached[1] < 60:
+            generation_trace["outcome"] = "cache"
+            generation_trace["duration_ms"] = round((time.perf_counter() - started) * 1000, 2)
             metrics.inc("generation_requests_total", outcome="cache")
             metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="cache")
             return cached[0]
@@ -1895,15 +1932,38 @@ class GraphRagRuntime:
                 timeout=settings.llm_timeout_seconds,
             )
         except TimeoutError:
+            generation_trace.update(
+                outcome="timeout",
+                duration_ms=round((time.perf_counter() - started) * 1000, 2),
+            )
             metrics.inc("generation_requests_total", outcome="timeout")
             metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="timeout")
             return NO_EVIDENCE_RESPONSE
         except Exception as exc:
+            generation_trace.update(
+                outcome=type(exc).__name__,
+                duration_ms=round((time.perf_counter() - started) * 1000, 2),
+            )
             metrics.inc("generation_requests_total", outcome="error")
             metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="error")
             raise ChatProviderError("Chat provider failed") from exc
         content = result.content
+        response_metadata = getattr(result, "response_metadata", {}) or {}
+        usage_metadata = getattr(result, "usage_metadata", {}) or {}
+        usage = usage_metadata or response_metadata.get("token_usage") or response_metadata.get("usage") or {}
+        if isinstance(usage, dict):
+            generation_trace["usage"] = {
+                str(key): int(value)
+                for key, value in usage.items()
+                if str(key) in {"input_tokens", "output_tokens", "total_tokens", "prompt_tokens", "completion_tokens"}
+                and isinstance(value, (int, float))
+            }
+        finish_reason = response_metadata.get("finish_reason") or response_metadata.get("stop_reason")
+        if isinstance(finish_reason, str):
+            generation_trace["finish_reason"] = finish_reason[:40]
+        generation_trace["duration_ms"] = round((time.perf_counter() - started) * 1000, 2)
         if isinstance(content, str):
+            generation_trace["outcome"] = "success"
             metrics.inc("generation_requests_total", outcome="success")
             metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="success")
             if current_release and context and cache_allowed and content:
@@ -1916,11 +1976,13 @@ class GraphRagRuntime:
                 if isinstance(block, dict) and block.get("type") == "text"
             )
             metrics.inc("generation_requests_total", outcome="success")
+            generation_trace["outcome"] = "success"
             metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="success")
             if current_release and context and cache_allowed and value:
                 self._store_answer_cache(answer_key, value)
             return value
         metrics.inc("generation_requests_total", outcome="empty")
+        generation_trace["outcome"] = "empty"
         metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="empty")
         return ""
 
