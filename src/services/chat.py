@@ -786,10 +786,33 @@ class GraphRagRuntime:
                         if document_semantic_candidate_ids
                         else None
                     )
-                    lexical_results, vector_hits = await asyncio.gather(lexical_task, semantic_task)
-                    document_vector_hits = (
-                        await document_semantic_task if document_semantic_task is not None else []
+                    lexical_result, vector_result = await asyncio.gather(
+                        lexical_task,
+                        semantic_task,
+                        return_exceptions=True,
                     )
+                    # Lexical recall is an optional channel.  A slow/failed
+                    # PostgreSQL full-text query must not discard a valid
+                    # dense result (or turn the whole chat into a 503).
+                    if isinstance(lexical_result, BaseException):
+                        metrics.inc("retrieval_optional_failures", stage="lexical")
+                        lexical_results = []
+                    else:
+                        lexical_results = lexical_result
+                    if isinstance(vector_result, BaseException):
+                        raise vector_result
+                    vector_hits = vector_result
+                    if document_semantic_task is not None:
+                        document_vector_result = await document_semantic_task
+                        document_vector_hits = (
+                            []
+                            if isinstance(document_vector_result, BaseException)
+                            else document_vector_result
+                        )
+                        if isinstance(document_vector_result, BaseException):
+                            metrics.inc("retrieval_optional_failures", stage="document_semantic")
+                    else:
+                        document_vector_hits = []
                 else:
                     lexical_results = await lexical_task
                     vector_hits = list(vector_hits_override)
@@ -962,16 +985,21 @@ class GraphRagRuntime:
                     # corpus. Reuse the GIN-backed canonical passage query
                     # here; it is materially cheaper than a LIKE scan over
                     # every chunk and still returns the exact operative text.
-                    lexical_document_rows = await hydration_repository.search_lexical(
-                        query,
-                        dataset_id=dataset_id,
-                        document_ids=document_candidate_ids,
-                        # The query is already document-bounded. Fetch a
-                        # wider lexical head, then retain one best passage
-                        # per candidate document so a verbose source cannot
-                        # crowd out a short operative clause.
-                        limit=min(200, settings.retrieval_candidate_k * 4),
-                    )
+                    try:
+                        lexical_document_rows = await hydration_repository.search_lexical(
+                            query,
+                            dataset_id=dataset_id,
+                            document_ids=document_candidate_ids,
+                            # The query is already document-bounded. Fetch a
+                            # wider lexical head, then retain one best passage
+                            # per candidate document so a verbose source cannot
+                            # crowd out a short operative clause.
+                            limit=min(200, settings.retrieval_candidate_k * 4),
+                        )
+                    except Exception:
+                        await hydration_session.rollback()
+                        metrics.inc("retrieval_optional_failures", stage="document_lexical")
+                        lexical_document_rows = []
                     seen_document_ids: set[str] = set()
                     document_recall_operatives = []
                     for item in lexical_document_rows:
@@ -1005,22 +1033,31 @@ class GraphRagRuntime:
                     operative_document_ids = list(
                         dict.fromkeys([*title_document_ids, *authority_candidates, *recall_order])
                     )[:operative_limit]
-                    operative_rows = await hydration_repository.search_document_operatives(
-                        operative_document_ids,
-                        dataset_id=dataset_id,
-                        # Phrase-only matching keeps generic words such as
-                        # “luật”, “chi”, or “căn cứ” from flooding the bounded
-                        # result set before the distinctive operative clause.
-                        terms=extract_query_phrases(query, limit=16),
-                        limit=min(48, settings.retrieval_candidate_k),
-                        # A decisive short clause may contain only one
-                        # query-derived phrase (for example a three-token
-                        # service exclusion). The candidate document was
-                        # already selected independently, so one exact phrase
-                        # is sufficient here; requiring two silently drops
-                        # the operative passage.
-                        minimum_matches=1,
-                    )
+                    try:
+                        operative_rows = await hydration_repository.search_document_operatives(
+                            operative_document_ids,
+                            dataset_id=dataset_id,
+                            # Phrase-only matching keeps generic words such as
+                            # “luật”, “chi”, or “căn cứ” from flooding the bounded
+                            # result set before the distinctive operative clause.
+                            terms=extract_query_phrases(query, limit=16),
+                            limit=min(48, settings.retrieval_candidate_k),
+                            # A decisive short clause may contain only one
+                            # query-derived phrase (for example a three-token
+                            # service exclusion). The candidate document was
+                            # already selected independently, so one exact phrase
+                            # is sufficient here; requiring two silently drops
+                            # the operative passage.
+                            minimum_matches=1,
+                        )
+                    except Exception:
+                        # Document-bounded expansion is a recall accelerator,
+                        # not a correctness dependency.  On a saturated
+                        # managed pool, preserve lexical/dense evidence and
+                        # record the degraded channel instead of failing chat.
+                        await hydration_session.rollback()
+                        metrics.inc("retrieval_optional_failures", stage="document_operatives_phrase")
+                        operative_rows = []
                     known_chunks = {item.chunk_id for item in document_recall_operatives}
                     document_recall_operatives.extend(
                         item for item in operative_rows if item.chunk_id not in known_chunks
@@ -1036,13 +1073,18 @@ class GraphRagRuntime:
                     ]
                     historical_lookup = bool(query_years and max(query_years) < date.today().year - 1)
                     if not historical_lookup:
-                        term_rows = await hydration_repository.search_document_operatives(
-                            operative_document_ids,
-                            dataset_id=dataset_id,
-                            terms=extract_query_terms(query, limit=16),
-                            limit=200,
-                            minimum_matches=2,
-                        )
+                        try:
+                            term_rows = await hydration_repository.search_document_operatives(
+                                operative_document_ids,
+                                dataset_id=dataset_id,
+                                terms=extract_query_terms(query, limit=16),
+                                limit=200,
+                                minimum_matches=2,
+                            )
+                        except Exception:
+                            await hydration_session.rollback()
+                            metrics.inc("retrieval_optional_failures", stage="document_operatives_terms")
+                            term_rows = []
                         known_chunks = {item.chunk_id for item in document_recall_operatives}
                         document_recall_operatives.extend(
                             item for item in term_rows if item.chunk_id not in known_chunks
