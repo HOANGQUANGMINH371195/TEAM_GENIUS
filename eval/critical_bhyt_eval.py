@@ -185,6 +185,54 @@ async def _run_cases(
             output = await asyncio.wait_for(agent.ainvoke({"query": case["question"]}), timeout=120)
             answer = str(output.get("response") or "").strip()
             findings = _deterministic_findings(case, output)
+            public_citations = [
+                {
+                    "document_number": str(item.get("document_number") or ""),
+                    "title": str(item.get("title") or ""),
+                    "section_title": str(item.get("section_title") or ""),
+                    "quote": str(item.get("quote") or "")[:1200],
+                    "channels": list(item.get("channels") or []),
+                    "evidence_kind": str(item.get("evidence_kind") or "passage"),
+                    "source_start": item.get("source_start"),
+                    "source_end": item.get("source_end"),
+                    "text_sha256": str(item.get("text_sha256") or ""),
+                    "provenance_verified": bool(item.get("provenance_verified")),
+                }
+                for item in output.get("citations") or []
+                if isinstance(item, dict)
+            ]
+            public_evidence = [
+                {
+                    "document_number": str(item.get("document_number") or ""),
+                    "section_title": str(item.get("section_title") or ""),
+                    "channels": list(item.get("channels") or []),
+                    "score": item.get("score"),
+                    "quote": str(item.get("content") or "")[:1200],
+                    "source_start": item.get("source_start"),
+                    "source_end": item.get("source_end"),
+                    "text_sha256": str(item.get("text_sha256") or ""),
+                }
+                for item in output.get("retrieved_evidence") or []
+                if isinstance(item, dict)
+            ]
+            # Some LangGraph/runtime versions return the final citation state
+            # without carrying the intermediate evidence list.  Citations are
+            # already source-hydrated and public, so retain them as a bounded
+            # evidence fallback instead of falsely reporting zero evidence.
+            if not public_evidence:
+                public_evidence = [
+                    {
+                        "document_number": item["document_number"],
+                        "section_title": item["section_title"],
+                        "channels": item["channels"],
+                        "score": None,
+                        "quote": item["quote"],
+                        "source_start": item["source_start"],
+                        "source_end": item["source_end"],
+                        "text_sha256": item["text_sha256"],
+                    }
+                    for item in public_citations
+                ]
             records.append(
                 {
                     "case_id": case["case_id"],
@@ -193,27 +241,10 @@ async def _run_cases(
                     "latency_ms": round((time.perf_counter() - started) * 1000, 2),
                     "answer": _safe_answer_for_report(answer, _private_ids(output)),
                     "answer_sha256": hashlib.sha256(answer.encode("utf-8")).hexdigest(),
-                    "citations": [
-                        {
-                            "document_number": str(item.get("document_number") or ""),
-                            "title": str(item.get("title") or ""),
-                            "section_title": str(item.get("section_title") or ""),
-                        }
-                        for item in output.get("citations") or []
-                        if isinstance(item, dict)
-                    ],
+                    "citations": public_citations,
                     "claims_count": len(output.get("claims") or []),
                     "metadata": output.get("metadata") or {},
-                    "retrieved_evidence": [
-                        {
-                            "document_number": str(item.get("document_number") or ""),
-                            "section_title": str(item.get("section_title") or ""),
-                            "channels": item.get("channels") or [],
-                            "score": item.get("score"),
-                        }
-                        for item in output.get("retrieved_evidence") or []
-                        if isinstance(item, dict)
-                    ],
+                    "retrieved_evidence": public_evidence,
                     "findings": findings,
                 }
             )
