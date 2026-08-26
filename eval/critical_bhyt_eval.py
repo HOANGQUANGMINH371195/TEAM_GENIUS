@@ -199,6 +199,9 @@ async def _run_cases(
         started = time.perf_counter()
         try:
             async with semaphore:
+                # Measure service latency after the bounded evaluator slot is
+                # acquired; queue wait is a load metric, not request latency.
+                started = time.perf_counter()
                 output = await asyncio.wait_for(
                     agent.ainvoke({"query": case["question"]}), timeout=120
                 )

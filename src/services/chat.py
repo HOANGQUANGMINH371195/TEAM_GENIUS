@@ -705,6 +705,13 @@ class GraphRagRuntime:
                 document_recall_enabled = (
                     not exact_document_ids
                     and not is_metadata_question(query)
+                    # High-risk entitlement questions already receive the
+                    # canonical lexical + dense passage cascade below. The
+                    # document-wide lexical scan is an expensive rescue path;
+                    # reserve it for open thematic/relational retrieval so a
+                    # normal legal request does not pay a second full-index
+                    # query before its answer can be produced.
+                    and retrieval_intent(query) in {"thematic", "relational"}
                 )
                 current_title_query = ""
                 title_document_ids = (
@@ -817,11 +824,19 @@ class GraphRagRuntime:
             # searching unrelated documents can only introduce distractors and
             # can make an exact miss look like a plausible answer.
             search_document_ids = exact_document_ids or None
+            # The final context is at most a dozen passages. Fetching 60
+            # candidates makes the subsequent hydrate/scope CTE dominate
+            # latency on managed Postgres without improving the top-ranked
+            # evidence. Keep a bounded 2x context head for the reranker.
+            passage_candidate_limit = min(
+                settings.retrieval_candidate_k,
+                max(settings.max_llm_evidence * 2, 24),
+            )
             lexical_task = asyncio.create_task(
                 lexical_search(
                     dataset_id=dataset_id,
                     document_ids=search_document_ids,
-                    limit=settings.retrieval_candidate_k,
+                    limit=passage_candidate_limit,
                 )
             )
             async with trace_span(
@@ -845,7 +860,7 @@ class GraphRagRuntime:
                             query_text=query,
                             dataset_id=dataset_id,
                             document_ids=search_document_ids,
-                            limit=settings.retrieval_candidate_k,
+                            limit=passage_candidate_limit,
                             score_threshold=settings.semantic_similarity_threshold,
                         )
                     )
