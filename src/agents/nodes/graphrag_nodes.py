@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Sequence
 from functools import lru_cache
 
@@ -62,6 +63,7 @@ async def extract_entities_node(state: AgentState) -> dict:
 async def retrieve_vectors_node(state: AgentState) -> dict:
     query = state.get("query", "")
     runtime = get_runtime()
+    started = time.perf_counter()
     subqueries = decompose_query(query)
     # Adaptive retrieval preserves the complete user question and pairs it
     # with a clause-shaped rewrite. Running deterministic decomposition first
@@ -90,6 +92,19 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
             for citation in bundle.direct_citations
         )
     )
+    metadata = dict(state.get("metadata") or {})
+    metadata.update(
+        {
+            "route_intent": retrieval_intent(query),
+            "subquery_count": len(subqueries),
+            "retrieval_ms": round((time.perf_counter() - started) * 1000, 2),
+            "candidate_count": len(evidence),
+            "relation_count": len(relations),
+            "retrieval_channels": sorted(
+                {channel for item in evidence for channel in item.channels}
+            ),
+        }
+    )
     return {
         "vector_results": [item for item in evidence if "semantic" in item.channels],
         "graph_results": relations,
@@ -104,6 +119,7 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
             else ""
         ),
         "direct_citations": bundle.direct_citations or [],
+        "metadata": metadata,
     }
 
 
@@ -117,6 +133,7 @@ def _relation_context(relation: Relation) -> str:
 
 
 async def assemble_context_node(state: AgentState) -> dict:
+    started = time.perf_counter()
     evidence: list[RetrievalResult] = state.get("retrieved_evidence", [])
     relations: list[Relation] = state.get("graph_results", [])
     settings = get_settings()
@@ -127,7 +144,15 @@ async def assemble_context_node(state: AgentState) -> dict:
         token_budget=settings.max_context_tokens,
         model=settings.model_name,
     )
-    return {"context": context}
+    metadata = dict(state.get("metadata") or {})
+    metadata.update(
+        {
+            "context_ms": round((time.perf_counter() - started) * 1000, 2),
+            "context_chars": len(context),
+            "context_tokens": _count_tokens(context, settings.model_name),
+        }
+    )
+    return {"context": context, "metadata": metadata}
 
 
 def _pack_context(
@@ -218,8 +243,11 @@ async def verify_evidence_node(state: AgentState) -> dict:
     query = state.get("query", "")
     evidence: list[RetrievalResult] = state.get("retrieved_evidence", [])
     direct_citations: list[Citation] = state.get("direct_citations", [])
+    metadata = dict(state.get("metadata") or {})
+    metadata["verification_evidence_count"] = len(evidence)
     if not requires_evidence_verification(query):
-        return {"verification_failed": False}
+        metadata["verification_failed"] = False
+        return {"verification_failed": False, "metadata": metadata}
     valid = [
         item for item in evidence
         if item.dataset_id and item.document_id and item.source_start is not None and item.source_end is not None
@@ -229,10 +257,13 @@ async def verify_evidence_node(state: AgentState) -> dict:
         for citation in direct_citations
     )
     if any(marker in query.casefold() for marker in _OFFICIAL_STATUS_MARKERS) and not official_status:
-        return {"verification_failed": True, "response": no_answer_response(query, reason="unverified")}
+        metadata["verification_failed"] = True
+        return {"verification_failed": True, "response": no_answer_response(query, reason="unverified"), "metadata": metadata}
     if valid or official_status:
-        return {"verification_failed": False}
-    return {"verification_failed": True, "response": no_answer_response(query, reason="unverified")}
+        metadata["verification_failed"] = False
+        return {"verification_failed": False, "metadata": metadata}
+    metadata["verification_failed"] = True
+    return {"verification_failed": True, "response": no_answer_response(query, reason="unverified"), "metadata": metadata}
 
 
 async def generate_node(state: AgentState) -> dict:
@@ -589,6 +620,41 @@ def _citations_from_evidence(
     return citations
 
 
+def _select_supported_citations(
+    citations: Sequence[Citation], response: str, query: str, *, limit: int = 6
+) -> list[Citation]:
+    """Keep a compact citation set that actually overlaps the answer.
+
+    Deterministic extractive responses used to attach the whole retrieval
+    bundle (often 12 citations), including unrelated neighbouring documents.
+    This is a query/answer-derived precision filter: it scores overlap with
+    the rendered response and the user's terms, preserves source order for
+    ties, and never invents or rewrites a citation.
+    """
+    if not citations or limit <= 0:
+        return []
+    response_tokens = set(_CLAIM_TOKEN.findall(response.casefold()))
+    query_tokens = set(_CLAIM_TOKEN.findall(query.casefold()))
+    scored: list[tuple[float, int, Citation]] = []
+    for index, citation in enumerate(citations):
+        source = " ".join(
+            (citation.title, citation.section_title, citation.quote)
+        ).casefold()
+        source_tokens = set(_CLAIM_TOKEN.findall(source))
+        answer_overlap = len(response_tokens & source_tokens)
+        query_overlap = len(query_tokens & source_tokens)
+        # Answer overlap is strongest because the citation must support what
+        # was actually rendered; query overlap breaks ties between equally
+        # concise clauses.  A citation with no overlap is navigation noise.
+        score = 2.0 * answer_overlap + query_overlap
+        if answer_overlap or query_overlap:
+            scored.append((score, index, citation))
+    if not scored:
+        return list(citations[:limit])
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [citation for _, _, citation in scored[:limit]]
+
+
 def _claim_tokens(value: str) -> set[str]:
     return {
         token.casefold()
@@ -742,6 +808,13 @@ async def guardrail_node(state: AgentState) -> dict:
         if deterministic_response
         else state.get("direct_citations") or _citations_from_evidence(evidence)
     )
+    if deterministic_response:
+        citations = _select_supported_citations(
+            citations,
+            response,
+            state.get("query", ""),
+            limit=min(6, get_settings().max_citations),
+        )
     claims = _audit_claims(response, citations, state.get("query", ""))
     if evidence and not deterministic_response and any(
         claim["verification"] != "entailed" for claim in claims
@@ -761,8 +834,20 @@ async def guardrail_node(state: AgentState) -> dict:
     }
     if evidence and not deterministic_response:
         citations = [citation for citation in citations if citation.chunk_id in supported_ids]
+    metadata = dict(state.get("metadata") or {})
+    metadata.update(
+        {
+            "citation_count": len(citations),
+            "claim_count": len(claims),
+            "verified_claim_count": sum(
+                claim.get("verification") == "entailed" for claim in claims
+            ),
+            "guardrail_response_chars": len(response),
+        }
+    )
     return {
         "response": response,
         "citations": [citation.model_dump() for citation in citations],
         "claims": claims,
+        "metadata": metadata,
     }

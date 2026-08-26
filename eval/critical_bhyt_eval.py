@@ -175,6 +175,17 @@ async def _run_cases(
                         if isinstance(item, dict)
                     ],
                     "claims_count": len(output.get("claims") or []),
+                    "metadata": output.get("metadata") or {},
+                    "retrieved_evidence": [
+                        {
+                            "document_number": str(item.get("document_number") or ""),
+                            "section_title": str(item.get("section_title") or ""),
+                            "channels": item.get("channels") or [],
+                            "score": item.get("score"),
+                        }
+                        for item in output.get("retrieved_evidence") or []
+                        if isinstance(item, dict)
+                    ],
                     "findings": findings,
                 }
             )
@@ -189,6 +200,8 @@ async def _run_cases(
                     "answer_sha256": None,
                     "citations": [],
                     "claims_count": 0,
+                    "metadata": {},
+                    "retrieved_evidence": [],
                     "findings": {"deterministic_status": "FAIL", "failures": [type(exc).__name__]},
                 }
             )
