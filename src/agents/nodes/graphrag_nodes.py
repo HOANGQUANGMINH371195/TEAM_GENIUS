@@ -688,7 +688,21 @@ def _claim_facts_supported(claim: str, evidence: Sequence[str]) -> bool:
     """
     claim_text = claim.casefold()
     evidence_text = " ".join(evidence).casefold()
-    if not set(_FACT_NUMBER.findall(claim_text)).issubset(set(_FACT_NUMBER.findall(evidence_text))):
+    def normalized_numbers(value: str) -> set[str]:
+        normalized: set[str] = set()
+        for number in _FACT_NUMBER.findall(value):
+            # Legal text frequently alternates between ``5``/``05`` and
+            # ``6``/``06``.  Compare numeric identity, not presentation, while
+            # preserving compound tokens such as dates and percentages.
+            normalized.add(
+                ".".join(
+                    part.lstrip("0") or "0"
+                    for part in re.split(r"(?=[./%-])|(?<=[./%-])", number)
+                )
+            )
+        return normalized
+
+    if not normalized_numbers(claim_text).issubset(normalized_numbers(evidence_text)):
         return False
     for positive, negative in _STATUS_POLARITIES:
         if positive in claim_text and negative in evidence_text and positive not in evidence_text:
