@@ -3,6 +3,26 @@
 > Archive of audits, implementation notes, measurements, and previous planning
 > snapshots. The authoritative forward plan is `PLAN.md`.
 
+## Applied-plan checkpoint — 2026-08-26 UTC
+
+- `79860ec`: synchronized the authoritative forward plan from the repository
+  root; the former P-151 plan remains archived here.
+- `56020c9`: added route, retrieval, context, verification and guardrail
+  metadata to the agent/evaluation artifact.
+- `a7de2ba`: tightened deterministic citation selection and routed numeric/
+  support questions through high-risk verification.
+- `98daacb`: normalized equivalent legal number formats (`5`/`05`, `6`/`06`)
+  in claim fact checks.
+- `3de48a4`: optional lexical/document expansion failures now degrade to the
+  surviving verified channels instead of failing the request.
+- `66f98ec`: committed the post-change critical suite and an independent
+  grader report. The run is deterministic `7/7`, but independent legal-quality
+  grading is `1/7`; citation precision is approximately `22.4%` and p95 is
+  `22.78s`. This is diagnostic evidence only; it is **not** a promotion gate.
+- Remaining blockers are tracked in the forward `PLAN.md`: citation support
+  precision, currentness/temporal resolution, deterministic numeric facts,
+  stage-level provider traces and latency reduction.
+
 ## Deployment and quality update — 2026-08-24 UTC
 
 - Production code is deployed from `main` at `026fa4a`; Vercel production is
