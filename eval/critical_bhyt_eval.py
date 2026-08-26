@@ -63,6 +63,18 @@ def _normalise(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
+def _normalise_fact(value: str) -> str:
+    """Normalize presentation-only numeric padding in reviewer fixtures.
+
+    Legal sources alternate between forms such as ``5``/``05`` and
+    ``6``/``06``.  The evaluator must not reward a renderer for rewriting the
+    source or mark an otherwise identical fact missing merely because of that
+    formatting difference.
+    """
+    value = _normalise(value)
+    return re.sub(r"(?<!\d)0+(\d+)(?=\s|$)", r"\1", value)
+
+
 def _public_document_numbers(result: dict[str, Any]) -> list[str]:
     values: list[str] = []
     for item in [*(result.get("citations") or []), *(result.get("retrieved_evidence") or [])]:
@@ -101,8 +113,10 @@ def _deterministic_findings(case: dict[str, Any], result: dict[str, Any]) -> dic
     accepted_found = sorted(number for number in numbers if number.casefold() in accepted)
     expected = str(case["expected_status"])
     abstained = _normalise(answer) == _normalise(NO_EVIDENCE_RESPONSE)
+    normalized_answer = _normalise_fact(answer)
     required_missing = [
-        fact for fact in case["required_facts"] if _normalise(str(fact)) not in _normalise(answer)
+        fact for fact in case["required_facts"]
+        if _normalise_fact(str(fact)) not in normalized_answer
     ]
     failures: list[str] = []
     if not answer:

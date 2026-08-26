@@ -272,48 +272,12 @@ async def generate_node(state: AgentState) -> dict:
     evidence: list[RetrievalResult] = state.get("retrieved_evidence", [])
     if not evidence:
         return {"response": no_answer_response(state.get("query", ""))}
-    if (
-        requires_evidence_verification(state.get("query", ""))
-        and "học sinh" in state.get("query", "").casefold()
-        and "hỗ trợ" in state.get("query", "").casefold()
-    ):
-        return {
-            "response": (
-                "- Năm 2026: học sinh thuộc nhóm được Nhà nước hỗ trợ mức đóng BHYT.\n"
-                "- Mức đóng hoặc điều kiện xác định mức đóng được đối chiếu theo mức tham chiếu; "
-                "nguồn hiện có chưa đủ để tính số tiền cụ thể.\n"
-                "- Hỗ trợ của Nhà nước áp dụng theo nhóm đối tượng; chưa có đủ dữ liệu để xác định tỷ lệ cụ thể."
-            )
-        }
     source_response = _deterministic_source_rule_response(state.get("query", ""), evidence)
     if source_response:
         return {"response": source_response}
     fact_response = _deterministic_source_fact_response(state.get("query", ""), evidence)
     if fact_response:
-        if (
-            requires_evidence_verification(state.get("query", ""))
-            and "học sinh" in state.get("query", "").casefold()
-            and "hỗ trợ" in state.get("query", "").casefold()
-        ):
-            fact_response = (
-                f"{fact_response.rstrip()}\n"
-                "- Mức đóng hoặc điều kiện xác định mức đóng được đối chiếu theo mức tham chiếu.\n"
-                "- Hỗ trợ của Nhà nước áp dụng theo nhóm đối tượng; chưa đủ dữ liệu để xác định số tiền cụ thể."
-            )
         return {"response": fact_response}
-    if (
-        requires_evidence_verification(state.get("query", ""))
-        and "học sinh" in state.get("query", "").casefold()
-        and "hỗ trợ" in state.get("query", "").casefold()
-    ):
-        return {
-            "response": (
-                "- Năm 2026: học sinh thuộc nhóm được Nhà nước hỗ trợ mức đóng BHYT.\n"
-                "- Mức đóng hoặc điều kiện xác định mức đóng cần đối chiếu theo mức tham chiếu và văn bản áp dụng.\n"
-                "- Hỗ trợ của Nhà nước được áp dụng theo nhóm đối tượng; nguồn hiện có chưa đủ để xác định số tiền cụ thể.\n"
-                "- Mức đóng hoặc điều kiện xác định mức đóng và hỗ trợ của Nhà nước cần được đối chiếu theo văn bản áp dụng."
-            )
-        }
     # Legal-unit enumeration is extractive: render canonical labelled units
     # directly instead of spending an LLM call (and risking reordering or
     # inventing a missing item).  The guardrail still audits the resulting
@@ -324,23 +288,6 @@ async def generate_node(state: AgentState) -> dict:
     ):
         return {"response": _deterministic_legal_unit_response(evidence)}
     response = await get_runtime().generate(state.get("query", ""), state.get("context", ""))
-    if (
-        requires_evidence_verification(state.get("query", ""))
-        and "học sinh" in state.get("query", "").casefold()
-        and "hỗ trợ" in state.get("query", "").casefold()
-        and "mức đóng hoặc điều kiện xác định mức đóng" not in response.casefold()
-    ):
-        response = (
-            f"{response.strip()}\n- Mức đóng hoặc điều kiện xác định mức đóng và hỗ trợ của Nhà nước "
-            "cần đối chiếu theo mức tham chiếu và văn bản áp dụng."
-        )
-    if (
-        requires_evidence_verification(state.get("query", ""))
-        and "ngoại trú" in response.casefold()
-        and "nội trú" in response.casefold()
-        and "phân biệt nội trú và ngoại trú" not in response.casefold()
-    ):
-        response = f"{response.strip()}\n- Quy định phân biệt nội trú và ngoại trú; mức hưởng phụ thuộc trường hợp áp dụng."
     return {"response": response}
 
 
@@ -405,19 +352,6 @@ def _deterministic_source_fact_response(
     """
     if not requires_evidence_verification(query):
         return ""
-    query_years = [int(value) for value in re.findall(r"\b(?:19|20)\d{2}\b", query)]
-    if (
-        query_years
-        and max(query_years) < 2024
-        and any(marker in query.casefold() for marker in ("hiện nay", "hiện hành"))
-        and "thông tư" in query.casefold()
-    ):
-        return (
-            "- Không coi thông tư năm 2005 là căn cứ hiện hành nếu không có chứng cứ hiệu lực. "
-            "Cần đối chiếu căn cứ hiện hành và tình trạng hiệu lực trước khi kết luận; "
-            "đây là trường hợp abstain có giải thích khi chưa xác minh được hiệu lực. "
-            "Cần nêu căn cứ hiện hành hoặc abstain có giải thích."
-        )
     query_terms = {
         token.casefold()
         for token in _CLAIM_TOKEN.findall(query)
@@ -435,32 +369,14 @@ def _deterministic_source_fact_response(
     # passage.
     for item in evidence:
         heading = " ".join(item.section_title.split())
-        if not heading or not re.search(r"\d+%|mức hưởng|chi phí|thanh toán", heading.casefold()):
+        if not heading or not re.search(r"\d|%", heading.casefold()):
             continue
         if not any(
             len(phrase.split()) >= 2 and phrase.casefold() in heading.casefold()
             for phrase in query_phrases
         ):
             continue
-        if "5 năm liên tục" in heading and "05 năm liên tục" not in heading:
-            heading = heading.replace("5 năm liên tục", "05 năm liên tục")
-        extra = ""
-        lowered_heading = heading.casefold()
-        if "nội trú" in lowered_heading and "ngoại trú" in lowered_heading:
-            extra = "\n- Quy định phân biệt nội trú và ngoại trú; mức hưởng phụ thuộc trường hợp áp dụng."
-        elif "bất kỳ cơ sở" in lowered_heading and "cấp cứu" in lowered_heading:
-            extra = "\n- Trường hợp này áp dụng tại bất kỳ cơ sở khám bệnh chữa bệnh khi cấp cứu."
-        elif "6 lần mức tham chiếu" in lowered_heading:
-            extra = (
-                "\n- Ngưỡng hiện hành được nêu theo 6 lần mức tham chiếu; cách diễn đạt cũ có thể gặp là "
-                "lớn hơn 06 tháng lương cơ sở, cần đối chiếu theo thời điểm áp dụng."
-            )
-        if "học sinh" in query.casefold() and "hỗ trợ" in query.casefold():
-            extra += (
-                "\n- Năm 2026; mức đóng hoặc điều kiện xác định mức đóng được đối chiếu theo mức tham chiếu."
-                "\n- Hỗ trợ của Nhà nước áp dụng theo nhóm đối tượng; chưa đủ dữ liệu để xác định số tiền cụ thể."
-            )
-        return f"- {heading[:900]}{extra}"
+        return f"- {heading[:900]}"
     candidates: list[tuple[float, str, RetrievalResult]] = []
     for item in evidence:
         source = " ".join((item.section_title, item.content)).strip()
@@ -479,9 +395,7 @@ def _deterministic_source_fact_response(
             overlap = len(query_terms & tokens)
             if overlap < 2:
                 continue
-            marker = bool(
-                re.search(r"\d|%|mức hưởng|chi trả|thanh toán|cấp cứu|liên tục", text.casefold())
-            )
+            marker = bool(re.search(r"\d|%", text.casefold()))
             if not marker:
                 continue
             primary = int(
@@ -509,23 +423,12 @@ def _deterministic_source_fact_response(
     lines: list[str] = []
     seen: set[str] = set()
     for _, text, _ in candidates:
-        if "5 năm liên tục" in text and "05 năm liên tục" not in text:
-            text = text.replace("5 năm liên tục", "05 năm liên tục")
         if text.casefold() in seen:
             continue
         seen.add(text.casefold())
         lines.append(f"- {text[:700]}")
         if len(lines) >= 3:
             break
-    lowered_query = query.casefold()
-    rendered = "\n".join(lines).casefold()
-    if ("ngoại trú" in lowered_query or "ngoại trú" in rendered) and (
-        "nội trú" in lowered_query or "nội trú" in rendered
-    ):
-        lines.append("- Quy định cần phân biệt nội trú và ngoại trú; mức đóng hoặc mức hưởng phụ thuộc trường hợp áp dụng.")
-    if "học sinh" in lowered_query and "hỗ trợ" in lowered_query:
-        lines.append("- Học sinh thuộc nhóm được Nhà nước hỗ trợ; mức đóng hoặc điều kiện xác định mức đóng phải đối chiếu theo mức tham chiếu và văn bản áp dụng.")
-        lines.append("- Hỗ trợ của Nhà nước được áp dụng theo nhóm đối tượng; chưa có đủ dữ liệu để xác định số tiền cụ thể.")
     return "\n".join(lines)
 
 
