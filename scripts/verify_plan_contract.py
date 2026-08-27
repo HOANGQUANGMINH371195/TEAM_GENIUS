@@ -30,6 +30,7 @@ def main() -> int:
         "batch_contract": ROOT / "docs/architecture/batch-contract.md",
         "calculator_contract": ROOT / "docs/product/calculator-contract.md",
         "viewer_security": ROOT / "docs/product/document-viewer-security.md",
+        "viewer_acceptance_tests": ROOT / "tests/test_api/test_document_viewer_endpoint.py",
         "typed_ontology": ROOT / "docs/data/typed-bhyt-ontology.md",
         "cache_runbook": ROOT / "ops/runbooks/cache.md",
         "outage_runbook": ROOT / "ops/runbooks/provider-outage.md",

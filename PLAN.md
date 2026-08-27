@@ -371,7 +371,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py`, current-authority filter | implemented, production latency gate not proven |
 | Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
 | Decimal calculator | `src/services/calculator.py`, two registered Decimal formulas, `/calculator/bhyt`, bounded `/calculator/bhyt/scenarios`, `web/app/calculator/page.tsx`, reviewed `table_cell_facts` retrieval, `eval/cases/calculator-golden-v1.jsonl` (100 cases) | partial: end-to-end table-fact acceptance and UX validation pending |
-| Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py`, `web/app/document/page.tsx` | hash-verified backend/UI implemented; XSS/anchor acceptance gates pending |
+| Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py`, `web/app/document/page.tsx`, `tests/test_api/test_document_viewer_endpoint.py` | hash-verified backend/UI and local XSS/anchor/path-integrity acceptance implemented; managed smoke remains external |
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight, hit/miss metrics, release-scoped keys | implemented; production Redis failover/latency proof pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
 | Sentence-level rerank seam | query-derived sentence coverage plus opt-in `src/services/reranker.py` cross-encoder backend; `eval/ablations/reranker/` contract | partial: pinned model/ablation result and latency proof pending |

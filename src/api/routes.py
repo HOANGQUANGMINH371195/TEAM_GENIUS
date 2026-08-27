@@ -146,7 +146,14 @@ async def document_html(
     """Expose public-signature HTML only after server-side sanitization."""
     if not get_settings().feature_viewer_enabled:
         raise HTTPException(status_code=404, detail="Document viewer unavailable")
-    if len(document_number) > 80 or any(token in document_number for token in ("/../", "\\")):
+    # Signatures are identifiers, never paths.  Reject every parent segment
+    # (including a leading ``../`` that would evade a substring-only check)
+    # before touching the database.
+    if (
+        len(document_number) > 80
+        or "\\" in document_number
+        or any(segment == ".." for segment in document_number.split("/"))
+    ):
         raise HTTPException(status_code=404, detail="Document not found")
     async with session_scope() as session:
         document = await GraphRepository(session).public_document_html(document_number)
