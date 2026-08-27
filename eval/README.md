@@ -87,3 +87,18 @@ python -m venv .eval-ragas-venv
 
 Lệnh `live` gọi agent/DB/Neo4j ở chế độ read-only. Không sửa production chỉ để làm
 đẹp điểm eval; sửa retrieval/prompt/guardrail rồi chạy lại cùng nguồn và threshold.
+
+### Human calibration artifact
+
+Calibration chỉ nhận JSONL có đủ `claim_id`, `confidence`, `outcome` (0/1) và
+`reviewer`. Dùng loader để từ chối dòng thiếu nhãn; không dùng output do model
+tự chấm làm gold:
+
+```bash
+PYTHONPATH=. uv run python - <<'PY'
+from pathlib import Path
+from eval.calibration import calibration_report, load_calibration_records
+rows = load_calibration_records(Path("/path/to/reviewed-calibration.jsonl"))
+print(calibration_report(rows))
+PY
+```

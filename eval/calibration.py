@@ -7,8 +7,10 @@ calibration report can be considered valid.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,36 @@ class CalibrationRecord:
             raise ValueError("confidence must be between 0 and 1")
         if int(self.outcome) not in (0, 1):
             raise ValueError("outcome must be 0 or 1")
+
+
+def load_calibration_records(path: Path) -> list[CalibrationRecord]:
+    """Load explicit human labels from JSONL; never infer missing labels.
+
+    The file is a review artifact, not a generated gold set.  A reviewer name
+    and binary adjudication are mandatory on every row so a machine-only run
+    cannot accidentally become a promotion signal.
+    """
+    records: list[CalibrationRecord] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                raise ValueError("row must be an object")
+            record = CalibrationRecord(
+                claim_id=str(row.get("claim_id") or ""),
+                confidence=float(row.get("confidence")),
+                outcome=int(row.get("outcome")),
+                reviewer=str(row.get("reviewer") or ""),
+            )
+            record.validate()
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid calibration row {line_number}: {exc}") from exc
+        records.append(record)
+    if not records:
+        raise ValueError("calibration file has no human-labelled rows")
+    return records
 
 
 def calibration_report(
