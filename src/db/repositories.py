@@ -675,52 +675,57 @@ class GraphRepository:
         if not needle:
             return []
         ids = list(dict.fromkeys(document_ids or []))
-        phrases = lexical_phrases(needle)
         disjunction = lexical_disjunction(needle)
         result = await self.session.execute(
             text(
                 """
-                WITH phrase_queries AS (
-                    SELECT phrase,
-                           phraseto_tsquery('simple', phrase) AS phrase_query,
-                           cardinality(regexp_split_to_array(phrase, '\\s+')) AS token_count
-                    FROM unnest(CAST(:phrases AS text[])) AS phrase
-                ), ranked AS (
-                    SELECT c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
-                           c.source_start, c.source_end, c.text_sha256, c.embedding_input_sha256, d.title,
-                           GREATEST(
-                               ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', :query)),
-                               COALESCE(ts_rank_cd(c.search_vector, to_tsquery('simple', :disjunction)) * 1.5, 0.0),
-                               COALESCE((
-                                   -- A long exact phrase is normally more
-                                   -- discriminative than a verbose passage
-                                   -- matching many individual query words.
-                                   -- Weight by phrase length, all of which is
-                                   -- derived from the user query.
-                                   SELECT max(
-                                       ts_rank_cd(c.search_vector, pq.phrase_query)
-                                       * pq.token_count * 300.0
-                                   )
-                                   FROM phrase_queries pq
-                                   WHERE c.search_vector @@ pq.phrase_query
-                               ), 0.0)
-                           ) AS score
+                WITH candidate_ids AS (
+                    -- Bound both full-text branches before ranking.  The old
+                    -- OR predicate made PostgreSQL scan every eligible chunk
+                    -- and evaluate dozens of phrase subqueries before LIMIT;
+                    -- that routinely exceeded the 10s retrieval budget.
+                    (SELECT c.chunk_id,
+                           2.0 AS seed_score
                     FROM chunks c
                     JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
                     WHERE c.dataset_id = :dataset_id
                       AND c.lexical_eligible IS TRUE
                       AND NOT d.is_external
                       AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
-                      AND (
-                          c.search_vector @@ websearch_to_tsquery('simple', :query)
-                          OR (:disjunction <> '' AND c.search_vector @@ to_tsquery('simple', :disjunction))
-                          OR EXISTS (
-                              SELECT 1 FROM phrase_queries pq
-                              WHERE c.search_vector @@ pq.phrase_query
-                          )
-                      )
+                      AND c.search_vector @@ websearch_to_tsquery('simple', :query)
                       AND (cardinality(CAST(:document_ids AS text[])) = 0
                            OR c.document_id = ANY(CAST(:document_ids AS text[])))
+                    ORDER BY c.chunk_id
+                    LIMIT 500)
+                    UNION ALL
+                    (SELECT c.chunk_id,
+                           1.0 AS seed_score
+                    FROM chunks c
+                    JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
+                    WHERE c.dataset_id = :dataset_id
+                      AND c.lexical_eligible IS TRUE
+                      AND NOT d.is_external
+                      AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                      AND :disjunction <> ''
+                      AND c.search_vector @@ to_tsquery('simple', :disjunction)
+                      AND (cardinality(CAST(:document_ids AS text[])) = 0
+                           OR c.document_id = ANY(CAST(:document_ids AS text[])))
+                    ORDER BY c.chunk_id
+                    LIMIT 500)
+                ), ranked AS (
+                    SELECT c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
+                           c.source_start, c.source_end, c.text_sha256, c.embedding_input_sha256, d.title,
+                           GREATEST(
+                               ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', :query)),
+                               COALESCE(ts_rank_cd(c.search_vector, to_tsquery('simple', :disjunction)) * 1.5, 0.0),
+                               max(ci.seed_score)
+                           ) AS score
+                    FROM candidate_ids ci
+                    JOIN chunks c ON c.chunk_id = ci.chunk_id
+                    JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
+                    GROUP BY c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
+                             c.source_start, c.source_end, c.text_sha256, c.embedding_input_sha256,
+                             d.title, c.search_vector
                 )
                 SELECT * FROM ranked ORDER BY score DESC, document_id, chunk_id LIMIT :limit
                 """
@@ -728,7 +733,6 @@ class GraphRepository:
             {
                 "dataset_id": dataset_id,
                 "query": needle,
-                "phrases": phrases,
                 "disjunction": disjunction,
                 "document_ids": ids,
                 "limit": limit,
@@ -797,8 +801,11 @@ class GraphRepository:
                     JOIN chunks c
                       ON c.dataset_id = :dataset_id
                      AND c.lexical_eligible IS TRUE
-                     AND lower(COALESCE(c.section_title, '') || ' ' || c.text)
-                         LIKE '%' || lower(pq.phrase) || '%'
+                     -- Use the generated tsvector/GiN index.  The previous
+                     -- lower(... LIKE '%phrase%') predicate forced a full
+                     -- chunks scan for every phrase and consumed the entire
+                     -- route deadline on the release-sized corpus.
+                     AND c.search_vector @@ pq.phrase_query
                     JOIN documents d
                       ON d.dataset_id = c.dataset_id AND d.id = c.document_id
                     WHERE NOT d.is_external
@@ -813,27 +820,6 @@ class GraphRepository:
                                  ELSE 0
                              END DESC,
                              length(c.text), c.document_id
-                ), unit_phrase_anchors AS (
-                    SELECT DISTINCT ON (pq.phrase) pq.phrase, u.document_id
-                    FROM phrase_queries pq
-                    JOIN legal_units u
-                      ON u.dataset_id = :dataset_id
-                     AND lower(COALESCE(u.heading, '') || ' ' || COALESCE(u.text, ''))
-                         LIKE '%' || lower(pq.phrase) || '%'
-                    JOIN documents d
-                      ON d.dataset_id = u.dataset_id AND d.id = u.document_id
-                    WHERE NOT d.is_external
-                      AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
-                    ORDER BY pq.phrase,
-                             CASE
-                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%luật%'
-                                      OR d.title ILIKE 'luật %' THEN 4
-                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%nghị định%'
-                                      OR d.title ILIKE 'nghị định %' THEN 3
-                                 WHEN d.title ILIKE 'văn bản hợp nhất%' THEN 2
-                                 ELSE 0
-                             END DESC,
-                             length(COALESCE(u.text, '') || COALESCE(u.heading, '')), u.document_id
                 ), ranked AS (
                     SELECT d.id AS document_id,
                        max(
@@ -884,8 +870,6 @@ class GraphRepository:
                     SELECT DISTINCT document_id FROM phrase_anchors
                     UNION
                     SELECT DISTINCT document_id FROM chunk_phrase_anchors
-                    UNION
-                    SELECT DISTINCT document_id FROM unit_phrase_anchors
                 ) anchors
                   ON anchors.document_id = ranked.document_id
                 -- This is a candidate-recall stage, so a primary current

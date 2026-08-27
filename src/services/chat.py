@@ -797,10 +797,12 @@ class GraphRagRuntime:
             phase2_started = time.perf_counter()
             # Phase 2: independent lexical/provider work. The lexical task owns
             # its own short-lived DB session, so provider wait cannot pin it.
-            # An explicit public document number is a hard retrieval boundary:
-            # searching unrelated documents can only introduce distractors and
-            # can make an exact miss look like a plausible answer.
-            search_document_ids = exact_document_ids or None
+            # An explicit public document number is a hard retrieval boundary.
+            # For thematic questions, reuse the query-derived document recall
+            # set as a soft lexical scope as well: it keeps lexical ranking
+            # focused on the governing instruments instead of returning the
+            # first UUID-ordered chunks from the whole corpus.
+            search_document_ids = exact_document_ids or document_recall_ids or None
             # The final context is at most a dozen passages. Fetching 60
             # candidates makes the subsequent hydrate/scope CTE dominate
             # latency on managed Postgres without improving the top-ranked
