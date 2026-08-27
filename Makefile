@@ -27,6 +27,7 @@ help:
 	@echo "  make render-validate    Validate render.yaml (CLI if installed, structural fallback otherwise)"
 	@echo "  make deploy-render      Trigger an existing Render service deploy"
 	@echo "  make deploy-vercel      Deploy web/ through Vercel CLI (requires VERCEL_TOKEN)"
+	@echo "  make typed-facts-export Export reviewed legal_facts for Neo4j (FACTS_FILE/RELEASE_ID)"
 	@echo "  make clean              Remove only reproducible caches/build output"
 
 env-check:
