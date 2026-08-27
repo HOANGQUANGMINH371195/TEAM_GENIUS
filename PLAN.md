@@ -385,7 +385,7 @@ Do not run or publish a model benchmark as a promotion decision while any
 
 ### Phase A — Fast stable baseline (P0, 3–5 days)
 
-- [ ] Add stage timers for planner, SQL, embedding, Qdrant, hydration, Neo4j,
+- [x] Add stage timers for planner, SQL, embedding, Qdrant, hydration, Neo4j,
       rerank, generation, verifier, and browser TTFT.
 - [x] Move optional document recall out of the critical failure path.
 - [ ] Enforce per-route provider/candidate/context/deadline budgets.

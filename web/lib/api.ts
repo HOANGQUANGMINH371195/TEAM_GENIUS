@@ -166,6 +166,8 @@ export async function sendChatMessageStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let final: ChatResponse | null = null;
+  const streamStartedAt = typeof performance === "undefined" ? 0 : performance.now();
+  let ttftRecorded = false;
   const consumeFrame = (frame: string) => {
     const eventLine = frame.split("\n").find((line) => line.startsWith("event:"));
     const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
@@ -178,6 +180,20 @@ export async function sendChatMessageStream(
     // event body in `data:`.  Reconstruct the discriminated client event here
     // instead of incorrectly expecting a duplicate `type` field in JSON.
     const payload = { type: eventType, ...JSON.parse(dataLine.slice(5).trimStart()) } as ChatStreamEvent;
+    if (!ttftRecorded) {
+      ttftRecorded = true;
+      const durationMs = streamStartedAt
+        ? Math.max(0, Math.round(performance.now() - streamStartedAt))
+        : 0;
+      // Local browser instrumentation only.  The event carries no prompt,
+      // answer, user identity, or credential; an app shell may consume it for
+      // a TTFT histogram without adding another network request to chat.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("medipay:stream-ttft", { detail: { durationMs } }),
+        );
+      }
+    }
     onEvent(payload);
     if (payload.type === "final") {
       final = { response: payload.response, citations: payload.citations };
