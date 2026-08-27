@@ -141,3 +141,24 @@ Trước khi fit ngưỡng abstention/uncertainty, gọi thêm
 phải có nhãn độc lập từ ít nhất hai reviewer; duplicate hoặc claim thiếu một
 reviewer bị từ chối. Raw agreement chỉ là kiểm tra quy trình, không thay thế
 legal adjudication.
+
+### Human answer-review artifact
+
+Production attestation must reference a redacted, answer-hash-bound JSONL
+artifact; entering accuracy numbers without that artifact is rejected. Build a
+review packet from the immutable fixture and the live answer export:
+
+```bash
+PYTHONPATH=. uv run python eval/build_review_packet.py \
+  --fixture eval/cases/market-leadership-v1.jsonl \
+  --answers /absolute/path/answers.jsonl \
+  --release-id snapshot-<immutable-release> \
+  --output /absolute/path/human-review-packet.jsonl
+```
+
+Two independent reviewers must fill one label row per case in a separate
+`human-legal-review-v1` artifact. `eval.human_review.validate_review_panel`
+rejects duplicate, incomplete or disagreeing labels and requires at least 300
+cases. The production attestation stores the artifact path and SHA-256; the
+verifier recomputes both before accepting human metrics. Model-generated
+judgments are never treated as legal review.

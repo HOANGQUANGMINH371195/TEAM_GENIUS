@@ -477,15 +477,17 @@ baseline plus sentence reranker remains better.
   exist before any live benchmark is started.
 - `scripts/verify_release_artifacts.py` for fail-closed CI verification of the
   externally mounted release benchmark hashes and locked-suite coverage.
+- `eval/build_review_packet.py` and `eval/human_review.py` for redacted,
+  answer-hash-bound independent legal review artifacts.
 
 Current file-level delivery evidence (2026-08-27): route, calculator, viewer,
 ontology, batch, cache, release/rollback, provider-outage, Supabase-retention
 contracts, deterministic Auditor/typed-graph/planning/reranker ablation
-harnesses, reviewed-trajectory safeguards, and implementation/promotion gates
-now exist. Ablation result artifacts, the human-labelled calibration set,
-durable queue provisioning, and paired production benchmark are still absent;
-they remain evidence/deployment blockers rather than being marked complete by
-documentation alone.
+harnesses, reviewed-trajectory safeguards, answer-review packet/validator, and
+implementation/promotion gates now exist. Ablation result artifacts, the
+human-labelled calibration set, durable queue provisioning, and paired
+production benchmark are still absent; they remain evidence/deployment
+blockers rather than being marked complete by documentation alone.
 
 Definition of done: the three differentiated product features run in
 production; human accuracy, latency, and cost gates pass; rollout has canary

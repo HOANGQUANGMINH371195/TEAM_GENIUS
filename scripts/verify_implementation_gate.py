@@ -25,6 +25,8 @@ def main() -> int:
         "planning_ablation": ROOT / "eval/ablations/grounded-planning/evaluate.py",
         "reranker_ablation": ROOT / "eval/ablations/reranker/evaluate.py",
         "production_evidence_collector": ROOT / "eval/collect_production_evidence.py",
+        "human_review_validator": ROOT / "eval/human_review.py",
+        "human_review_packet_builder": ROOT / "eval/build_review_packet.py",
         "attestation": ROOT / "scripts/verify_production_attestation.py",
         "rollback": ROOT / "ops/runbooks/rollback.md",
         "outage": ROOT / "ops/runbooks/provider-outage.md",

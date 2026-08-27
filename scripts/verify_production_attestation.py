@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Any
+
+from eval.human_review import artifact_sha256, load_review_artifact, validate_review_panel
 
 
 def _number(mapping: dict[str, Any], key: str, errors: list[str]) -> float | None:
@@ -28,7 +31,41 @@ def _number(mapping: dict[str, Any], key: str, errors: list[str]) -> float | Non
     return number
 
 
-def validate_attestation(attestation: dict[str, Any]) -> dict[str, Any]:
+def _validate_review_artifact(
+    human: dict[str, Any],
+    *,
+    release_id: str,
+    base_dir: Path | None,
+    errors: list[str],
+) -> dict[str, Any] | None:
+    artifact_value = str(human.get("review_artifact") or "").strip()
+    expected_hash = str(human.get("review_artifact_sha256") or "").strip().casefold()
+    if not artifact_value:
+        errors.append("human_adjudication.review_artifact_required")
+        return None
+    if len(expected_hash) != 64 or any(char not in "0123456789abcdef" for char in expected_hash):
+        errors.append("human_adjudication.review_artifact_sha256_required")
+        return None
+    artifact_path = Path(artifact_value)
+    if not artifact_path.is_absolute() and base_dir is not None:
+        artifact_path = base_dir / artifact_path
+    try:
+        if artifact_sha256(artifact_path) != expected_hash:
+            errors.append("human_adjudication.review_artifact_hash_mismatch")
+            return None
+        manifest, labels = load_review_artifact(artifact_path)
+        if str(manifest.get("release_id")) != release_id:
+            errors.append("human_adjudication.review_artifact_release_mismatch")
+            return None
+        return validate_review_panel(manifest, labels, min_cases=300, min_reviewers=2)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"human_adjudication.review_artifact_invalid:{type(exc).__name__}")
+        return None
+
+
+def validate_attestation(
+    attestation: dict[str, Any], *, base_dir: Path | None = None
+) -> dict[str, Any]:
     errors: list[str] = []
     release_id = str(attestation.get("release_id") or "")
     if not release_id.startswith("snapshot-"):
@@ -84,6 +121,25 @@ def validate_attestation(attestation: dict[str, Any]) -> dict[str, Any]:
         errors.append("human_adjudication.catastrophic_errors_not_zero")
     if human.get("approved") is not True:
         errors.append("human_adjudication.not_approved")
+    review_summary = _validate_review_artifact(
+        human, release_id=release_id, base_dir=base_dir, errors=errors
+    )
+    if review_summary is not None:
+        expected = {
+            "cases": float(review_summary["cases"]),
+            "reviewers": float(len(review_summary["reviewers"])),
+            "critical_accuracy": float(review_summary["critical_accuracy"]),
+            "high_risk_citation_support": float(review_summary["high_risk_citation_support"]),
+            "catastrophic_errors": float(review_summary["catastrophic_errors"]),
+        }
+        for field, value in expected.items():
+            try:
+                supplied = float(human.get(field))
+            except (TypeError, ValueError):
+                errors.append(f"human_adjudication.{field}_must_match_review_artifact")
+                continue
+            if not math.isclose(supplied, value, rel_tol=0.0, abs_tol=1e-9):
+                errors.append(f"human_adjudication.{field}_does_not_match_review_artifact")
 
     drills = attestation.get("outage_drills")
     if not isinstance(drills, dict):
@@ -123,7 +179,7 @@ def main() -> int:
         value = json.loads(args.attestation.read_text(encoding="utf-8"))
         if not isinstance(value, dict):
             raise ValueError("attestation must be a JSON object")
-        report = validate_attestation(value)
+        report = validate_attestation(value, base_dir=args.attestation.parent)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         report = {"valid": False, "errors": [f"invalid_json:{exc}"]}
     if args.output:

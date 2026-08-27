@@ -71,6 +71,8 @@ def main() -> int:
         "typed_graph_ablation": ROOT / "eval/ablations/typed-graph/evaluate.py",
         "grounded_planning_ablation": ROOT / "eval/ablations/grounded-planning/evaluate.py",
         "production_evidence_collector": ROOT / "eval/collect_production_evidence.py",
+        "human_review_validator": ROOT / "eval/human_review.py",
+        "human_review_packet_builder": ROOT / "eval/build_review_packet.py",
     }
     checks = {name: path.is_file() for name, path in required.items()}
     fixture = _fixture_case_count(required["golden_calculator"])
