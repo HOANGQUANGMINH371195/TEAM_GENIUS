@@ -10,9 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from src.config import get_settings
+from src.services.metrics import metrics
 
 
 class ConversationContextCache:
@@ -20,6 +23,7 @@ class ConversationContextCache:
         self.ttl_seconds = ttl_seconds
         self.max_turns = max_turns
         self._memory: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
         self._redis = None
         if url:
             try:
@@ -39,13 +43,16 @@ class ConversationContextCache:
         if self._redis is not None:
             try:
                 raw = await self._redis.get(key)
+                metrics.inc("conversation_cache_requests_total", outcome="hit" if raw else "miss", backend="redis")
                 return json.loads(raw) if raw else None
             except Exception:
-                pass
+                metrics.inc("conversation_cache_requests_total", outcome="error", backend="redis")
         cached = self._memory.get(key)
         if not cached or time.monotonic() - cached[0] >= self.ttl_seconds:
             self._memory.pop(key, None)
+            metrics.inc("conversation_cache_requests_total", outcome="miss", backend="memory")
             return None
+        metrics.inc("conversation_cache_requests_total", outcome="hit", backend="memory")
         return [dict(item) for item in cached[1]]
 
     async def put(self, *, owner_uid: str, conversation_id: str, turns: list[dict[str, Any]]) -> None:
@@ -61,9 +68,28 @@ class ConversationContextCache:
             self._memory.pop(next(iter(self._memory)), None)
         self._memory[key] = (time.monotonic(), bounded)
 
+    async def get_or_load(
+        self,
+        *,
+        owner_uid: str,
+        conversation_id: str,
+        loader: Callable[[], Awaitable[list[dict[str, Any]]]],
+    ) -> list[dict[str, Any]]:
+        """Single-flight a cache miss so a new conversation cannot stampede SQL."""
+        key = self._key(owner_uid, conversation_id)
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            cached = await self.get(owner_uid=owner_uid, conversation_id=conversation_id)
+            if cached is not None:
+                return cached
+            turns = await loader()
+            await self.put(owner_uid=owner_uid, conversation_id=conversation_id, turns=turns)
+            return [dict(item) for item in turns[-self.max_turns :]]
+
     async def invalidate(self, *, owner_uid: str, conversation_id: str) -> None:
         key = self._key(owner_uid, conversation_id)
         self._memory.pop(key, None)
+        self._locks.pop(key, None)
         if self._redis is not None:
             try:
                 await self._redis.delete(key)

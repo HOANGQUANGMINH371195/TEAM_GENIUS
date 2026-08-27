@@ -38,17 +38,15 @@ router = APIRouter(tags=["Agent"])
 
 
 async def _recent_turns_for_request(*, owner_uid: str, conversation_id: str) -> list[dict]:
-    cache = get_conversation_cache()
-    cached = await cache.get(owner_uid=owner_uid, conversation_id=conversation_id)
-    if cached is not None:
-        return cached
-    turns = await get_conversation_store().recent_turns(
+    return await get_conversation_cache().get_or_load(
         owner_uid=owner_uid,
         conversation_id=conversation_id,
-        limit=get_settings().conversation_cache_max_turns,
+        loader=lambda: get_conversation_store().recent_turns(
+            owner_uid=owner_uid,
+            conversation_id=conversation_id,
+            limit=get_settings().conversation_cache_max_turns,
+        ),
     )
-    await cache.put(owner_uid=owner_uid, conversation_id=conversation_id, turns=turns)
-    return turns
 
 
 @router.post(
