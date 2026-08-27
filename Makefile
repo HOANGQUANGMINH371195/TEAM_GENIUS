@@ -8,7 +8,7 @@ ENV_FILE ?= .env
 LOCAL_PROFILE ?= local-full
 
 .DEFAULT_GOAL := help
-.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan promotion-gate typed-facts-export typed-facts-check typed-facts-stage \
+.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan promotion-gate typed-facts-export typed-facts-check typed-facts-stage calibrate-claims \
 	build up dev down restart logs health deploy-contract render-validate \
 	deploy-render deploy-vercel clean
 
@@ -25,6 +25,7 @@ help:
 	@echo "  make promotion-gate     Refuse model benchmark while PLAN has blockers"
 	@echo "  make typed-facts-check  Validate an accepted release fact JSONL (FACTS_FILE/RELEASE_ID)"
 	@echo "  make typed-facts-stage  Stage reviewer facts into PostgreSQL (FACTS_FILE/RELEASE_ID)"
+	@echo "  make calibrate-claims   Fit an isotonic calibrator from reviewed labels (LABELS_FILE/OUTPUT)"
 	@echo "  make render-validate    Validate render.yaml (CLI if installed, structural fallback otherwise)"
 	@echo "  make deploy-render      Trigger an existing Render service deploy"
 	@echo "  make deploy-vercel      Deploy web/ through Vercel CLI (requires VERCEL_TOKEN)"
@@ -104,6 +105,10 @@ typed-facts-check:
 typed-facts-stage:
 	@test -n "$(FACTS_FILE)" -a -n "$(RELEASE_ID)" || { echo "Set FACTS_FILE and RELEASE_ID"; exit 2; }
 	PYTHONPATH=. $(PYTHON) database/corpus/stage_reviewed_facts.py "$(FACTS_FILE)" --release-id "$(RELEASE_ID)" --env-file "$(ENV_FILE)"
+
+calibrate-claims:
+	@test -n "$(LABELS_FILE)" -a -n "$(OUTPUT)" || { echo "Set LABELS_FILE and OUTPUT"; exit 2; }
+	PYTHONPATH=. $(PYTHON) eval/calibrate_claims.py "$(LABELS_FILE)" --output "$(OUTPUT)"
 
 typed-facts-export:
 	@test -n "$(FACTS_FILE)" -a -n "$(RELEASE_ID)" || { echo "Set FACTS_FILE and RELEASE_ID"; exit 2; }

@@ -7,6 +7,24 @@ Evaluation chuẩn nằm duy nhất tại `eval/results/canonical-live-ragas/`.
 1. `report.md`: kết luận, điểm trung bình và phần dự án đang yếu.
 2. `failures.md`: từng failure thật, điểm thấp, lý do, actual answer và nơi nên kiểm tra.
 3. `summary.json`: thống kê máy đọc được theo metric, nguồn và loại câu hỏi.
+
+## Human claim calibration
+
+Confidence calibration is a separate release artifact. Prepare JSONL rows with
+`claim_id`, `confidence`, `outcome` (`0`/`1`) and an explicit `reviewer` from
+at least two independent reviewers. The fitting command rejects incomplete or
+duplicate labels and writes an isotonic (monotone) calibrator plus ECE/Brier
+metrics:
+
+```bash
+make calibrate-claims \
+  LABELS_FILE=/absolute/path/reviewed-claims.jsonl \
+  OUTPUT=eval/results/calibration-<release>.json
+```
+
+The artifact is not a legal-quality pass by itself; it becomes eligible for a
+promotion decision only after the panel and its minimum case count are
+approved.
 4. `case_scores.jsonl`: release gate đầy đủ cho toàn bộ denominator.
 5. `ragas_scores.jsonl`: năm metric official RAGAS cho từng source case.
 6. `actual_answers.jsonl`: output và retrieved context thật của agent.

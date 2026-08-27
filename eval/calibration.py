@@ -30,6 +30,51 @@ class CalibrationRecord:
             raise ValueError("outcome must be 0 or 1")
 
 
+@dataclass(frozen=True)
+class IsotonicCalibrator:
+    """Monotone confidence-to-probability map fitted from reviewed labels.
+
+    The calibrator is deliberately dependency-free so the same artifact can
+    be loaded by the API and by offline evaluation. ``thresholds`` are the
+    upper confidence edge of each pooled block and ``probabilities`` are the
+    block's observed outcome rate.  They are guaranteed to be non-decreasing.
+    """
+
+    thresholds: tuple[float, ...]
+    probabilities: tuple[float, ...]
+    cases: int
+    reviewers: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.thresholds or len(self.thresholds) != len(self.probabilities):
+            raise ValueError("calibrator needs matching non-empty thresholds and probabilities")
+        if any(not 0.0 <= value <= 1.0 for value in (*self.thresholds, *self.probabilities)):
+            raise ValueError("calibrator values must be between 0 and 1")
+        if any(left > right for left, right in zip(self.thresholds, self.thresholds[1:], strict=False)):
+            raise ValueError("calibrator thresholds must be sorted")
+        if any(left > right for left, right in zip(self.probabilities, self.probabilities[1:], strict=False)):
+            raise ValueError("calibrator probabilities must be monotone")
+        if self.cases < 1:
+            raise ValueError("calibrator cases must be positive")
+
+    def predict(self, confidence: float) -> float:
+        """Map one model confidence to a calibrated probability."""
+        value = max(0.0, min(1.0, float(confidence)))
+        for threshold, probability in zip(self.thresholds, self.probabilities, strict=True):
+            if value <= threshold:
+                return probability
+        return self.probabilities[-1]
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "method": "pool_adjacent_violators",
+            "thresholds": list(self.thresholds),
+            "probabilities": list(self.probabilities),
+            "cases": self.cases,
+            "reviewers": list(self.reviewers),
+        }
+
+
 def load_calibration_records(path: Path) -> list[CalibrationRecord]:
     """Load explicit human labels from JSONL; never infer missing labels.
 
@@ -167,3 +212,52 @@ def validate_calibration_panel(
         "raw_pair_agreement": round(pair_agreements / pair_count, 8) if pair_count else None,
         "panel_valid": True,
     }
+
+
+def fit_isotonic_calibrator(
+    records: Iterable[CalibrationRecord],
+    *,
+    min_cases: int = 30,
+    min_reviewers: int = 2,
+) -> IsotonicCalibrator:
+    """Fit a monotone calibrator after validating an independent panel.
+
+    Labels are first aggregated per claim so a claim with two reviewers does
+    not receive twice the weight of a claim with three.  The pool-adjacent-
+    violators algorithm then enforces the safety invariant that higher model
+    confidence cannot map to a lower observed probability.  No synthetic or
+    machine-generated labels are accepted because panel validation is the
+    first operation in this function.
+    """
+    rows = list(records)
+    validate_calibration_panel(rows, min_cases=min_cases, min_reviewers=min_reviewers)
+    by_claim: dict[str, list[CalibrationRecord]] = defaultdict(list)
+    for row in rows:
+        by_claim[row.claim_id].append(row)
+    points = sorted(
+        (
+            sum(row.confidence for row in labels) / len(labels),
+            sum(row.outcome for row in labels) / len(labels),
+        )
+        for labels in by_claim.values()
+    )
+
+    # Each block is [weighted confidence, weighted outcome, weight, max x].
+    blocks: list[list[float]] = []
+    for confidence, outcome in points:
+        blocks.append([confidence, outcome, 1.0, confidence])
+        while len(blocks) >= 2 and blocks[-2][1] > blocks[-1][1]:
+            left, right = blocks[-2], blocks[-1]
+            weight = left[2] + right[2]
+            blocks[-2:] = [[
+                (left[0] * left[2] + right[0] * right[2]) / weight,
+                (left[1] * left[2] + right[1] * right[2]) / weight,
+                weight,
+                right[3],
+            ]]
+    return IsotonicCalibrator(
+        thresholds=tuple(block[3] for block in blocks),
+        probabilities=tuple(block[1] for block in blocks),
+        cases=len(by_claim),
+        reviewers=tuple(sorted({row.reviewer for row in rows})),
+    )
