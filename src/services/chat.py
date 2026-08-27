@@ -602,6 +602,7 @@ class GraphRagRuntime:
         try:
             summaries: list[CommunitySummary] = []
             manifest_seen = False
+            manifest_count: int | None = None
             for line in path.read_text(encoding="utf-8").splitlines():
                 if not line.strip():
                     continue
@@ -612,6 +613,10 @@ class GraphRagRuntime:
                     manifest_seen = True
                     if str(record.get("release_id") or "") != release_id:
                         raise ValueError("community index release mismatch")
+                    try:
+                        manifest_count = int(record.get("communities"))
+                    except (TypeError, ValueError):
+                        raise ValueError("community index manifest count is invalid") from None
                     continue
                 if str(record.get("release_id") or "") != release_id:
                     raise ValueError("community summary release mismatch")
@@ -628,7 +633,7 @@ class GraphRagRuntime:
                 )
                 summary.validate()
                 summaries.append(summary)
-            if not manifest_seen or not summaries:
+            if not manifest_seen or not summaries or manifest_count != len(summaries):
                 raise ValueError("community index is missing manifest or summaries")
             loaded = tuple(summaries)
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
