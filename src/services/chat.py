@@ -2065,9 +2065,16 @@ class GraphRagRuntime:
         except Exception as exc:
             raise GraphRagUnavailableError("GraphRAG retrieval failed") from exc
 
-    async def generate(self, query: str, context: str) -> str:
+    async def generate(
+        self, query: str, context: str, *, timeout_seconds: float | None = None
+    ) -> str:
         started = time.perf_counter()
         settings = get_settings()
+        generation_timeout = (
+            max(0.25, float(timeout_seconds))
+            if timeout_seconds is not None
+            else settings.llm_timeout_seconds
+        )
         generation_trace: dict[str, Any] = {
             "stage": "generation",
             "model": settings.model_name,
@@ -2110,7 +2117,7 @@ class GraphRagRuntime:
                     ],
                     config=llm_invoke_config() or None,
                 ),
-                timeout=settings.llm_timeout_seconds,
+                timeout=generation_timeout,
             )
         except TimeoutError:
             generation_trace.update(

@@ -374,9 +374,19 @@ async def verify_evidence_node(state: AgentState) -> dict:
 
 async def generate_node(state: AgentState) -> dict:
     started = time.perf_counter()
+    route_plan = (state.get("metadata") or {}).get("route_plan") or {}
+    generation_budget_ms = route_plan.get("generation_budget_ms")
+    generation_timeout = (
+        max(0.25, float(generation_budget_ms) / 1000)
+        if isinstance(generation_budget_ms, (int, float)) and generation_budget_ms > 0
+        else None
+    )
+
     def result(response: str) -> dict:
         metadata = dict(state.get("metadata") or {})
         metadata["generation_ms"] = round((time.perf_counter() - started) * 1000, 2)
+        if generation_timeout is not None:
+            metadata["generation_budget_ms"] = round(generation_timeout * 1000, 2)
         runtime = get_runtime()
         trace_value = runtime.generation_trace() if hasattr(runtime, "generation_trace") else None
         if isinstance(trace_value, dict) and trace_value:
@@ -408,7 +418,11 @@ async def generate_node(state: AgentState) -> dict:
         and not requires_evidence_verification(state.get("query", ""))
     ):
         return result(_deterministic_legal_unit_response(evidence))
-    response = await get_runtime().generate(state.get("query", ""), state.get("context", ""))
+    response = await get_runtime().generate(
+        state.get("query", ""),
+        state.get("context", ""),
+        timeout_seconds=generation_timeout,
+    )
     return result(response)
 
 
