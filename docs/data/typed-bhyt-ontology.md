@@ -1,5 +1,9 @@
 # Typed BHYT ontology
 
+Machine-readable contract: [`typed-bhyt-ontology.json`](typed-bhyt-ontology.json).
+The JSON and this explanation must be reviewed together before any fact is
+marked `accepted`.
+
 The runtime currently stores canonical text in PostgreSQL and document
 relationships in Neo4j. This contract defines the next projection without
 making graph text authoritative.
