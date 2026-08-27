@@ -209,6 +209,58 @@ async def test_analyze_empty_message(client):
 
 
 @pytest.mark.asyncio
+async def test_calculator_scenarios_are_exact_and_bounded(client):
+    response = await client.post(
+        "/api/v1/calculator/bhyt/scenarios",
+        json={
+            "scenarios": [
+                {
+                    "label": "threshold-met",
+                    "calculation": {
+                        "covered_cost": "1000000.01",
+                        "base_rate_percent": "80",
+                        "copayment_spend": "6000000",
+                        "copayment_threshold": "6000000",
+                        "continuous_years": "5",
+                        "threshold_rate_percent": "100",
+                        "rule_provenance": ["reviewed:table-cell-1"],
+                    },
+                },
+                {
+                    "label": "base-rate",
+                    "calculation": {
+                        "covered_cost": "100",
+                        "base_rate_percent": "80",
+                    },
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["calculation"] == {
+        "covered_cost": "1000000.01",
+        "applied_rate_percent": "100.00",
+        "insurer_pays": "1000000.01",
+        "patient_pays": "0.00",
+        "threshold_met": True,
+        "formula_id": "bhyt.covered_cost.v1",
+        "provenance": ["reviewed:table-cell-1"],
+    }
+    assert response.json()["results"][1]["calculation"]["insurer_pays"] == "80.00"
+
+
+@pytest.mark.asyncio
+async def test_calculator_scenarios_reject_more_than_eight_cases(client):
+    scenarios = [
+        {"label": str(index), "calculation": {"covered_cost": "1", "base_rate_percent": "80"}}
+        for index in range(9)
+    ]
+    response = await client.post("/api/v1/calculator/bhyt/scenarios", json={"scenarios": scenarios})
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_agent_status(client):
     response = await client.get("/api/v1/status")
     assert response.status_code == 200
