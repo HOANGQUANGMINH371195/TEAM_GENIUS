@@ -8,7 +8,7 @@ ENV_FILE ?= .env
 LOCAL_PROFILE ?= local-full
 
 .DEFAULT_GOAL := help
-.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker \
+.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker collect-production-evidence \
 	build up dev down restart logs health deploy-contract render-validate \
 	deploy-render deploy-vercel clean
 
@@ -29,6 +29,7 @@ help:
 	@echo "  make typed-facts-stage  Stage reviewer facts into PostgreSQL (FACTS_FILE/RELEASE_ID)"
 	@echo "  make calibrate-claims   Fit an isotonic calibrator from reviewed labels (LABELS_FILE/OUTPUT)"
 	@echo "  make research-worker    Run the durable Redis research worker (RESEARCH_QUEUE_BACKEND=redis)"
+	@echo "  make collect-production-evidence Collect live SSE latency/TTFT evidence (ENDPOINT/FIXTURE/OUTPUT)"
 	@echo "  make render-validate    Validate render.yaml (CLI if installed, structural fallback otherwise)"
 	@echo "  make deploy-render      Trigger an existing Render service deploy"
 	@echo "  make deploy-vercel      Deploy web/ through Vercel CLI (requires VERCEL_TOKEN)"
@@ -122,6 +123,10 @@ calibrate-claims:
 
 research-worker: env-check
 	$(PYTHON) -m src.research_worker
+
+collect-production-evidence: implementation-gate
+	@test -n "$(ENDPOINT)" -a -n "$(FIXTURE)" -a -n "$(OUTPUT)" || { echo "Set ENDPOINT, FIXTURE and OUTPUT"; exit 2; }
+	$(PYTHON) eval/collect_production_evidence.py --endpoint "$(ENDPOINT)" --fixture "$(FIXTURE)" --output "$(OUTPUT)"
 
 typed-facts-export:
 	@test -n "$(FACTS_FILE)" -a -n "$(RELEASE_ID)" || { echo "Set FACTS_FILE and RELEASE_ID"; exit 2; }
