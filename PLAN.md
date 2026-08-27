@@ -369,7 +369,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields | partial: deterministic pre-score exists; calibration labels/model pending |
 | Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py` | implemented, production latency gate not proven |
 | Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
-| Decimal calculator | `src/services/calculator.py`, `/calculator/bhyt`, reviewed `table_cell_facts` retrieval, focused golden tests | partial: formula registry/100-golden and end-to-end UI still pending |
+| Decimal calculator | `src/services/calculator.py`, `/calculator/bhyt`, reviewed `table_cell_facts` retrieval, `eval/cases/calculator-golden-v1.jsonl` (100 cases) | partial: multiple formula registry and end-to-end scenario UI still pending |
 | Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py`, `web/app/document/page.tsx` | hash-verified backend/UI implemented; XSS/anchor acceptance gates pending |
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight and hit/miss metrics | partial: release-fingerprint invalidation pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
@@ -407,7 +407,7 @@ added p95 ≤1.5 seconds.
 ### Phase C — Calculator and HTML viewer (P0 product, 7–12 days)
 
 - [ ] Validate merged-cell extraction and typed facts.
-- [ ] Implement formula registry and 100 golden calculations.
+- [x] Implement formula registry and 100 golden calculations.
 - [x] Expose sanitized, hash-verified HTML and citation deep links.
 - [ ] Ship scenario comparison and eligibility clarification UI.
 

@@ -15,6 +15,15 @@ class CalculationInputError(ValueError):
     """A required or malformed calculation input was supplied."""
 
 
+FORMULA_REGISTRY: dict[str, dict[str, object]] = {
+    "bhyt.covered_cost.v1": {
+        "description": "covered cost multiplied by verified entitlement rate",
+        "inputs": ("covered_cost", "base_rate_percent", "copayment_threshold", "continuous_years"),
+        "rounding": "Decimal cents, ROUND_HALF_UP",
+    }
+}
+
+
 def _decimal(value: object, name: str) -> Decimal:
     try:
         result = Decimal(str(value))
@@ -90,12 +99,15 @@ def calculate_bhyt_benefit(
             applied_rate = _rate(threshold_rate_percent, "threshold_rate_percent")
     insurer = (cost * applied_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     patient = (cost - insurer).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    formula_id = "bhyt.covered_cost.v1"
+    if formula_id not in FORMULA_REGISTRY:
+        raise CalculationInputError("formula is not registered")
     return BenefitCalculation(
         covered_cost=cost,
         applied_rate=applied_rate,
         insurer_pays=insurer,
         patient_pays=patient,
         threshold_met=threshold_met,
-        formula_id="bhyt.covered_cost.v1",
+        formula_id=formula_id,
         provenance=tuple(rule_provenance),
     )
