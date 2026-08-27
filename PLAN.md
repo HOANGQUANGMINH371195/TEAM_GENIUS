@@ -372,7 +372,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py` | backend implemented; citation deep-link UI and XSS/anchor gates pending |
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback | partial: release-fingerprint invalidation and hit/miss telemetry pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
-| Learned sentence/cross-encoder reranker | no validated model/ablation artifact | not implemented |
+| Sentence-level rerank seam | query-derived sentence coverage in `rerank_legal_candidates` | partial: no learned cross-encoder or ablation gate |
 | Typed BHYT fact graph/PPR | document graph only | not implemented |
 | Grounded planning/uncertainty calibration | no human-labelled calibration set | not implemented |
 | Batch extraction/eval manifests | offline embedding/Qdrant batching exists | partial: provider Batch API and cost ledger pending |

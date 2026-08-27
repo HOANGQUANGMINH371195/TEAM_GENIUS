@@ -465,6 +465,22 @@ def rerank_legal_candidates(
         passage_terms = set(passage_tokens)
         metadata_terms = set(metadata_tokens)
         token_coverage = len(query_terms & passage_terms) / len(query_terms)
+        # Sentence-level coverage keeps a decisive operative clause ahead of
+        # a long background passage that happens to contain the same broad
+        # terms. It is a cheap learned-reranker seam: a cross-encoder can
+        # replace this score behind the same contract without changing the
+        # evidence or citation model.
+        sentence_coverage = max(
+            (
+                len(query_terms & {
+                    token.casefold() for token in _RETRIEVAL_TOKEN.findall(sentence)
+                })
+                / len(query_terms)
+                for sentence in re.split(r"(?<=[.!?。！？])\s+|\n+", item.content)
+                if sentence.strip()
+            ),
+            default=0.0,
+        )
         metadata_coverage = len(query_terms & metadata_terms) / len(query_terms)
         source_phrases = set(zip(passage_tokens, passage_tokens[1:]))
         source_triples = set(zip(passage_tokens, passage_tokens[1:], passage_tokens[2:]))
@@ -555,6 +571,7 @@ def rerank_legal_candidates(
         rerank_score = (
             raw_score
             + 0.16 * token_coverage
+            + 0.22 * sentence_coverage
             + 0.10 * phrase_coverage
             + 0.45 * phrase_specificity
             + 0.03 * metadata_coverage
@@ -569,6 +586,7 @@ def rerank_legal_candidates(
             **item.rank_details,
             "semantic_raw_score": raw_score,
             "query_token_coverage": token_coverage,
+            "sentence_coverage": sentence_coverage,
             "query_phrase_coverage": phrase_coverage,
             "query_phrase_specificity": phrase_specificity,
             "metadata_token_coverage": metadata_coverage,
