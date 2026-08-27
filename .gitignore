@@ -10,6 +10,7 @@ build/
 # Virtual environments
 venv/
 .venv/
+.cache/
 .eval-ragas-venv/
 env/
 

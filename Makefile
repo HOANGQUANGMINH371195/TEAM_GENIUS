@@ -1,7 +1,8 @@
 SHELL := /usr/bin/env bash
 
 COMPOSE ?= docker compose
-PYTHON ?= uv run python
+UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
+PYTHON ?= UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python
 WEB_NPM ?= npm --prefix web
 ENV_FILE ?= .env
 LOCAL_PROFILE ?= local-full
