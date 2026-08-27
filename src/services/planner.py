@@ -23,6 +23,21 @@ class GroundedPlan:
         return {"enabled": self.enabled, "missing_facts": list(self.missing_facts), "fanout": self.fanout, "depth": self.depth}
 
 
+def followup_queries(query: str, plan: GroundedPlan) -> tuple[str, ...]:
+    """Construct bounded, query-derived follow-ups for a grounded plan.
+
+    The planner never invents a legal fact or substitutes an answer phrase. It
+    only appends up to ``fanout`` terms that were absent from the preliminary
+    evidence.  The caller remains responsible for route gating and timeout.
+    """
+    if not plan.enabled or not plan.missing_facts:
+        return ()
+    base = " ".join(query.split()).strip()
+    if not base:
+        return ()
+    return tuple(f"{base} {term}" for term in plan.missing_facts[: max(0, min(plan.fanout, 3))])
+
+
 def evidence_gap_plan(query: str, evidence: Sequence[RetrievalResult], *, enabled: bool = True) -> GroundedPlan:
     """Return only query-derived gaps; no answer or domain fact is invented."""
     if not enabled:
