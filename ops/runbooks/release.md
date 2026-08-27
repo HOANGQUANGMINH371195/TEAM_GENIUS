@@ -26,14 +26,16 @@ files, parser, table extractor, or chunker change.
 
 ## Verify and cut over
 
-Run `database/corpus/verify_live_corpus_parity.py` with the exact source and
-embedding artifact. The command must report the requested fingerprint, matching
-canonical counts, zero ID/content mismatches, and no invalid embedding artifact.
-It now fails closed when `canonical_validation.json` or a rebuilt source has a
-different fingerprint. A historical `live_parity.json` is never sufficient.
+Run `database/corpus/verify_live_corpus_parity.py` with the exact source,
+embedding artifact, and the builder recorded in the release lock. For the
+active 2026-08-18 release that builder is commit `1b98f44`; pass it through
+`--pipeline-root` from a trusted checkout. The command must report the
+requested fingerprint, matching canonical counts, zero ID/content mismatches,
+and no invalid embedding artifact. It now fails closed when
+`canonical_validation.json` or a rebuilt source has a different fingerprint.
+A historical `live_parity.json` is never sufficient.
 
 Only after parity passes, call the guarded release activation function and
 verify `/health`, `/ready`, exact lookup, table calculation, citation HTML,
 high-risk abstention, and SSE. Keep the old release until rollback evidence is
 recorded.
-

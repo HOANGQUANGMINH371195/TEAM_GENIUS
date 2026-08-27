@@ -3,6 +3,8 @@
   "lock_status": "historical_source_required",
   "locked_at_utc": "2026-08-18T04:16:19.373045+00:00",
   "pipeline": {
+    "source_commit": "1b98f44",
+    "source_commit_note": "Historical builder used for the 2026-08-18 active release; do not substitute a newer parser/chunker.",
     "build_version": "fully-reviewed-corpus-v1",
     "pipeline_version": "canonical-evidence-v5",
     "normalizer_version": "html-visible-text-v1",

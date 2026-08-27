@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -20,16 +21,25 @@ from qdrant_client import QdrantClient, models
 
 load_dotenv()
 
-PIPELINE_ROOT = Path(__file__).resolve().parents[1] / "pipeline"
-if str(PIPELINE_ROOT) not in sys.path:
-    sys.path.insert(0, str(PIPELINE_ROOT))
-
-from data_pipeline.canonical import build_snapshot  # noqa: E402
-
 
 def read_csv(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8-sig", newline="") as handle:
         return [dict(row) for row in csv.DictReader(handle)]
+
+
+def load_snapshot_builder(pipeline_root: Path | None = None) -> Callable[..., Any]:
+    """Load the canonical builder from an explicitly selected code release.
+
+    Parser/chunker behavior is part of a dataset fingerprint.  A parity check
+    must therefore be able to run the exact builder used to create the release,
+    rather than silently importing whatever code happens to be deployed today.
+    """
+    root = pipeline_root or Path(__file__).resolve().parents[1] / "pipeline"
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    from data_pipeline.canonical import build_snapshot
+
+    return build_snapshot
 
 
 def connection() -> psycopg.Connection[Any]:
@@ -88,6 +98,10 @@ def main() -> int:
         "--release-lock", type=Path,
         help="Optional tracked release lock containing source hashes, versions and expected counts.",
     )
+    parser.add_argument(
+        "--pipeline-root", type=Path,
+        help="Pipeline package root used to build this release (defaults to the current repository code).",
+    )
     args = parser.parse_args()
 
     metadata = read_csv(args.source_dir / "metadata.csv")
@@ -105,7 +119,7 @@ def main() -> int:
         for row in relationships
     }
     validation = json.loads((args.source_dir / "canonical_validation.json").read_text(encoding="utf-8"))
-    snapshot = build_snapshot(args.source_dir)
+    snapshot = load_snapshot_builder(args.pipeline_root)(args.source_dir)
     # A release ID is a content fingerprint, not a caller-provided label.  A
     # source directory that was rebuilt with a newer parser/chunker must fail
     # loudly instead of producing an opaque passage-ID mismatch later.  This
