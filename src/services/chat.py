@@ -44,6 +44,7 @@ from src.services.retrieval import (
     requires_clause_expansion,
     requires_evidence_verification,
     rerank_legal_candidates,
+    filter_current_authority_candidates,
     retrieval_intent,
     scope_evidence_matches_query,
     weighted_rrf,
@@ -1916,6 +1917,7 @@ class GraphRagRuntime:
             # dense/BM25 matches that merely co-occur across channels.
             if settings.feature_reranker_enabled:
                 fused_evidence = rerank_legal_candidates(query, fused_evidence)
+            fused_evidence = filter_current_authority_candidates(query, fused_evidence)
             fused_evidence = exclude_unverified_legacy_subordinate_sources(query, fused_evidence)
             if operative_anchors:
                 anchor_ids = {item.chunk_id for item in operative_anchors[:2]}

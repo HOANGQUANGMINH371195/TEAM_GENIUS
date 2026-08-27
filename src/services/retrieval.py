@@ -169,6 +169,47 @@ def exclude_unverified_legacy_subordinate_sources(
     return retained
 
 
+def filter_current_authority_candidates(
+    query: str, hits: Sequence[RetrievalResult]
+) -> list[RetrievalResult]:
+    """Drop stale subordinate reproductions when a current rule is requested.
+
+    This is a generic temporal/authority guard, not a mapping from a question
+    to a known answer. If the corpus has no current authority for the request,
+    returning fewer candidates is safer than presenting a historical local
+    reproduction as the present national rule.
+    """
+    if not hits or extract_document_numbers(query):
+        return list(hits)
+    lowered = query.casefold()
+    if any(marker in lowered for marker in ("trước ngày", "vào năm", "lịch sử", "thời điểm đó")):
+        return list(hits)
+    asks_current = any(marker in lowered for marker in ("hiện nay", "hiện hành", "hiện tại", "năm 2026"))
+    if not asks_current:
+        return list(hits)
+    current_year = date.today().year
+
+    def year(item: RetrievalResult) -> int:
+        values = re.findall(r"\b(?:19|20)\d{2}\b", " ".join((item.issued_date, item.effective_from, item.document_number, item.title)))
+        return max((int(value) for value in values), default=0)
+
+    def subordinate(item: RetrievalResult) -> bool:
+        authority = " ".join((item.document_type, item.title)).casefold()
+        return any(marker in authority for marker in ("quyết định", "thông tư", "công văn", "hướng dẫn"))
+
+    current = [item for item in hits if year(item) >= current_year - 2 or item.legal_status_verified]
+    filtered = [
+        item for item in hits
+        if not (subordinate(item) and year(item) and year(item) < current_year - 2 and not item.legal_status_verified)
+    ]
+    # If the remaining pool has no current authority at all, do not let a
+    # stale subordinate source become an answer merely because it is the only
+    # lexical match.
+    if current and filtered:
+        return filtered
+    return [item for item in filtered if year(item) >= current_year - 2 or not year(item)]
+
+
 def scope_evidence_matches_query(
     query: str, item: RetrievalResult, *, candidate_pool: Sequence[RetrievalResult]
 ) -> bool:

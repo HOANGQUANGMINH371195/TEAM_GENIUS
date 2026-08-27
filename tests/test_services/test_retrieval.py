@@ -5,6 +5,7 @@ from src.models.graph import RetrievalResult
 from src.services.retrieval import (
     decompose_query,
     exclude_unverified_legacy_subordinate_sources,
+    filter_current_authority_candidates,
     extract_document_numbers,
     is_metadata_question,
     is_simple_status_metadata_question,
@@ -42,6 +43,19 @@ def test_query_decomposition_is_bounded_and_conservative():
     parts = decompose_query("mức hưởng BHYT hiện hành và điều kiện thanh toán chi phí")
     assert parts == ["mức hưởng BHYT hiện hành", "điều kiện thanh toán chi phí"]
     assert decompose_query("một câu hỏi đơn") == ["một câu hỏi đơn"]
+
+
+def test_current_question_drops_unverified_historical_subordinate_source():
+    stale = RetrievalResult(
+        chunk_id="old", document_id="old", title="Quyết định địa phương", document_type="Quyết định",
+        issued_date="1998-01-01", content="Mức đóng cũ.",
+    )
+    current = RetrievalResult(
+        chunk_id="new", document_id="new", title="Luật bảo hiểm y tế", document_type="Luật",
+        issued_date="2024-11-27", content="Quy định hiện hành.",
+    )
+    result = filter_current_authority_candidates("Mức đóng BHYT năm 2026 là bao nhiêu?", [stale, current])
+    assert [item.chunk_id for item in result] == ["new"]
 
 
 def test_lexical_phrase_generation_is_query_derived_and_bounded():
