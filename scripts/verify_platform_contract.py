@@ -47,6 +47,7 @@ def main() -> int:
                 "QDRANT_API_KEY",
                 "NEO4J_PASSWORD",
                 "OPENAI_API_KEY",
+                "LANGFUSE_SECRET_KEY",
                 "FIREBASE_SERVICE_ACCOUNT_JSON",
                 "METRICS_TOKEN",
             )
@@ -55,6 +56,10 @@ def main() -> int:
         or 'os.environ.get("PORT", "8000")' in (ROOT / "src/runtime_entrypoint.py").read_text(encoding="utf-8"),
         "backend_binds_all_interfaces": 'host="0.0.0.0"' in (ROOT / "src/runtime_entrypoint.py").read_text(encoding="utf-8"),
         "backend_healthcheck_uses_port": "os.getenv('PORT', '8000')" in dockerfile,
+        "compose_passes_langfuse_without_baking_secrets": all(
+            f"LANGFUSE_{name}:" in compose
+            for name in ("PUBLIC_KEY", "SECRET_KEY", "HOST", "BASE_URL")
+        ),
         "backend_runtime_is_non_root": "distroless/python3-debian12:nonroot" in dockerfile,
         "web_runtime_is_non_root": "cgr.dev/chainguard/node" in web_dockerfile,
         "vercel_is_nextjs": vercel.get("framework") == "nextjs",

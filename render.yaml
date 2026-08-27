@@ -35,6 +35,14 @@ services:
         value: neo4j
       - key: OPENAI_API_KEY
         sync: false
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: LANGFUSE_HOST
+        sync: false
+      - key: LANGFUSE_BASE_URL
+        sync: false
       - key: MODEL_NAME
         sync: false
       - key: LLM_MAX_OUTPUT_TOKENS
