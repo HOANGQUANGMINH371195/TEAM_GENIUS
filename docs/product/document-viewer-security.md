@@ -10,6 +10,9 @@ active URL schemes are removed. It sends `nosniff`, `frame-ancestors 'none'`,
 `base-uri 'none'`, and a restrictive CSP. Raw HTML hashes remain server-side;
 the release repository verifies source content before ingest.
 
-The frontend must render this fragment in the trusted viewer shell and show
-the public document number, effective interval and official URL from the
-citation contract. Add XSS and citation-anchor fixtures before public launch.
+The frontend renders this fragment in the trusted viewer shell and shows the
+public document number, effective interval and official URL from the citation
+contract. `tests/test_document_viewer.py` and
+`tests/test_api/test_document_viewer_endpoint.py` cover XSS removal, internal
+anchors, hash mismatch, and path traversal; managed-browser smoke remains a
+release gate.

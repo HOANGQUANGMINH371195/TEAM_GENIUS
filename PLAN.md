@@ -56,16 +56,14 @@ Present foundations:
 - Safe SSE envelope, release-aware local caches, provider guards, and evals.
 - Offline embedding batches and bounded subquery embedding/Qdrant batches.
 
-Open product/algorithm gaps:
-
-- No production deterministic calculator for legal tables.
-- Raw HTML exists, but no complete production document viewer.
-- No shared per-user context cache; recent turns are still loaded from DB.
-- No independently validated sentence/cross-encoder reranker.
-- Neo4j graph is document-oriented, not a typed BHYT fact graph.
-- Planner/router remains heuristic and does not enforce per-route cost budgets.
-- No grounded planning, bounded PPR, or calibrated claim uncertainty online.
-- Offline provider batching is not used systematically for extraction/eval.
+Implementation is now present for the calculator, sanitized viewer, private
+cache, typed-fact projection, route budgets, bounded grounded planning, claim
+uncertainty schema, and immutable batch manifests. The remaining gaps are
+validation gates rather than missing modules: independent human labels,
+authenticated production latency/outage evidence, learned-reranker ablation,
+live projection parity, and reconciled provider-batch cost records. These
+must stay visible until their evidence artifacts exist; code presence alone is
+not a promotion decision.
 
 Managed-data constraints:
 
