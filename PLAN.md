@@ -429,7 +429,8 @@ and Neo4j-outage degraded mode passes.
 ### Phase E — Grounded planning/global research (P2, gated)
 
 - [x] Grounded-planning PoC with fan-out ≤3 and depth ≤2.
-- [ ] Community/global/DRIFT retrieval only on curated async thematic routes (route selection is present; the curated summary index and async worker remain gated).
+- [x] Add deterministic release-scoped community summary builder and bounded DRIFT-style selector (`src/services/global_retrieval.py`, `database/corpus/build_community_index.py`); summaries remain navigation hints and must be hydrated from PostgreSQL.
+- [ ] Wire the curated index to an async thematic worker and compare against the fast hybrid baseline.
 - [ ] Experience retrieval only from reviewed, de-identified traces.
 
 Exit: completeness gain within async cost budget; reject if the fast hybrid

@@ -37,3 +37,10 @@ def test_global_route_is_bounded_and_keeps_graph_optional():
     assert plan.route == "global"
     assert plan.risk == "medium"
     assert "neo4j" not in plan.providers
+
+
+def test_global_route_opt_in_adds_community_navigation_provider():
+    settings = Settings(feature_global_search_enabled=True)
+    plan = build_route_plan("Tổng quan các quy định liên quan đến BHYT", settings=settings)
+    assert plan.route == "global"
+    assert "community" in plan.providers

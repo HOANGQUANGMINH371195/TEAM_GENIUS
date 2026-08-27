@@ -128,3 +128,21 @@ make typed-facts-stage \
 The command performs no LLM extraction and never mutates canonical text. Run
 `typed-facts-check`/the Neo4j importer only after staging and independent
 review; an empty export is an explicit safe state, not a failed import.
+
+## Curated community/global index
+
+Global and DRIFT-style retrieval is intentionally asynchronous and opt-in. A
+reviewed annotation JSONL can be compiled into a release-scoped summary index:
+
+```bash
+uv run python database/corpus/build_community_index.py \
+  /absolute/path/community-passages.jsonl \
+  --release-id snapshot-c439751724ab7f10 \
+  --output /absolute/path/community-index.jsonl
+```
+
+The input must supply `community_id`, `document_id`, `passage_id`, and
+canonical passage `text`. The builder only concatenates bounded source text
+and records a source hash; it does not infer clusters or call an LLM. Online
+code may use the index to choose document IDs, but must hydrate and verify the
+canonical PostgreSQL passages before generation or citation.

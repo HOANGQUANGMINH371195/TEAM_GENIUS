@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
 import time
@@ -11,6 +12,7 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from datetime import date
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, TypeVar
 from uuid import uuid4
 
@@ -28,6 +30,7 @@ from src.integrations.neo4j import Neo4jGraphStore
 from src.integrations.qdrant import QdrantVectorStore, VectorHit
 from src.models.graph import Citation, DocumentCandidate, RetrievalResult
 from src.services.circuit import AsyncCircuitBreaker
+from src.services.global_retrieval import CommunitySummary, drift_search
 from src.services.llm import get_llm
 from src.services.metrics import metrics
 from src.services.query_rewrite import rewrite_retrieval_query, should_rewrite_query
@@ -150,6 +153,7 @@ class GraphRagRuntime:
         self._answer_cache: dict[tuple[tuple[object, ...], str], tuple[str, float]] = {}
         self._readiness_cache: tuple[dict[str, bool], float] | None = None
         self._readiness_task: asyncio.Task[dict[str, bool]] | None = None
+        self._community_index_cache: tuple[str, int, str, tuple[CommunitySummary, ...]] | None = None
 
     def _get_embeddings(self) -> EmbeddingModel:
         if self._embeddings is None:
@@ -575,6 +579,81 @@ class GraphRagRuntime:
         self._exact_cache[key] = (documents, now)
         return documents
 
+    def _load_community_summaries(self, *, release_id: str) -> tuple[CommunitySummary, ...]:
+        """Load an optional immutable community index for one active release.
+
+        The index is a navigation accelerator only. Invalid, mixed-release,
+        or absent files fail closed to the normal hybrid route; its text is
+        never returned as evidence without PostgreSQL hydration.
+        """
+        settings = get_settings()
+        if not settings.feature_global_search_enabled or not settings.community_index_path:
+            return ()
+        path = Path(settings.community_index_path)
+        try:
+            stat = path.stat()
+        except OSError:
+            metrics.inc("global_index_load_total", outcome="missing")
+            return ()
+        cache = self._community_index_cache
+        cache_key = (str(path), stat.st_mtime_ns, release_id)
+        if cache and cache[:3] == cache_key:
+            return cache[3]
+        try:
+            summaries: list[CommunitySummary] = []
+            manifest_seen = False
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                if not isinstance(record, dict):
+                    raise ValueError("community index row must be an object")
+                if record.get("index") == "community-summary-v1":
+                    manifest_seen = True
+                    if str(record.get("release_id") or "") != release_id:
+                        raise ValueError("community index release mismatch")
+                    continue
+                if str(record.get("release_id") or "") != release_id:
+                    raise ValueError("community summary release mismatch")
+                summary = CommunitySummary(
+                    community_id=str(record.get("community_id") or ""),
+                    release_id=str(record.get("release_id") or ""),
+                    title=str(record.get("title") or ""),
+                    document_ids=tuple(str(value) for value in (record.get("document_ids") or [])),
+                    text=str(record.get("text") or ""),
+                    source_passage_ids=tuple(
+                        str(value) for value in (record.get("source_passage_ids") or [])
+                    ),
+                    content_sha256=str(record.get("content_sha256") or ""),
+                )
+                summary.validate()
+                summaries.append(summary)
+            if not manifest_seen or not summaries:
+                raise ValueError("community index is missing manifest or summaries")
+            loaded = tuple(summaries)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            metrics.inc("global_index_load_total", outcome="invalid")
+            self._community_index_cache = None
+            return ()
+        self._community_index_cache = (*cache_key, loaded)
+        metrics.inc("global_index_load_total", outcome="success", communities=len(loaded))
+        return loaded
+
+    def _global_document_ids(self, query: str, *, release_id: str) -> list[str]:
+        """Return bounded document seeds from the optional DRIFT selector."""
+        settings = get_settings()
+        summaries = self._load_community_summaries(release_id=release_id)
+        hits = drift_search(
+            query,
+            summaries,
+            max_hits=settings.global_max_communities,
+            max_rounds=settings.global_max_rounds,
+        )
+        document_ids = list(
+            dict.fromkeys(document_id for hit in hits for document_id in hit.document_ids)
+        )
+        return document_ids[: settings.retrieval_candidate_k]
+
     async def _retrieve(self, query: str) -> RetrievalBundle:
         return await self._retrieve_staged(query)
 
@@ -636,6 +715,15 @@ class GraphRagRuntime:
                 if signature_matches:
                     exact_candidates = signature_matches
                 intent = retrieval_intent(query)
+                global_document_ids: list[str] = []
+                if route_plan.route == "global" and settings.feature_global_search_enabled:
+                    global_started = time.perf_counter()
+                    global_document_ids = self._global_document_ids(query, release_id=dataset_id)
+                    _record_trace_event(
+                        "community:drift_select",
+                        global_started,
+                        result_count=len(global_document_ids),
+                    )
                 if (
                     is_metadata_question(query)
                     and (intent == "lookup" or is_simple_status_metadata_question(query))
@@ -802,7 +890,7 @@ class GraphRagRuntime:
             # set as a soft lexical scope as well: it keeps lexical ranking
             # focused on the governing instruments instead of returning the
             # first UUID-ordered chunks from the whole corpus.
-            search_document_ids = exact_document_ids or document_recall_ids or None
+            search_document_ids = exact_document_ids or global_document_ids or document_recall_ids or None
             # The final context is at most a dozen passages. Fetching 60
             # candidates makes the subsequent hydrate/scope CTE dominate
             # latency on managed Postgres without improving the top-ranked

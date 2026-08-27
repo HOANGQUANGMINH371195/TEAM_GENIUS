@@ -103,6 +103,9 @@ class Settings(BaseSettings):
     reranker_backend: Literal["heuristic", "cross_encoder"] = "heuristic"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     reranker_max_candidates: int = Field(default=30, ge=1, le=64)
+    community_index_path: str = ""
+    global_max_communities: int = Field(default=3, ge=1, le=12)
+    global_max_rounds: int = Field(default=2, ge=1, le=3)
 
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
@@ -116,6 +119,7 @@ class Settings(BaseSettings):
     feature_calculator_enabled: bool = True
     feature_viewer_enabled: bool = True
     feature_graph_enabled: bool = True
+    feature_global_search_enabled: bool = False
 
     # Firebase Admin SDK
     firebase_service_account_json: str = ""

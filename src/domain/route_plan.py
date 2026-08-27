@@ -112,6 +112,8 @@ def build_route_plan(query: str, *, settings) -> RoutePlan:
     providers: list[str] = ["postgres"]
     if route in {"topical", "temporal", "relational", "global", "deep"}:
         providers.append("qdrant")
+    if route == "global" and getattr(settings, "feature_global_search_enabled", False):
+        providers.append("community")
     if route in {"temporal", "relational"} and getattr(settings, "feature_graph_enabled", True):
         providers.append("neo4j")
     required_facts = ("authority", "conditions", "exceptions", "effective_interval") if risk == "high" else ("authority",)
