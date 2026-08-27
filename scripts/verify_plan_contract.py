@@ -50,6 +50,7 @@ def main() -> int:
         "calibration_metrics": ROOT / "eval/calibration.py",
         "typed_fact_importer": ROOT / "database/neo4j/scripts/import_typed_facts.py",
         "typed_graph_acceptance_tests": ROOT / "tests/test_integrations/test_neo4j_typed_facts.py",
+        "neo4j_cleanup_guard": ROOT / "database/neo4j/scripts/cleanup_stale_release.py",
         "scenario_page": ROOT / "web/app/calculator/page.tsx",
         "promotion_gate": ROOT / "scripts/verify_promotion_gate.py",
         "reranker_backend": ROOT / "src/services/reranker.py",
