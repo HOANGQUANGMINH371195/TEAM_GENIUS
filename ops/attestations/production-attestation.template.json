@@ -30,6 +30,8 @@
     }
   ],
   "human_adjudication": {
+    "review_artifact": "human-review.jsonl",
+    "review_artifact_sha256": null,
     "critical_accuracy": null,
     "high_risk_citation_support": null,
     "calculator_exactness": null,
