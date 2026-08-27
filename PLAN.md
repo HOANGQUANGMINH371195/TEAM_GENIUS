@@ -363,7 +363,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Area | Current evidence | Status |
 |---|---|---|
 | Local Docker stack/readiness | Docker Desktop `local-full` profile started from `/home/minh/projects/team-Vin-genius/.env`; Postgres, Qdrant, Neo4j, Redis, API and web containers up; `/health` and `/ready` return 200 after provider variables are loaded. Additive migrations `20260824_document_lexical_index` and `20260827_typed_legal_facts` applied; API image rebuilt from current source. | repository/developer smoke passed; managed deployment attestation still external |
-| Typed route contract | `src/domain/route_plan.py`, route metadata in intake, provider allow-list, route-scoped candidate/context caps, retrieval fallback deadline and generation timeout | implemented; production calibration/latency proof pending |
+| Typed route contract | `src/domain/route_plan.py`, route metadata in intake, provider allow-list, route-scoped candidate/context caps, retrieval fallback deadline and generation timeout. Query-shape routing now distinguishes policy/exact/table/topical/temporal/relational/global/deep without mapping a legal topic to an answer. | implemented; production calibration/latency proof pending |
 | Stage telemetry | `retrieval_trace`, `planner_ms`, `verification_ms`, `guardrail_ms`, provider/generation timers, allowlisted Langfuse stage export, browser TTFT event | repository telemetry/export implemented; managed dashboard and authenticated browser TTFT proof pending |
 | Evidence-gap planning | `src/services/planner.py`, bounded fan-out/depth follow-up retrieval on relational/temporal/deep routes | partial: calibration and independent completeness proof pending |
 | Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields, `eval/calibration.py` human-label metrics | partial: reviewed calibration labels/model fitting pending |
@@ -427,7 +427,7 @@ and Neo4j-outage degraded mode passes.
 ### Phase E — Grounded planning/global research (P2, gated)
 
 - [x] Grounded-planning PoC with fan-out ≤3 and depth ≤2.
-- [ ] Community/global/DRIFT only on curated async thematic routes.
+- [ ] Community/global/DRIFT retrieval only on curated async thematic routes (route selection is present; the curated summary index and async worker remain gated).
 - [ ] Experience retrieval only from reviewed, de-identified traces.
 
 Exit: completeness gain within async cost budget; reject if the fast hybrid

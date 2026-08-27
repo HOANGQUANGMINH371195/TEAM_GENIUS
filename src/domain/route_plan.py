@@ -69,7 +69,28 @@ def build_route_plan(query: str, *, settings) -> RoutePlan:
         )
 
     intent = retrieval_intent(query) if getattr(settings, "feature_planner_enabled", True) else "thematic"
-    if extract_document_numbers(query) or intent == "lookup":
+    # Global/deep are query-shape routes, not a closed list of legal topics.
+    # They opt into a larger bounded evidence budget; the planner still has
+    # to prove an evidence gap before it fans out.
+    deep_shape = any(
+        marker in normalized
+        for marker in (
+            "phân tích sâu", "phân tích toàn diện", "đánh giá toàn diện",
+            "tổng hợp nhiều văn bản", "so sánh toàn diện", "bức tranh toàn cảnh",
+        )
+    )
+    global_shape = any(
+        marker in normalized
+        for marker in (
+            "tổng quan", "toàn bộ quy định", "các quy định liên quan",
+            "so sánh các quy định", "quy định trên toàn quốc",
+        )
+    )
+    if deep_shape:
+        route = "deep"
+    elif global_shape:
+        route = "global"
+    elif extract_document_numbers(query) or intent == "lookup":
         route: Route = "exact"
     elif any(token in normalized for token in ("bao nhiêu tiền", "bao nhiêu %", "phần trăm", "tính", "chi phí")):
         route = "table"
@@ -99,7 +120,7 @@ def build_route_plan(query: str, *, settings) -> RoutePlan:
         risk=risk,
         required_facts=required_facts,
         providers=tuple(providers),
-        retrieval_budget_ms=15_000 if route in {"temporal", "relational"} else 8_000,
+        retrieval_budget_ms=15_000 if route in {"temporal", "relational", "global", "deep"} else 8_000,
         generation_budget_ms=int(float(settings.llm_timeout_seconds) * 1000),
         max_candidates=min(int(settings.retrieval_candidate_k), 30 if route != "exact" else 12),
         context_budget=min(int(settings.max_context_chars), 100_000),

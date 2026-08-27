@@ -22,3 +22,18 @@ def test_table_route_requires_postgres_and_qdrant_is_not_needed_for_arithmetic()
     plan = build_route_plan("BHYT thanh toán bao nhiêu phần trăm chi phí?", settings=Settings())
     assert plan.route == "table"
     assert plan.providers == ("postgres",)
+
+
+def test_deep_route_is_reserved_for_explicit_multi_source_analysis():
+    plan = build_route_plan("Phân tích sâu các quy định liên quan đến BHYT", settings=Settings())
+    assert plan.route == "deep"
+    assert plan.retrieval_budget_ms == 15_000
+    assert "qdrant" in plan.providers
+
+
+def test_global_route_is_bounded_and_keeps_graph_optional():
+    settings = Settings(feature_graph_enabled=False)
+    plan = build_route_plan("Tổng quan các quy định liên quan đến BHYT", settings=settings)
+    assert plan.route == "global"
+    assert plan.risk == "medium"
+    assert "neo4j" not in plan.providers
