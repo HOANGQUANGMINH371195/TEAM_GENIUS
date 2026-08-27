@@ -21,6 +21,7 @@ from src.agents.prompts import NO_EVIDENCE_RESPONSE, SYSTEM_PROMPT
 from src.config import get_settings
 from src.db.repositories import GraphRepository
 from src.db.session import dispose_database, session_scope
+from src.domain.route_plan import build_route_plan
 from src.integrations.embeddings import EmbeddingModel, get_embedding_model
 from src.integrations.langfuse import llm_invoke_config, trace_span
 from src.integrations.neo4j import Neo4jGraphStore
@@ -614,6 +615,7 @@ class GraphRagRuntime:
     ) -> RetrievalBundle:
         """Retrieve in bounded DB phases; never hold a SQL session over providers."""
         settings = get_settings()
+        route_plan = build_route_plan(query, settings=settings)
 
         async def lexical_search(
             *, dataset_id: str, document_ids: Sequence[str] | None = None, limit: int
@@ -831,6 +833,7 @@ class GraphRagRuntime:
             # evidence. Keep a bounded 2x context head for the reranker.
             passage_candidate_limit = min(
                 settings.retrieval_candidate_k,
+                route_plan.max_candidates,
                 max(settings.max_llm_evidence * 2, 24),
             )
             lexical_task = asyncio.create_task(

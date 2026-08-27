@@ -364,7 +364,7 @@ blocked until the remaining P0 items below are implemented and verified.
 
 | Area | Current evidence | Status |
 |---|---|---|
-| Typed route contract | `src/domain/route_plan.py`, route metadata in intake | partial: budgets are described but not yet enforced per request |
+| Typed route contract | `src/domain/route_plan.py`, route metadata in intake, route-scoped candidate/context caps | partial: provider deadline enforcement and production calibration pending |
 | Stage telemetry | `retrieval_trace`, `planner_ms`, `verification_ms`, `guardrail_ms`, provider and generation timers | partial: browser TTFT and production export/dashboard pending |
 | Evidence-gap planning | `src/services/planner.py`, bounded fan-out/depth metadata | partial: gap inventory is recorded; follow-up retrieval loop and calibration pending |
 | Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields | partial: deterministic pre-score exists; calibration labels/model pending |

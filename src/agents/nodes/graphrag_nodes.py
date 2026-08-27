@@ -156,10 +156,14 @@ async def assemble_context_node(state: AgentState) -> dict:
     evidence: list[RetrievalResult] = state.get("retrieved_evidence", [])
     relations: list[Relation] = state.get("graph_results", [])
     settings = get_settings()
+    route_plan = (state.get("metadata") or {}).get("route_plan") or {}
+    route_context_budget = route_plan.get("context_budget")
+    if not isinstance(route_context_budget, int) or route_context_budget <= 0:
+        route_context_budget = settings.max_context_chars
     context = _pack_context(
         evidence,
         relations,
-        settings.max_context_chars,
+        min(settings.max_context_chars, route_context_budget),
         token_budget=settings.max_context_tokens,
         model=settings.model_name,
     )
