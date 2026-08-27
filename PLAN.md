@@ -371,7 +371,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
 | Decimal calculator | `src/services/calculator.py`, `/calculator/bhyt`, reviewed `table_cell_facts` retrieval, focused golden tests | partial: formula registry/100-golden and end-to-end UI still pending |
 | Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py`, `web/app/document/page.tsx` | backend/UI implemented; XSS/anchor acceptance gates pending |
-| Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback | partial: release-fingerprint invalidation and hit/miss telemetry pending |
+| Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight and hit/miss metrics | partial: release-fingerprint invalidation pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
 | Sentence-level rerank seam | query-derived sentence coverage in `rerank_legal_candidates`; `eval/ablations/reranker/` contract | partial: no learned cross-encoder or ablation result |
 | Typed BHYT fact graph/PPR | document graph only | not implemented |
