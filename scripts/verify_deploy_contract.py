@@ -27,7 +27,7 @@ def command(*args: str) -> str:
 def image_size(image: str) -> int | None:
     try:
         return int(command("docker", "image", "inspect", image, "--format", "{{.Size}}").strip())
-    except (subprocess.CalledProcessError, ValueError):
+    except (FileNotFoundError, subprocess.CalledProcessError, ValueError):
         return None
 
 
@@ -35,7 +35,7 @@ def volume_sizes(profile: str) -> dict[str, int | None]:
     """Return byte sizes for named Compose volumes without reading their contents."""
     try:
         payload = json.loads(command("docker", "compose", "--profile", profile, "config", "--format", "json"))
-    except (subprocess.CalledProcessError, json.JSONDecodeError):
+    except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError):
         return {}
     volumes = payload.get("volumes", {})
     result: dict[str, int | None] = {}
@@ -53,7 +53,7 @@ def volume_sizes(profile: str) -> dict[str, int | None]:
                     "postgres:16.4-alpine", "du", "-sb", "/data",
                 )
                 result[volume_name] = int(measured.split()[0])
-        except (subprocess.CalledProcessError, ValueError, IndexError):
+        except (FileNotFoundError, subprocess.CalledProcessError, ValueError, IndexError):
             result[volume_name] = None
     return result
 
@@ -82,7 +82,15 @@ def sarif_result_count(path: Path) -> int | None:
 
 
 def inspect_profile(profile: str) -> dict[str, Any]:
-    payload = json.loads(command("docker", "compose", "--profile", profile, "config", "--format", "json"))
+    try:
+        payload = json.loads(command("docker", "compose", "--profile", profile, "config", "--format", "json"))
+    except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        return {
+            "available": False,
+            "service_count": 0,
+            "services": [],
+            "violations": [f"docker runtime unavailable: {type(exc).__name__}"],
+        }
     services = payload.get("services", {})
     violations: list[str] = []
     for name, service in services.items():
@@ -93,7 +101,7 @@ def inspect_profile(profile: str) -> dict[str, Any]:
                     violations.append(f"{name}: data service port is not loopback-bound in {profile}")
         if name in {"api-local", "web-local", "migrate"} and not service.get("read_only"):
             violations.append(f"{name}: read_only contract missing")
-    return {"service_count": len(services), "services": sorted(services), "violations": violations}
+    return {"available": True, "service_count": len(services), "services": sorted(services), "violations": violations}
 
 
 def main() -> int:
