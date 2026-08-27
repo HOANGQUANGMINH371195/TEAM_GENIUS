@@ -459,8 +459,9 @@ baseline plus sentence reranker remains better.
 - Feature flags for planner, reranker, Auditor, calculator, viewer, and graph.
 
 Current file-level delivery evidence (2026-08-27): route, calculator, viewer,
-ontology, batch, cache, provider-outage, Supabase-retention contracts, and
-ablation directory contracts, and the promotion gate now exist. Ablation result artifacts, the
+ontology, batch, cache, release/rollback, provider-outage, Supabase-retention
+contracts, and ablation directory contracts, and the promotion gate now exist.
+Ablation result artifacts, the
 human-labelled calibration set, and paired production benchmark are still
 absent; acceptance gates remain release blockers rather than being marked
 complete by documentation alone.

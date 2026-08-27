@@ -33,6 +33,8 @@ def main() -> int:
         "viewer_acceptance_tests": ROOT / "tests/test_api/test_document_viewer_endpoint.py",
         "typed_ontology": ROOT / "docs/data/typed-bhyt-ontology.md",
         "cache_runbook": ROOT / "ops/runbooks/cache.md",
+        "release_runbook": ROOT / "ops/runbooks/release.md",
+        "rollback_runbook": ROOT / "ops/runbooks/rollback.md",
         "outage_runbook": ROOT / "ops/runbooks/provider-outage.md",
         "retention_runbook": ROOT / "ops/runbooks/supabase-retention.md",
         "route_module": ROOT / "src/domain/route_plan.py",
@@ -50,6 +52,7 @@ def main() -> int:
         "scenario_page": ROOT / "web/app/calculator/page.tsx",
         "promotion_gate": ROOT / "scripts/verify_promotion_gate.py",
         "reranker_backend": ROOT / "src/services/reranker.py",
+        "parity_verifier": ROOT / "database/corpus/verify_live_corpus_parity.py",
     }
     checks = {name: path.is_file() for name, path in required.items()}
     fixture = _fixture_case_count(required["golden_calculator"])
