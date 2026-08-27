@@ -430,7 +430,8 @@ and Neo4j-outage degraded mode passes.
 
 - [x] Grounded-planning PoC with fan-out ≤3 and depth ≤2.
 - [x] Add deterministic release-scoped community summary builder and bounded DRIFT-style selector (`src/services/global_retrieval.py`, `database/corpus/build_community_index.py`); summaries remain navigation hints and must be hydrated from PostgreSQL.
-- [ ] Wire the curated index to an async thematic worker and compare against the fast hybrid baseline.
+- [x] Add a bounded owner-isolated async research worker contract (`src/services/research_jobs.py`) with timeout, cancellation and shutdown handling.
+- [ ] Deploy the worker on a durable queue, wire curated index jobs to it, and compare against the fast hybrid baseline.
 - [ ] Experience retrieval only from reviewed, de-identified traces.
 
 Exit: completeness gain within async cost budget; reject if the fast hybrid
