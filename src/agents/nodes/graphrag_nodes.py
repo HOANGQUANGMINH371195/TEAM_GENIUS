@@ -14,6 +14,7 @@ from src.domain.route_plan import build_route_plan
 from src.models.graph import Citation, Entity, Relation, RetrievalResult
 from src.services.chat import get_runtime
 from src.services.claims import build_legal_claim, claim_dict
+from src.services.planner import evidence_gap_plan
 from src.services.retrieval import (
     decompose_query,
     extract_query_phrases,
@@ -113,6 +114,11 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
                 {channel for item in evidence for channel in item.channels}
             ),
             "retrieval_trace": bundle.trace,
+            "grounded_plan": evidence_gap_plan(
+                query,
+                evidence,
+                enabled=get_settings().feature_planner_enabled,
+            ).as_dict(),
         }
     )
     return {
