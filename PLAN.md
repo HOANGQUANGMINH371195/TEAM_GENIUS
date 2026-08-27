@@ -387,9 +387,10 @@ and rollback evidence are collected only after that gate passes.
 | Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
 
 Do not run or publish a model benchmark before `make implementation-gate` and
-the deterministic suites pass. A benchmark is evidence collection, not a
-production promotion decision; production promotion still requires the
-independent gates in Section 1 and `verify_production_attestation.py`.
+the deterministic suites pass. `make promotion-gate` now reports two separate
+results: benchmark collection may proceed after implementation blockers are
+zero, while production promotion remains blocked until the independent gates
+in Section 1 and `verify_production_attestation.py` pass.
 
 ### Phase A — Fast stable baseline (P0, 3–5 days)
 

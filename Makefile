@@ -23,7 +23,7 @@ help:
 	@echo "  make deploy-contract    Verify Render/Vercel/Docker contracts locally"
 	@echo "  make verify-plan        Verify forward-plan delivery contracts"
 	@echo "  make implementation-gate Verify all PLAN capabilities exist before benchmark"
-	@echo "  make promotion-gate     Refuse model benchmark while PLAN has blockers"
+	@echo "  make promotion-gate     Report benchmark readiness vs production promotion blockers"
 	@echo "  make verify-attestation Validate the external production gate artifact (ATTESTATION_FILE)"
 	@echo "  make typed-facts-check  Validate an accepted release fact JSONL (FACTS_FILE/RELEASE_ID)"
 	@echo "  make typed-facts-stage  Stage reviewer facts into PostgreSQL (FACTS_FILE/RELEASE_ID)"
