@@ -40,6 +40,18 @@ def _read(path: Path, *, release_id: str) -> list[dict[str, Any]]:
         # accepting an unlabeled machine row would make the quota meaningless.
         if not str(row.get("source_sha256") or row.get("expected_evidence_sha256") or row.get("review_ref") or "").strip():
             raise ValueError(f"{path}:{row['case_id']}: provenance/review reference required")
+        if str(row.get("review_status") or "").strip().casefold() != "accepted":
+            raise ValueError(f"{path}:{row['case_id']}: review_status=accepted is required")
+        review_labels = row.get("review_labels")
+        if not isinstance(review_labels, list):
+            raise ValueError(f"{path}:{row['case_id']}: review_labels from independent reviewers are required")
+        reviewers = {
+            str(label.get("reviewer") or "").strip()
+            for label in review_labels
+            if isinstance(label, dict)
+        }
+        if "" in reviewers or len(reviewers) < 2:
+            raise ValueError(f"{path}:{row['case_id']}: at least two independent reviewers are required")
     return rows
 
 

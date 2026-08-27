@@ -483,11 +483,12 @@ baseline plus sentence reranker remains better.
 Current file-level delivery evidence (2026-08-27): route, calculator, viewer,
 ontology, batch, cache, release/rollback, provider-outage, Supabase-retention
 contracts, deterministic Auditor/typed-graph/planning/reranker ablation
-harnesses, reviewed-trajectory safeguards, answer-review packet/validator, and
-implementation/promotion gates now exist. Ablation result artifacts, the
-human-labelled calibration set, durable queue provisioning, and paired
-production benchmark are still absent; they remain evidence/deployment
-blockers rather than being marked complete by documentation alone.
+harnesses, reviewed-trajectory safeguards, answer-review packet/validator,
+reviewer-enforced plan-suite compiler, and implementation/promotion gates now
+exist. Ablation result artifacts, the human-labelled calibration set, durable
+queue provisioning, and paired production benchmark are still absent; they
+remain evidence/deployment blockers rather than being marked complete by
+documentation alone.
 
 Definition of done: the three differentiated product features run in
 production; human accuracy, latency, and cost gates pass; rollout has canary
