@@ -370,7 +370,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields | partial: deterministic pre-score exists; calibration labels/model pending |
 | Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py`, current-authority filter | implemented, production latency gate not proven |
 | Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
-| Decimal calculator | `src/services/calculator.py`, two registered Decimal formulas, `/calculator/bhyt`, bounded `/calculator/bhyt/scenarios`, reviewed `table_cell_facts` retrieval, `eval/cases/calculator-golden-v1.jsonl` (100 cases) | partial: rendered scenario UI and end-to-end table-fact acceptance pending |
+| Decimal calculator | `src/services/calculator.py`, two registered Decimal formulas, `/calculator/bhyt`, bounded `/calculator/bhyt/scenarios`, `web/app/calculator/page.tsx`, reviewed `table_cell_facts` retrieval, `eval/cases/calculator-golden-v1.jsonl` (100 cases) | partial: end-to-end table-fact acceptance and UX validation pending |
 | Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py`, `web/app/document/page.tsx` | hash-verified backend/UI implemented; XSS/anchor acceptance gates pending |
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight, hit/miss metrics, release-scoped keys | implemented; production Redis failover/latency proof pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
@@ -410,7 +410,7 @@ added p95 ≤1.5 seconds.
 - [ ] Validate merged-cell extraction and typed facts.
 - [x] Implement formula registry and 100 golden calculations.
 - [x] Expose sanitized, hash-verified HTML and citation deep links.
-- [ ] Ship scenario comparison and eligibility clarification UI.
+- [x] Ship scenario comparison and eligibility clarification UI.
 
 Exit: calculator 100%, zero XSS, anchor ≥99%, table route p95 ≤5 seconds.
 
