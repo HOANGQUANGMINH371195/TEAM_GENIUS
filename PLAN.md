@@ -407,7 +407,7 @@ added p95 ≤1.5 seconds.
 
 ### Phase C — Calculator and HTML viewer (P0 product, 7–12 days)
 
-- [ ] Validate merged-cell extraction and typed facts.
+- [x] Validate merged-cell extraction and typed facts (`database/pipeline/tests/test_tables.py`, release recognizer/importer tests).
 - [x] Implement formula registry and 100 golden calculations.
 - [x] Expose sanitized, hash-verified HTML and citation deep links.
 - [x] Ship scenario comparison and eligibility clarification UI.

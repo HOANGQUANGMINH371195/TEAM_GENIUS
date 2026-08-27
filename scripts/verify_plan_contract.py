@@ -59,6 +59,11 @@ def main() -> int:
     checks["route_plan_recorded_in_intake"] = "route_plan" in route_text
     checks["grounded_plan_recorded_after_retrieval"] = "grounded_plan" in route_text
     checks["release_scoped_context_cache"] = "release_id" in (ROOT / "src/services/conversation_cache.py").read_text(encoding="utf-8")
+    chat_text = (ROOT / "src/services/chat.py").read_text(encoding="utf-8")
+    neo4j_text = (ROOT / "src/integrations/neo4j.py").read_text(encoding="utf-8")
+    checks["route_deadline_fallback"] = "route:budget_fallback" in chat_text
+    checks["generation_timeout_contract"] = "timeout_seconds" in chat_text
+    checks["typed_fact_bounded_walk"] = "bounded_typed_ppr" in neo4j_text
 
     report = {
         "repository_contract_pass": all(checks.values()),
