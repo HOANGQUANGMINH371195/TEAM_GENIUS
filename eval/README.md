@@ -1,5 +1,20 @@
 # Live RAGAS evaluation
 
+## Production latency/TTFT collection
+
+`collect_production_evidence.py` measures first-request (cold), warm, and
+bounded-concurrency SSE runs. It stores only response hashes and public
+citation numbers and marks the output `HUMAN_REVIEW_REQUIRED`; it never judges
+legal correctness or fills an attestation with inferred values.
+
+```bash
+BENCHMARK_AUTH_TOKEN='<short-lived Firebase ID token>' \
+PYTHONPATH=. uv run python eval/collect_production_evidence.py \
+  --endpoint https://<api-origin> \
+  --fixture eval/cases/critical-bhyt-7.jsonl \
+  --output eval/results/production-evidence-<timestamp>.json
+```
+
 Evaluation chuẩn nằm duy nhất tại `eval/results/canonical-live-ragas/`.
 
 ## Đọc kết quả

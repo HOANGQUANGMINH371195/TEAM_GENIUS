@@ -24,6 +24,7 @@ def main() -> int:
         "graph_ablation": ROOT / "eval/ablations/typed-graph/evaluate.py",
         "planning_ablation": ROOT / "eval/ablations/grounded-planning/evaluate.py",
         "reranker_ablation": ROOT / "eval/ablations/reranker/evaluate.py",
+        "production_evidence_collector": ROOT / "eval/collect_production_evidence.py",
         "attestation": ROOT / "scripts/verify_production_attestation.py",
         "rollback": ROOT / "ops/runbooks/rollback.md",
         "outage": ROOT / "ops/runbooks/provider-outage.md",
