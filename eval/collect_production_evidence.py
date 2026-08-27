@@ -53,10 +53,11 @@ def _public_numbers(payload: dict[str, Any]) -> list[str]:
     return numbers
 
 
-def _safe_result(*, case_id: str, status_code: int | None, payload: dict[str, Any], latency_ms: float, ttft_ms: float | None, error: str = "") -> dict[str, Any]:
+def _safe_result(*, case_id: str, case_kind: str, status_code: int | None, payload: dict[str, Any], latency_ms: float, ttft_ms: float | None, error: str = "") -> dict[str, Any]:
     response = str(payload.get("response") or "")
     return {
         "case_id": case_id,
+        "case_kind": case_kind,
         "status_code": status_code,
         "status": "completed" if status_code == 200 and response.strip() else "invalid",
         "latency_ms": round(latency_ms, 2),
@@ -96,7 +97,7 @@ async def _probe_stream(client: httpx.AsyncClient, url: str, headers: dict[str, 
                 error = f"http_{status_code}"
     except Exception as exc:  # retain only exception type in evidence
         error = type(exc).__name__
-    return _safe_result(case_id=str(case["case_id"]), status_code=status_code, payload=payload, latency_ms=(time.perf_counter() - started) * 1000, ttft_ms=ttft, error=error)
+    return _safe_result(case_id=str(case["case_id"]), case_kind=str(case.get("kind") or case.get("category") or ""), status_code=status_code, payload=payload, latency_ms=(time.perf_counter() - started) * 1000, ttft_ms=ttft, error=error)
 
 
 async def _run_phase(url: str, cases: list[dict[str, Any]], *, headers: dict[str, str], concurrency: int, warm_repeats: int = 1) -> list[dict[str, Any]]:
@@ -117,14 +118,23 @@ def _phase_summary(rows: list[dict[str, Any]], *, kind: str) -> dict[str, Any]:
     latencies = [float(row["latency_ms"]) / 1000 for row in rows if row.get("status") == "completed"]
     ttft = [float(row["ttft_ms"]) / 1000 for row in rows if row.get("ttft_ms") is not None]
     failures = sum(row.get("status") != "completed" for row in rows)
+    route_values = {
+        route: [
+            float(row["latency_ms"]) / 1000
+            for row in rows
+            if row.get("status") == "completed" and str(row.get("case_kind") or "").casefold() == route
+        ]
+        for route in ("simple", "topical", "temporal")
+    }
     return {
         "kind": kind,
         "cases": len(rows),
         "completed": len(rows) - failures,
         "stream_error_rate": failures / len(rows) if rows else 1.0,
-        "simple_p95_seconds": _p95(latencies),
-        "topical_p95_seconds": _p95(latencies),
-        "temporal_p95_seconds": _p95(latencies),
+        "overall_p95_seconds": _p95(latencies),
+        "simple_p95_seconds": _p95(route_values["simple"]),
+        "topical_p95_seconds": _p95(route_values["topical"]),
+        "temporal_p95_seconds": _p95(route_values["temporal"]),
         "ttft_p95_seconds": _p95(ttft),
         "availability": (len(rows) - failures) / len(rows) if rows else 0.0,
     }
