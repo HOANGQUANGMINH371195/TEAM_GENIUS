@@ -6,9 +6,10 @@ PYTHON ?= UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python
 WEB_NPM ?= npm --prefix web
 ENV_FILE ?= .env
 LOCAL_PROFILE ?= local-full
+RELEASE_ROOT ?= .
 
 .DEFAULT_GOAL := help
-.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker collect-production-evidence \
+.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation verify-release-artifacts typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker collect-production-evidence \
 	build up dev down restart logs health deploy-contract render-validate \
 	deploy-render deploy-vercel clean
 
@@ -25,6 +26,7 @@ help:
 	@echo "  make implementation-gate Verify all PLAN capabilities exist before benchmark"
 	@echo "  make promotion-gate     Report benchmark readiness vs production promotion blockers"
 	@echo "  make verify-attestation Validate the external production gate artifact (ATTESTATION_FILE)"
+	@echo "  make verify-release-artifacts Validate mounted release hashes (RELEASE_ROOT/REQUIRE_RELEASE_ARTIFACTS)"
 	@echo "  make typed-facts-check  Validate an accepted release fact JSONL (FACTS_FILE/RELEASE_ID)"
 	@echo "  make typed-facts-stage  Stage reviewer facts into PostgreSQL (FACTS_FILE/RELEASE_ID)"
 	@echo "  make calibrate-claims   Fit an isotonic calibrator from reviewed labels (LABELS_FILE/OUTPUT)"
@@ -108,6 +110,9 @@ promotion-gate:
 verify-attestation:
 	@test -n "$(ATTESTATION_FILE)" || { echo "Set ATTESTATION_FILE"; exit 2; }
 	$(PYTHON) scripts/verify_production_attestation.py "$(ATTESTATION_FILE)" --output "$(ATTESTATION_FILE).report.json"
+
+verify-release-artifacts:
+	$(PYTHON) scripts/verify_release_artifacts.py --root "$(RELEASE_ROOT)" $(if $(REQUIRE_RELEASE_ARTIFACTS),--require,)
 
 typed-facts-check:
 	@test -n "$(FACTS_FILE)" -a -n "$(RELEASE_ID)" || { echo "Set FACTS_FILE and RELEASE_ID"; exit 2; }
