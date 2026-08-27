@@ -374,7 +374,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight and hit/miss metrics | partial: release-fingerprint invalidation pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
 | Sentence-level rerank seam | query-derived sentence coverage in `rerank_legal_candidates`; `eval/ablations/reranker/` contract | partial: no learned cross-encoder or ablation result |
-| Typed BHYT fact graph/PPR | document graph only | not implemented |
+| Typed BHYT fact contract | `src/domain/facts.py`, `legal_facts` migration and ontology document | partial: Neo4j fact projection, recognition and bounded PPR pending |
 | Grounded planning/uncertainty calibration | no human-labelled calibration set | not implemented |
 | Batch extraction/eval manifests | offline embedding/Qdrant batching; `docs/architecture/batch-contract.md` | partial: provider Batch API and cost ledger pending |
 | Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
