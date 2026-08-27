@@ -404,11 +404,17 @@ async def generate_node(state: AgentState) -> dict:
     if not evidence:
         return result(no_answer_response(state.get("query", "")))
     source_response = _deterministic_source_rule_response(state.get("query", ""), evidence)
-    if source_response:
+    # A deterministic extractive shortcut is safe only when one canonical
+    # legal unit is available.  With multiple passages, forcing source text
+    # directly into the response produces duplicated bullets/raw chunks;
+    # let the configured model synthesize the bounded context instead.
+    if source_response and len(evidence) == 1:
         return result(source_response)
-    fact_response = _deterministic_source_fact_response(state.get("query", ""), evidence)
-    if fact_response:
-        return result(fact_response)
+    # Numeric/entitlement passages need synthesis: the source extractor is
+    # intentionally not used as a public answer because even one long legal
+    # unit can look like an unprocessed chunk.  The model receives the same
+    # verified context and the guardrail still fails closed on unsupported
+    # claims.
     # Legal-unit enumeration is extractive: render canonical labelled units
     # directly instead of spending an LLM call (and risking reordering or
     # inventing a missing item).  The guardrail still audits the resulting
@@ -586,7 +592,12 @@ def _deterministic_legal_unit_response(evidence: Sequence[RetrievalResult]) -> s
         label = " ".join((item.section_title or "").split())
         if not label:
             label = f"Nội dung {index}"
-        lines.append(f"- {label}: {text[:900]}")
+        # Keep extractive lookup answers readable without echoing a full
+        # passage.  Prefer complete sentences and cap each unit independently.
+        if len(text) > 320:
+            match = re.match(r"(.{80,320}?[.!?。！？])(?:\s|$)", text)
+            text = match.group(1) if match else text[:320].rstrip() + "…"
+        lines.append(f"- {label}: {text}")
         if len(lines) >= 8:
             break
     if not lines:
@@ -617,6 +628,38 @@ def _sanitize_output(value: str, evidence: Sequence[RetrievalResult] = ()) -> st
             sanitized,
         )
     return sanitized.strip()
+
+
+def _looks_like_raw_evidence(value: str, evidence: Sequence[RetrievalResult]) -> bool:
+    """Detect a provider/extractive response that is effectively one chunk.
+
+    This is a safety invariant, not a quality score: a long answer whose
+    token set is almost identical to one retrieved passage is withheld rather
+    than shown as if it were a synthesized conclusion.  Short legal quotes
+    remain allowed because they are intentionally bounded by the source.
+    """
+    if len(value) < 480 or not evidence:
+        return False
+    response_tokens = set(_CLAIM_TOKEN.findall(value.casefold()))
+    if len(response_tokens) < 8:
+        return False
+    lines = [line.strip(" -*") for line in value.splitlines() if line.strip()]
+    for item in evidence:
+        source_tokens = set(
+            _CLAIM_TOKEN.findall(f"{item.section_title} {item.content}".casefold())
+        )
+        if not source_tokens:
+            continue
+        overlap = len(response_tokens & source_tokens) / len(response_tokens)
+        if overlap >= 0.90:
+            return True
+        for line in lines:
+            if len(line) < 240:
+                continue
+            line_tokens = set(_CLAIM_TOKEN.findall(line.casefold()))
+            if len(line_tokens) >= 20 and len(line_tokens & source_tokens) / len(line_tokens) >= 0.88:
+                return True
+    return False
 
 
 def _citations_from_evidence(
@@ -859,6 +902,11 @@ async def guardrail_node(state: AgentState) -> dict:
     response = _sanitize_output(_normalize_response(state.get("response", "")), evidence)
     if not response:
         response = NO_EVIDENCE_RESPONSE
+    if _looks_like_raw_evidence(response, evidence):
+        # Never expose an un-synthesized retrieval chunk.  The generation node
+        # normally prevents this path; this second check protects against
+        # stale caches/provider regressions and fails closed.
+        response = no_answer_response(state.get("query", ""), reason="unverified")
     # Extractive/deterministic responses are built from the final evidence
     # list. A direct-citation shortcut may belong to an earlier document
     # anchor and causes the claim auditor to discard the correct sentence

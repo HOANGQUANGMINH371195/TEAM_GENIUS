@@ -7,6 +7,7 @@ from src.agents.nodes.graphrag_nodes import (
     _audit_claims,
     _claim_facts_supported,
     _deterministic_legal_unit_response,
+    _looks_like_raw_evidence,
     _pack_context,
     _sanitize_output,
     _select_supported_citations,
@@ -299,6 +300,43 @@ async def test_generation_does_not_replace_model_abstention_with_raw_chunks():
 
     assert result["response"].startswith("Hiện tại hệ thống không tìm thấy")
     assert "Người cao tuổi" not in result["response"]
+
+
+@pytest.mark.asyncio
+async def test_high_risk_multi_passage_query_uses_synthesis_instead_of_raw_chunk():
+    evidence = [
+        RetrievalResult(
+            chunk_id=f"chunk-{index}",
+            document_id="doc-1",
+            title="Luật BHYT",
+            section_title=f"Khoản {index}",
+            content=(
+                "Người tham gia bảo hiểm y tế được quỹ thanh toán theo điều kiện "
+                "và tỷ lệ quy định tại văn bản hiện hành. "
+                f"Nội dung điều kiện {index} được áp dụng trong trường hợp tương ứng."
+            ),
+            dataset_id="release-1",
+        )
+        for index in range(2)
+    ]
+    with patch("src.agents.nodes.graphrag_nodes.get_runtime") as runtime_factory:
+        runtime_factory.return_value.generate = AsyncMock(return_value="Tóm tắt đã tổng hợp.")
+        result = await generate_node(
+            {
+                "query": "BHYT thanh toán bao nhiêu phần trăm trong trường hợp này?",
+                "context": "NGUỒN THỨ 1\n...",
+                "retrieved_evidence": evidence,
+            }
+        )
+
+    assert result["response"] == "Tóm tắt đã tổng hợp."
+    runtime_factory.return_value.generate.assert_awaited_once()
+
+
+def test_raw_chunk_detector_catches_long_extractive_bullet():
+    content = " ".join(["Nguồn pháp lý quy định điều kiện thanh toán BHYT."] * 20)
+    evidence = [RetrievalResult(chunk_id="chunk-1", document_id="doc-1", content=content)]
+    assert _looks_like_raw_evidence(f"- {content}", evidence)
 
 
 @pytest.mark.asyncio

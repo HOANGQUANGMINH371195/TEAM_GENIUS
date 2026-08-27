@@ -58,6 +58,24 @@ def test_current_question_drops_unverified_historical_subordinate_source():
     assert [item.chunk_id for item in result] == ["new"]
 
 
+def test_current_question_drops_verified_old_subordinate_when_recent_source_exists():
+    stale = RetrievalResult(
+        chunk_id="old", document_id="old", title="Quyết định địa phương",
+        document_type="Quyết định", issued_date="1998-01-01",
+        legal_status="Còn hiệu lực", legal_status_verified=True,
+        content="Quy định cũ cho một địa phương.",
+    )
+    current = RetrievalResult(
+        chunk_id="new", document_id="new", title="Luật bảo hiểm y tế",
+        document_type="Luật", issued_date="2024-11-27",
+        content="Quy định hiện hành.",
+    )
+    result = filter_current_authority_candidates(
+        "Theo luật hiện hành, BHYT có chi trả dịch vụ này không?", [stale, current]
+    )
+    assert [item.chunk_id for item in result] == ["new"]
+
+
 def test_lexical_phrase_generation_is_query_derived_and_bounded():
     question = "Theo luật hiện hành BHYT có chi trả dịch vụ thẩm mỹ không"
     assert "dịch vụ thẩm" in lexical_phrases(question)

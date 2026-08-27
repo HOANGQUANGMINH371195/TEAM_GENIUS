@@ -63,7 +63,7 @@ class ChatProviderError(RuntimeError):
 # Bump whenever ranking/selection semantics change.  This is part of each
 # in-process cache namespace, so an answer produced before the domain/scope
 # policy cannot be replayed after a rolling deployment.
-_RETRIEVAL_POLICY_VERSION = "hybrid-v11-document-recall-rerank"
+_RETRIEVAL_POLICY_VERSION = "hybrid-v12-scoped-synthesis"
 logger = logging.getLogger(__name__)
 _ProviderResult = TypeVar("_ProviderResult")
 _trace_context: ContextVar[dict[str, Any] | None] = ContextVar(
@@ -1981,70 +1981,6 @@ class GraphRagRuntime:
                 item.score += 10.0
             for item in [*operative_anchors[:2], *document_recall_operatives[:1]]:
                 fused_by_chunk.setdefault(item.chunk_id, item)
-            # If a newer primary law was recalled by the bounded operative
-            # branch, keep its best passage in the final context and do not
-            # let an older amendment win solely because it repeats colloquial
-            # wording more often. This is source/date-derived and applies
-            # only to high-risk payment/entitlement questions.
-            if not extract_document_numbers(query) and requires_evidence_verification(query):
-                law_operatives = [
-                    item for item in [*document_recall_operatives, *fused_by_chunk.values()]
-                    if (
-                        item.document_type.strip().casefold() == "luật"
-                        or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
-                    )
-                ]
-                relevant_laws = [
-                    item for item in law_operatives
-                    if float(item.rank_details.get("query_token_coverage", 0.0)) >= 0.20
-                    or "không được hưởng" in f"{item.section_title} {item.content}".casefold()
-                ]
-                if relevant_laws:
-                    law_operatives = relevant_laws
-                bhyt_laws = [
-                    item for item in law_operatives
-                    if any("bhyt" in str(category).casefold() for category in item.categories)
-                    or "không được hưởng" in f"{item.section_title} {item.content}".casefold()
-                ]
-                if bhyt_laws:
-                    law_operatives = bhyt_laws
-                national_laws = [
-                    item for item in law_operatives
-                    if re.search(r"/\d{4}/QH\d+\b", item.document_number, flags=re.IGNORECASE)
-                    or "không được hưởng" in f"{item.section_title} {item.content}".casefold()
-                ]
-                if national_laws:
-                    law_operatives = national_laws
-                def publication_year(item: RetrievalResult) -> int:
-                    years = [int(value) for value in re.findall(r"\b(?:19|20)\d{2}\b", item.issued_date)]
-                    if not years:
-                        years = [
-                            int(value)
-                            for value in re.findall(r"\b(?:19|20)\d{2}\b", item.document_number)
-                        ]
-                    return max(years, default=0)
-
-                newest_year = max((publication_year(item) for item in law_operatives), default=0)
-                if newest_year:
-                    newest = sorted(
-                        (item for item in law_operatives if publication_year(item) == newest_year),
-                        key=lambda item: -float(item.score),
-                    )[:2]
-                    for item in newest:
-                        fused_by_chunk.setdefault(item.chunk_id, item)
-                    if newest_year >= 2024:
-                        fused_by_chunk = {
-                            chunk_id: item
-                            for chunk_id, item in fused_by_chunk.items()
-                            if not (
-                                (
-                                    item.document_type.strip().casefold() == "luật"
-                                    or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
-                                )
-                                and 0 < publication_year(item) < newest_year
-                                and "không được hưởng" not in f"{item.section_title} {item.content}".casefold()
-                            )
-                        }
             fused_evidence = list(fused_by_chunk.values())
             # RRF makes independent retrieval channels comparable, but it
             # deliberately discards their score scales.  Apply the
@@ -2055,6 +1991,20 @@ class GraphRagRuntime:
                 fused_evidence = rerank_legal_candidates(query, fused_evidence)
             fused_evidence = filter_current_authority_candidates(query, fused_evidence)
             fused_evidence = exclude_unverified_legacy_subordinate_sources(query, fused_evidence)
+            # Scope expansion is useful only when the selected passage still
+            # carries a query-derived distinctive phrase/term.  This prevents
+            # a long historical preamble or an unrelated payment table from
+            # surviving merely because it shares generic legal vocabulary.
+            if requires_evidence_verification(query) and len(fused_evidence) > 1:
+                scoped = [
+                    item
+                    for item in fused_evidence
+                    if scope_evidence_matches_query(
+                        query, item, candidate_pool=fused_evidence
+                    )
+                ]
+                if scoped:
+                    fused_evidence = scoped
             if operative_anchors:
                 anchor_ids = {item.chunk_id for item in operative_anchors[:2]}
                 fused_evidence = operative_anchors[:2] + [
@@ -2468,14 +2418,18 @@ def _format_metadata_answer(
 
 def _answer_format_instruction(query: str) -> str:
     """Keep generation concise and deterministic by retrieval intent."""
+    synthesis_rule = (
+        "Không chép nguyên văn nguồn dài, không lặp lại cùng một ý, "
+        "không trả tiêu đề/đoạn văn như chunk; hãy tổng hợp ý nghĩa pháp lý. "
+    )
     intent = retrieval_intent(query)
     if intent in {"lookup", "legal_unit"}:
-        return "Trả lời tối đa 5 gạch đầu dòng, nêu đúng điều/khoản và không suy diễn."
+        return synthesis_rule + "Trả lời tối đa 5 gạch đầu dòng, nêu đúng điều/khoản và không suy diễn."
     if intent == "temporal":
-        return "Trả lời theo mốc thời gian: văn bản, ngày, trạng thái và nguồn; tối đa 6 gạch đầu dòng."
+        return synthesis_rule + "Trả lời theo mốc thời gian: văn bản, ngày, trạng thái và nguồn; tối đa 6 gạch đầu dòng."
     if intent == "relational":
-        return "Nêu quan hệ nguồn → đích và ý nghĩa được nguồn pháp lý xác nhận; tối đa 6 gạch đầu dòng."
-    return "Trả lời ngắn gọn trong tối đa 8 gạch đầu dòng; nếu nguồn chưa đủ hãy nói rõ giới hạn."
+        return synthesis_rule + "Nêu quan hệ nguồn → đích và ý nghĩa được nguồn pháp lý xác nhận; tối đa 6 gạch đầu dòng."
+    return synthesis_rule + "Trả lời ngắn gọn trong tối đa 8 gạch đầu dòng; nếu nguồn chưa đủ hãy nói rõ giới hạn."
 
 
 def _answer_cache_allowed(query: str) -> bool:

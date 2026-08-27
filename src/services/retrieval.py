@@ -198,10 +198,19 @@ def filter_current_authority_candidates(
         authority = " ".join((item.document_type, item.title)).casefold()
         return any(marker in authority for marker in ("quyết định", "thông tư", "công văn", "hướng dẫn"))
 
-    current = [item for item in hits if year(item) >= current_year - 2 or item.legal_status_verified]
+    # A verified status on an old subordinate reproduction does not establish
+    # that the reproduced clause is the current national rule.  When a recent
+    # source exists, prefer the recent authority for a present-day question;
+    # retain older primary instruments only as fallback context.
+    current = [item for item in hits if year(item) >= current_year - 2]
     filtered = [
         item for item in hits
-        if not (subordinate(item) and year(item) and year(item) < current_year - 2 and not item.legal_status_verified)
+        if not (
+            subordinate(item)
+            and year(item)
+            and year(item) < current_year - 2
+            and (current or not item.legal_status_verified)
+        )
     ]
     # If the remaining pool has no current authority at all, do not let a
     # stale subordinate source become an answer merely because it is the only
