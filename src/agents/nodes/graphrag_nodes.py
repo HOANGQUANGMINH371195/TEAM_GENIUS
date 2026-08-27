@@ -638,7 +638,7 @@ def _looks_like_raw_evidence(value: str, evidence: Sequence[RetrievalResult]) ->
     than shown as if it were a synthesized conclusion.  Short legal quotes
     remain allowed because they are intentionally bounded by the source.
     """
-    if len(value) < 480 or not evidence:
+    if len(value) < 360 or not evidence:
         return False
     response_tokens = set(_CLAIM_TOKEN.findall(value.casefold()))
     if len(response_tokens) < 8:
