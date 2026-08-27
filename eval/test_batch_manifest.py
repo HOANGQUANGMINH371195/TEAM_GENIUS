@@ -1,5 +1,5 @@
 from eval.batch_manifest import BatchManifest
-from eval.openai_batch import provider_jsonl, submit_openai_batch
+from eval.openai_batch import provider_jsonl, reconcile_openai_batch_results, submit_openai_batch
 
 
 def test_manifest_is_idempotent_and_release_scoped():
@@ -63,3 +63,37 @@ def test_openai_batch_adapter_preserves_manifest_identity():
 
     manifest = BatchManifest.build([{"input": "A"}], release_id="snapshot-1", model="gpt-test")
     assert asyncio.run(submit_openai_batch(manifest, client=Client())) == "batch-1"
+
+
+def test_openai_batch_reconciliation_is_bounded_idempotent_and_reports_missing_rows():
+    manifest = BatchManifest.build(
+        [{"input": "A"}, {"input": "B"}], release_id="snapshot-1", model="gpt-test"
+    )
+    first, second = (item.item_id for item in manifest.items)
+    result = reconcile_openai_batch_results(
+        manifest,
+        [
+            {
+                "custom_id": first,
+                "response": {"status_code": 200, "body": {"usage": {"output_tokens": 7}}},
+            },
+            {"custom_id": "unknown", "response": {"status_code": 200, "body": {}}},
+            {
+                "custom_id": first,
+                "response": {"status_code": 200, "body": {"usage": {"output_tokens": 99}}},
+            },
+        ],
+    )
+
+    assert result["applied"] == 1
+    assert result["complete"] == 1
+    assert result["pending"] == [second]
+    assert {entry["reason"] for entry in result["invalid"]} == {
+        "unknown_custom_id",
+        "duplicate_custom_id",
+    }
+    # Replaying the provider output cannot inflate attempts or output tokens.
+    replay = reconcile_openai_batch_results(manifest, [{"custom_id": first, "response": {"status_code": 200, "body": {"usage": {"output_tokens": 99}}}}])
+    assert replay["applied"] == 0
+    assert manifest.items[0].attempts == 1
+    assert manifest.items[0].output_tokens == 7

@@ -373,9 +373,9 @@ blocked until the remaining P0 items below are implemented and verified.
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight, hit/miss metrics, release-scoped keys | implemented; production Redis failover/latency proof pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
 | Sentence-level rerank seam | query-derived sentence coverage plus opt-in `src/services/reranker.py` cross-encoder backend; `eval/ablations/reranker/` contract | partial: pinned model/ablation result and latency proof pending |
-| Typed BHYT fact contract | `src/domain/facts.py`, `src/services/fact_recognizer.py`, `legal_facts` migration, release-validated importer, `Neo4jGraphStore.upsert_legal_facts`/`bounded_typed_ppr`, accepted-subject relational route and canonical unit hydration | partial: human review/recognition quality and live parity attestation pending |
+| Typed BHYT fact contract | `src/domain/facts.py`, `src/services/fact_recognizer.py`, `legal_facts` migration, release-validated importer, `Neo4jGraphStore.upsert_legal_facts`/`bounded_typed_ppr`, accepted-subject relational route, canonical unit hydration, bounded-query acceptance tests | repository projection/walk contract implemented; human review/recognition quality and live parity attestation pending |
 | Grounded planning/uncertainty calibration | bounded grounded planner plus `eval/calibration.py` | partial: human-labelled calibration set and model fitting pending |
-| Batch extraction/eval manifests | offline embedding/Qdrant batching, immutable `eval/batch_manifest.py`, provider JSONL and `eval/openai_batch.py`, cost ledger | partial: authenticated submission/result reconciliation and live cost proof pending |
+| Batch extraction/eval manifests | offline embedding/Qdrant batching, immutable `eval/batch_manifest.py`, provider JSONL, authenticated adapter/reconciliation in `eval/openai_batch.py`, cost ledger | repository submission/reconciliation contract implemented; live provider cost proof pending |
 | Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
 
 Do not run or publish a model benchmark as a promotion decision while any

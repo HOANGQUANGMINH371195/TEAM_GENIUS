@@ -1,8 +1,8 @@
 """Immutable offline batch manifest and cost ledger primitives.
 
-These classes deliberately stop before provider submission. They make batch
-jobs reproducible and idempotent; an adapter for a specific provider can submit
-the serialized records without changing the accounting contract.
+These classes make batch jobs reproducible and idempotent. Provider adapters
+submit serialized records and reconcile result JSONL without changing the
+accounting contract.
 """
 
 from __future__ import annotations

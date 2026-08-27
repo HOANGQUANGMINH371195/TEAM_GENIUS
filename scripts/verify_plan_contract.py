@@ -46,6 +46,7 @@ def main() -> int:
         "batch_provider_adapter": ROOT / "eval/openai_batch.py",
         "calibration_metrics": ROOT / "eval/calibration.py",
         "typed_fact_importer": ROOT / "database/neo4j/scripts/import_typed_facts.py",
+        "typed_graph_acceptance_tests": ROOT / "tests/test_integrations/test_neo4j_typed_facts.py",
         "scenario_page": ROOT / "web/app/calculator/page.tsx",
         "promotion_gate": ROOT / "scripts/verify_promotion_gate.py",
         "reranker_backend": ROOT / "src/services/reranker.py",
