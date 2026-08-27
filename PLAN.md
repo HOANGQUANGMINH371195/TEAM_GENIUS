@@ -462,6 +462,8 @@ baseline plus sentence reranker remains better.
 - Feature flags for planner, reranker, Auditor, calculator, viewer, and graph.
 - `eval/calibrate_claims.py` and an approved `claim-calibration-v1` artifact for
   confidence-to-abstention calibration.
+- `scripts/verify_production_attestation.py` for fail-closed validation of the
+  human, latency, outage, ablation, cost and rollback evidence bundle.
 
 Current file-level delivery evidence (2026-08-27): route, calculator, viewer,
 ontology, batch, cache, release/rollback, provider-outage, Supabase-retention

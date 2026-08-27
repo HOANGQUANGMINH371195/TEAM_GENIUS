@@ -53,6 +53,10 @@ def main() -> int:
         "scenario_page": ROOT / "web/app/calculator/page.tsx",
         "promotion_gate": ROOT / "scripts/verify_promotion_gate.py",
         "reranker_backend": ROOT / "src/services/reranker.py",
+        "community_retrieval": ROOT / "src/services/global_retrieval.py",
+        "community_index_builder": ROOT / "database/corpus/build_community_index.py",
+        "research_job_worker": ROOT / "src/services/research_jobs.py",
+        "production_attestation_verifier": ROOT / "scripts/verify_production_attestation.py",
         "parity_verifier": ROOT / "database/corpus/verify_live_corpus_parity.py",
     }
     checks = {name: path.is_file() for name, path in required.items()}
@@ -64,7 +68,7 @@ def main() -> int:
     checks["independent_calibration_panel_validator"] = "validate_calibration_panel" in calibration_text
     checks["feature_flags_declared"] = all(
         f"feature_{name}_enabled" in config_text
-        for name in ("planner", "reranker", "auditor", "calculator", "viewer", "graph")
+        for name in ("planner", "reranker", "auditor", "calculator", "viewer", "graph", "global_search")
     )
     route_text = (ROOT / "src/agents/nodes/graphrag_nodes.py").read_text(encoding="utf-8")
     checks["route_plan_recorded_in_intake"] = "route_plan" in route_text
@@ -84,6 +88,7 @@ def main() -> int:
             "authenticated cold/warm/concurrency latency and SSE TTFT run",
             "managed Render/Vercel smoke, rollback, and provider outage drill",
             "ablation evidence for learned reranker, typed graph, and grounded planning",
+            "durable async worker deployment and release-scoped community index artifact",
         ],
     }
     output = ROOT / "eval/results/plan-contract-current.json"

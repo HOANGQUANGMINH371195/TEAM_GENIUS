@@ -39,3 +39,19 @@ Only after parity passes, call the guarded release activation function and
 verify `/health`, `/ready`, exact lookup, table calculation, citation HTML,
 high-risk abstention, and SSE. Keep the old release until rollback evidence is
 recorded.
+
+# Production attestation gate
+
+Before a release can be promoted, collect the independent evidence bundle and
+validate it without running another model benchmark:
+
+```bash
+uv run python scripts/verify_production_attestation.py \
+  /absolute/path/production-attestation.json \
+  --output eval/results/production-attestation-report.json
+```
+
+The verifier requires cold/warm/concurrency p95s, authenticated TTFT and
+stream errors, human-adjudicated accuracy with zero catastrophic errors,
+reviewed ablations, outage drills, reconciled cost reduction, and a tested
+canary rollback. Missing or synthetic values fail closed.
