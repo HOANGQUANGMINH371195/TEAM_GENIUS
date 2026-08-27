@@ -386,7 +386,7 @@ Do not run or publish a model benchmark as a promotion decision while any
 
 - [ ] Add stage timers for planner, SQL, embedding, Qdrant, hydration, Neo4j,
       rerank, generation, verifier, and browser TTFT.
-- [ ] Move optional document recall out of the critical failure path.
+- [x] Move optional document recall out of the critical failure path.
 - [ ] Enforce per-route provider/candidate/context/deadline budgets.
 - [ ] Add Redis private-context/retrieval cache and single-flight.
 - [ ] Prewarm dependencies and audit region RTT/pool saturation.
@@ -398,7 +398,7 @@ Exit: simple p95 ≤5 s, topical p95 ≤8 s, stream errors <1%, no accuracy loss
 
 - [ ] Build benchmark candidate/evidence artifacts.
 - [ ] Ablate RRF-only against MiniLM/BGE sentence/cross-encoder reranking.
-- [ ] Implement typed claim and three-score uncertainty contracts.
+- [x] Implement typed claim and three-score uncertainty contracts.
 - [ ] Calibrate abstention/clarification with human labels.
 
 Exit: ≥3-point critical claim-support gain or ≥10% retrieval-precision gain;
@@ -408,7 +408,7 @@ added p95 ≤1.5 seconds.
 
 - [ ] Validate merged-cell extraction and typed facts.
 - [ ] Implement formula registry and 100 golden calculations.
-- [ ] Expose sanitized, hash-verified HTML and citation deep links.
+- [x] Expose sanitized, hash-verified HTML and citation deep links.
 - [ ] Ship scenario comparison and eligibility clarification UI.
 
 Exit: calculator 100%, zero XSS, anchor ≥99%, table route p95 ≤5 seconds.
@@ -456,10 +456,11 @@ baseline plus sentence reranker remains better.
 - Feature flags for planner, reranker, Auditor, calculator, viewer, and graph.
 
 Current file-level delivery evidence (2026-08-27): route, calculator, viewer,
-ontology, batch, cache, provider-outage, and Supabase-retention contracts now
-exist. The ablation directories, human-labelled calibration set, production
-viewer UI, and paired production benchmark are still absent; they remain
-release blockers rather than being marked complete by documentation alone.
+ontology, batch, cache, provider-outage, Supabase-retention contracts, and
+ablation directory contracts now exist. Ablation result artifacts, the
+human-labelled calibration set, and paired production benchmark are still
+absent; acceptance gates remain release blockers rather than being marked
+complete by documentation alone.
 
 Definition of done: the three differentiated product features run in
 production; human accuracy, latency, and cost gates pass; rollout has canary
