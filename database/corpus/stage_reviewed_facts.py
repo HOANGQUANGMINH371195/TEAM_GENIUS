@@ -80,17 +80,36 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _source_hash_matches(fact: LegalFact, *, document_text: str, unit_text: str) -> bool:
+def _source_hash_matches(
+    fact: LegalFact,
+    *,
+    document_text: str,
+    unit_text: str,
+    unit_start: int | None = None,
+    unit_end: int | None = None,
+) -> bool:
     if fact.source_start is None or fact.source_end is None:
         return False
-    if fact.source_start < 0 or fact.source_end > len(document_text):
+    if fact.source_end <= fact.source_start or fact.source_start < 0:
         return False
-    span = document_text[fact.source_start : fact.source_end]
     expected = fact.source_sha256.casefold()
-    # Unit text is accepted as a compatibility anchor for facts extracted from
-    # PageIndex rows; the serving layer still hydrates the canonical document
-    # span before citing.
-    return expected in {_hash(span), _hash(unit_text)}
+    if fact.source_end <= len(document_text):
+        span = document_text[fact.source_start : fact.source_end]
+        if expected == _hash(span):
+            return True
+    if (
+        unit_start is not None
+        and unit_end is not None
+        and fact.source_start == unit_start
+        and fact.source_end == unit_end
+        and expected == _hash(unit_text)
+    ):
+        return True
+    # PageIndex-derived rows may hash the parsed unit rather than the document
+    # substring.  Accept that representation only when the fact span is the
+    # unit's own canonical source interval; an arbitrary span must not inherit
+    # a unit hash.
+    return False
 
 
 def stage_facts(
@@ -114,7 +133,8 @@ def stage_facts(
             raise ValueError(f"dataset not found: {release_id}")
         for fact, _ in validated:
             row = db.execute(
-                """SELECT d.content_text, u.text AS unit_text
+                """SELECT d.content_text, u.text AS unit_text,
+                          u.source_start, u.source_end
                    FROM public.documents d
                    JOIN public.legal_units u
                      ON u.dataset_id = d.dataset_id AND u.document_id = d.id
@@ -125,7 +145,11 @@ def stage_facts(
             if row is None:
                 raise ValueError(f"fact {fact.fact_id} references a missing document/unit")
             if not _source_hash_matches(
-                fact, document_text=str(row[0] or ""), unit_text=str(row[1] or "")
+                fact,
+                document_text=str(row[0] or ""),
+                unit_text=str(row[1] or ""),
+                unit_start=int(row[2]) if row[2] is not None else None,
+                unit_end=int(row[3]) if row[3] is not None else None,
             ):
                 raise ValueError(f"fact {fact.fact_id} source_sha256 does not match canonical text")
 

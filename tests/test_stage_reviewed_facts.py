@@ -61,3 +61,38 @@ def test_source_hash_must_match_canonical_span_or_unit_text():
     )
     assert _source_hash_matches(fact, document_text=text, unit_text="different")
     assert not _source_hash_matches(fact, document_text="tampered", unit_text="different")
+
+
+def test_unit_hash_is_only_accepted_for_the_unit_source_interval():
+    text = "Quyền lợi được hưởng 80 phần trăm."
+    fact = LegalFact(
+        fact_id="fact-1",
+        subject="người tham gia BHYT",
+        predicate="coverage_rate",
+        normalized_value="80%",
+        effective_from=None,
+        effective_to=None,
+        jurisdiction="",
+        provision_id="",
+        document_id="doc-1",
+        unit_id="unit-1",
+        source_start=0,
+        source_end=len(text),
+        source_sha256=hashlib.sha256(text.encode()).hexdigest(),
+        review_status="accepted",
+        release_id="snapshot-test",
+    )
+    assert _source_hash_matches(
+        fact,
+        document_text="tampered document",
+        unit_text=text,
+        unit_start=0,
+        unit_end=len(text),
+    )
+    assert not _source_hash_matches(
+        fact,
+        document_text="tampered document",
+        unit_text=text,
+        unit_start=4,
+        unit_end=4 + len(text),
+    )
