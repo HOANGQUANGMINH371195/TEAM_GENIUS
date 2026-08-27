@@ -7,7 +7,7 @@ ENV_FILE ?= .env
 LOCAL_PROFILE ?= local-full
 
 .DEFAULT_GOAL := help
-.PHONY: help env-check env-check-production setup typegen typecheck lint test check \
+.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan \
 	build up dev down restart logs health deploy-contract render-validate \
 	deploy-render deploy-vercel clean
 
@@ -20,6 +20,7 @@ help:
 	@echo "  make check              Run backend, database, frontend and contract gates"
 	@echo "  make build              Build all deployable images and frontend"
 	@echo "  make deploy-contract    Verify Render/Vercel/Docker contracts locally"
+	@echo "  make verify-plan        Verify forward-plan delivery contracts"
 	@echo "  make render-validate    Validate render.yaml (CLI if installed, structural fallback otherwise)"
 	@echo "  make deploy-render      Trigger an existing Render service deploy"
 	@echo "  make deploy-vercel      Deploy web/ through Vercel CLI (requires VERCEL_TOKEN)"
@@ -84,6 +85,9 @@ health:
 deploy-contract:
 	$(PYTHON) scripts/verify_platform_contract.py
 	$(PYTHON) scripts/verify_deploy_contract.py
+
+verify-plan:
+	$(PYTHON) scripts/verify_plan_contract.py
 
 render-validate:
 	@if command -v render >/dev/null 2>&1; then \

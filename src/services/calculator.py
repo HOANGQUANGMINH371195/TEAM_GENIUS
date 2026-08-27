@@ -8,7 +8,7 @@ into application code.  All monetary and percentage operations use Decimal.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 
 class CalculationInputError(ValueError):
@@ -52,7 +52,9 @@ class BenefitCalculation:
     provenance: tuple[str, ...]
 
     def as_dict(self) -> dict[str, object]:
-        money = lambda value: str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        def money(value: Decimal) -> str:
+            return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
         return {
             "covered_cost": money(self.covered_cost),
             "applied_rate_percent": str((self.applied_rate * 100).quantize(Decimal("0.01"))),

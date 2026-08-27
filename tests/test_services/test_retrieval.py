@@ -5,8 +5,8 @@ from src.models.graph import RetrievalResult
 from src.services.retrieval import (
     decompose_query,
     exclude_unverified_legacy_subordinate_sources,
-    filter_current_authority_candidates,
     extract_document_numbers,
+    filter_current_authority_candidates,
     is_metadata_question,
     is_simple_status_metadata_question,
     no_answer_response,

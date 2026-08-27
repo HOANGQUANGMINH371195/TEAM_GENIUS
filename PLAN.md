@@ -365,13 +365,14 @@ blocked until the remaining P0 items below are implemented and verified.
 | Area | Current evidence | Status |
 |---|---|---|
 | Typed route contract | `src/domain/route_plan.py`, route metadata in intake | partial: budgets are described but not yet enforced per request |
+| Stage telemetry | `retrieval_trace`, `planner_ms`, `verification_ms`, `guardrail_ms`, provider and generation timers | partial: browser TTFT and production export/dashboard pending |
 | Evidence-gap planning | `src/services/planner.py`, bounded fan-out/depth metadata | partial: gap inventory is recorded; follow-up retrieval loop and calibration pending |
 | Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields | partial: deterministic pre-score exists; calibration labels/model pending |
 | Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py`, current-authority filter | implemented, production latency gate not proven |
 | Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
 | Decimal calculator | `src/services/calculator.py`, `/calculator/bhyt`, reviewed `table_cell_facts` retrieval, `eval/cases/calculator-golden-v1.jsonl` (100 cases) | partial: multiple formula registry and end-to-end scenario UI still pending |
 | Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py`, `web/app/document/page.tsx` | hash-verified backend/UI implemented; XSS/anchor acceptance gates pending |
-| Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight and hit/miss metrics | partial: release-fingerprint invalidation pending |
+| Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight, hit/miss metrics, release-scoped keys | implemented; production Redis failover/latency proof pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
 | Sentence-level rerank seam | query-derived sentence coverage in `rerank_legal_candidates`; `eval/ablations/reranker/` contract | partial: no learned cross-encoder or ablation result |
 | Typed BHYT fact contract | `src/domain/facts.py`, `legal_facts` migration and ontology document | partial: Neo4j fact projection, recognition and bounded PPR pending |
@@ -388,7 +389,7 @@ Do not run or publish a model benchmark as a promotion decision while any
       rerank, generation, verifier, and browser TTFT.
 - [x] Move optional document recall out of the critical failure path.
 - [ ] Enforce per-route provider/candidate/context/deadline budgets.
-- [ ] Add Redis private-context/retrieval cache and single-flight.
+- [x] Add Redis private-context/retrieval cache and single-flight.
 - [ ] Prewarm dependencies and audit region RTT/pool saturation.
 - [ ] Lock authenticated live cold/warm/concurrency baseline.
 

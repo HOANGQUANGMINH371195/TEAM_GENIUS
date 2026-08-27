@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-import hashlib
 from collections.abc import AsyncIterator
 from html import escape
 
@@ -15,6 +15,8 @@ from src.api.public_contract import public_citations
 from src.application.adapters import LangGraphAgentAdapter
 from src.application.answer import AnswerLegalQuestion, StreamLegalQuestion
 from src.config import get_settings
+from src.db.repositories import GraphRepository
+from src.db.session import session_scope
 from src.integrations.langfuse import configure_langfuse, trace_span, tracing_enabled
 from src.models.schemas import (
     AgentStatusResponse,
@@ -25,23 +27,39 @@ from src.models.schemas import (
     ChatRequest,
     ChatResponse,
 )
-from src.services.chat import ChatProviderError, GraphRagUnavailableError
 from src.services.calculator import CalculationInputError, calculate_bhyt_benefit
-from src.services.document_viewer import sanitize_document_html
-from src.db.session import session_scope
-from src.db.repositories import GraphRepository
-from src.services.conversation_context import build_conversation_anchors, resolve_conversational_query
+from src.services.chat import ChatProviderError, GraphRagUnavailableError
 from src.services.conversation_cache import get_conversation_cache
+from src.services.conversation_context import build_conversation_anchors, resolve_conversational_query
 from src.services.conversations import ConversationStoreError, get_conversation_store
+from src.services.document_viewer import sanitize_document_html
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent"])
 
 
+async def _context_release_id() -> str:
+    """Read the active release pointer for conversation-cache isolation.
+
+    This is a tiny indexed metadata query, not a retrieval call.  Returning an
+    empty ID on a transient metadata failure preserves the existing degraded
+    behaviour; legal retrieval still enforces its own release boundary.
+    """
+    try:
+        async with session_scope() as session:
+            release = await GraphRepository(session).current_dataset_release()
+            return release[0] if release else ""
+    except Exception:
+        logger.warning("Active release unavailable for conversation cache", exc_info=True)
+        return ""
+
+
 async def _recent_turns_for_request(*, owner_uid: str, conversation_id: str) -> list[dict]:
+    release_id = await _context_release_id()
     return await get_conversation_cache().get_or_load(
         owner_uid=owner_uid,
         conversation_id=conversation_id,
+        release_id=release_id,
         loader=lambda: get_conversation_store().recent_turns(
             owner_uid=owner_uid,
             conversation_id=conversation_id,
@@ -241,7 +259,8 @@ async def _persist_chat_turn(
             request_id=request_id,
         )
         await get_conversation_cache().invalidate(
-            owner_uid=owner_uid, conversation_id=request.conversation_id
+            owner_uid=owner_uid, conversation_id=request.conversation_id,
+            release_id=await _context_release_id(),
         )
     except ConversationStoreError as exc:
         logger.warning("Conversation turn rejected", extra={"reason": str(exc), "request_id": request_id})

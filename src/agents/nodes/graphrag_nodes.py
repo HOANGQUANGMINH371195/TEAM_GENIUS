@@ -103,6 +103,12 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
         )
     )
     metadata = dict(state.get("metadata") or {})
+    planner_started = time.perf_counter()
+    grounded_plan = evidence_gap_plan(
+        query,
+        evidence,
+        enabled=get_settings().feature_planner_enabled,
+    )
     metadata.update(
         {
             "route_intent": retrieval_intent(query),
@@ -114,11 +120,8 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
                 {channel for item in evidence for channel in item.channels}
             ),
             "retrieval_trace": bundle.trace,
-            "grounded_plan": evidence_gap_plan(
-                query,
-                evidence,
-                enabled=get_settings().feature_planner_enabled,
-            ).as_dict(),
+            "planner_ms": round((time.perf_counter() - planner_started) * 1000, 2),
+            "grounded_plan": grounded_plan.as_dict(),
         }
     )
     return {

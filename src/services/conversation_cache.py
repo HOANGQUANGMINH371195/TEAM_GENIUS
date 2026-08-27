@@ -7,10 +7,10 @@ keeps local development functional.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
-import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -34,12 +34,24 @@ class ConversationContextCache:
                 self._redis = None
 
     @staticmethod
-    def _key(owner_uid: str, conversation_id: str) -> str:
-        digest = hashlib.sha256(f"{owner_uid}\x00{conversation_id}".encode()).hexdigest()
+    def _key(owner_uid: str, conversation_id: str, release_id: str = "") -> str:
+        """Build an owner- and release-scoped key.
+
+        A release is part of the identity even though the cached rows are only
+        navigation context.  This prevents a conversation cache hit from
+        carrying anchors from a retired corpus into a newly activated release.
+        ``release_id`` is optional for backwards-compatible local callers; the
+        API supplies it whenever the active-release pointer is available.
+        """
+        digest = hashlib.sha256(
+            f"{owner_uid}\x00{conversation_id}\x00{release_id}".encode()
+        ).hexdigest()
         return f"medipay:conversation-context:{digest}"
 
-    async def get(self, *, owner_uid: str, conversation_id: str) -> list[dict[str, Any]] | None:
-        key = self._key(owner_uid, conversation_id)
+    async def get(
+        self, *, owner_uid: str, conversation_id: str, release_id: str = ""
+    ) -> list[dict[str, Any]] | None:
+        key = self._key(owner_uid, conversation_id, release_id)
         if self._redis is not None:
             try:
                 raw = await self._redis.get(key)
@@ -55,8 +67,15 @@ class ConversationContextCache:
         metrics.inc("conversation_cache_requests_total", outcome="hit", backend="memory")
         return [dict(item) for item in cached[1]]
 
-    async def put(self, *, owner_uid: str, conversation_id: str, turns: list[dict[str, Any]]) -> None:
-        key = self._key(owner_uid, conversation_id)
+    async def put(
+        self,
+        *,
+        owner_uid: str,
+        conversation_id: str,
+        turns: list[dict[str, Any]],
+        release_id: str = "",
+    ) -> None:
+        key = self._key(owner_uid, conversation_id, release_id)
         bounded = [dict(item) for item in turns[-self.max_turns :]]
         if self._redis is not None:
             try:
@@ -74,20 +93,32 @@ class ConversationContextCache:
         owner_uid: str,
         conversation_id: str,
         loader: Callable[[], Awaitable[list[dict[str, Any]]]],
+        release_id: str = "",
     ) -> list[dict[str, Any]]:
         """Single-flight a cache miss so a new conversation cannot stampede SQL."""
-        key = self._key(owner_uid, conversation_id)
+        key = self._key(owner_uid, conversation_id, release_id)
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
-            cached = await self.get(owner_uid=owner_uid, conversation_id=conversation_id)
+            cached = await self.get(
+                owner_uid=owner_uid,
+                conversation_id=conversation_id,
+                release_id=release_id,
+            )
             if cached is not None:
                 return cached
             turns = await loader()
-            await self.put(owner_uid=owner_uid, conversation_id=conversation_id, turns=turns)
+            await self.put(
+                owner_uid=owner_uid,
+                conversation_id=conversation_id,
+                turns=turns,
+                release_id=release_id,
+            )
             return [dict(item) for item in turns[-self.max_turns :]]
 
-    async def invalidate(self, *, owner_uid: str, conversation_id: str) -> None:
-        key = self._key(owner_uid, conversation_id)
+    async def invalidate(
+        self, *, owner_uid: str, conversation_id: str, release_id: str = ""
+    ) -> None:
+        key = self._key(owner_uid, conversation_id, release_id)
         self._memory.pop(key, None)
         self._locks.pop(key, None)
         if self._redis is not None:
