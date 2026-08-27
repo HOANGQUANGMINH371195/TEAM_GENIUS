@@ -369,7 +369,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields | partial: deterministic pre-score exists; calibration labels/model pending |
 | Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py` | implemented, production latency gate not proven |
 | Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
-| Decimal calculator | `src/services/calculator.py`, `/calculator/bhyt`, focused golden tests | implemented as a verified-fact calculator; table-fact wiring pending |
+| Decimal calculator | `src/services/calculator.py`, `/calculator/bhyt`, reviewed `table_cell_facts` retrieval, focused golden tests | partial: formula registry/100-golden and end-to-end UI still pending |
 | Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py`, `web/app/document/page.tsx` | backend/UI implemented; XSS/anchor acceptance gates pending |
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback | partial: release-fingerprint invalidation and hit/miss telemetry pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
