@@ -18,7 +18,6 @@ from src.services.claims import build_legal_claim, claim_dict
 from src.services.planner import evidence_gap_plan, followup_queries
 from src.services.retrieval import (
     decompose_query,
-    extract_query_phrases,
     no_answer_response,
     requires_evidence_verification,
     rerank_legal_candidates,
@@ -478,99 +477,6 @@ def _deterministic_source_rule_response(
             legal_pointer = f" Căn cứ {article.group(0)} khoản {unit.group(1)}."
         return f"Theo nguồn pháp lý được cung cấp, {label} thuộc trường hợp không được hưởng BHYT.{legal_pointer}"
     return ""
-
-
-def _deterministic_source_fact_response(
-    query: str, evidence: Sequence[RetrievalResult]
-) -> str:
-    """Extract short source-backed rule fragments for numeric/high-risk asks.
-
-    This is activated only when a canonical passage contains several
-    query-derived terms and an operative marker such as a percentage, amount,
-    condition or emergency rule. It prevents a model paraphrase from hiding
-    the decisive number while keeping the output as a compact answer rather
-    than returning an entire retrieved chunk.
-    """
-    if not requires_evidence_verification(query):
-        return ""
-    query_terms = {
-        token.casefold()
-        for token in _CLAIM_TOKEN.findall(query)
-        if len(token) > 2 and token.casefold() not in _CLAIM_STOPWORDS
-    }
-    query_numeric_markers = {
-        " ".join(match.split()).casefold()
-        for match in re.findall(r"\b\d+\s+(?:năm|lần|tháng|%|ngày)\b", query.casefold())
-    }
-    query_phrases = extract_query_phrases(query, limit=16)
-    # The retrieval bundle is already source-ranked. If its leading legal
-    # unit contains both a query-derived collocation and an operative marker,
-    # use that canonical heading directly; re-scoring every neighbouring
-    # clause can otherwise replace the answer with a related administrative
-    # passage.
-    for item in evidence:
-        heading = " ".join(item.section_title.split())
-        if not heading or not re.search(r"\d|%", heading.casefold()):
-            continue
-        if not any(
-            len(phrase.split()) >= 2 and phrase.casefold() in heading.casefold()
-            for phrase in query_phrases
-        ):
-            continue
-        return f"- {heading[:900]}"
-    candidates: list[tuple[float, str, RetrievalResult]] = []
-    for item in evidence:
-        source = " ".join((item.section_title, item.content)).strip()
-        if not source:
-            continue
-        fragments = [item.section_title] + re.split(r"(?<=[.;:])\s+|\n+", source)
-        for fragment in fragments:
-            text = " ".join(fragment.split()).strip(" -")
-            if len(text) < 30:
-                continue
-            tokens = {
-                token.casefold()
-                for token in _CLAIM_TOKEN.findall(text)
-                if len(token) > 2 and token.casefold() not in _CLAIM_STOPWORDS
-            }
-            overlap = len(query_terms & tokens)
-            if overlap < 2:
-                continue
-            marker = bool(re.search(r"\d|%", text.casefold()))
-            if not marker:
-                continue
-            primary = int(
-                item.document_type.strip().casefold() == "luật"
-                or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
-            )
-            score = (
-                overlap / max(1, len(query_terms))
-                + 0.35
-                * sum(
-                    phrase.casefold() in text.casefold()
-                    for phrase in query_phrases
-                    if len(phrase.split()) >= 2
-                )
-                + (0.25 if "100%" in text else 0.0)
-                + (0.20 if text == " ".join(item.section_title.split()) else 0.0)
-                + (0.80 if any(marker in text.casefold() for marker in query_numeric_markers) else 0.0)
-                + 0.35 * primary
-                + (0.10 if any("bhyt" in str(category).casefold() for category in item.categories) else 0.0)
-            )
-            candidates.append((score, text, item))
-    if not candidates:
-        return ""
-    candidates.sort(key=lambda row: (-row[0], len(row[1])))
-    lines: list[str] = []
-    seen: set[str] = set()
-    for _, text, _ in candidates:
-        if text.casefold() in seen:
-            continue
-        seen.add(text.casefold())
-        lines.append(f"- {text[:700]}")
-        if len(lines) >= 3:
-            break
-    return "\n".join(lines)
 
 
 def _deterministic_legal_unit_response(evidence: Sequence[RetrievalResult]) -> str:
