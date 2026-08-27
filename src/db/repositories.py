@@ -366,6 +366,50 @@ class GraphRepository:
             for row in result
         ]
 
+    async def search_table_facts(
+        self, query: str, *, dataset_id: str, limit: int = 12
+    ) -> list[RetrievalResult]:
+        """Recall typed table facts and anchor them to canonical legal units."""
+        result = await self.session.execute(
+            text(
+                """
+                SELECT f.fact_id, f.subject, f.attribute, f.value, f.document_id,
+                       f.legal_unit_id, f.source_fragment_sha256, d.title,
+                       COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
+                       COALESCE(u.heading, u.label, '') AS section_title,
+                       u.source_start, u.source_end, u.text_sha256
+                FROM table_cell_facts f
+                JOIN documents d ON d.dataset_id = f.dataset_id AND d.id = f.document_id
+                LEFT JOIN legal_units u ON u.dataset_id = f.dataset_id AND u.unit_id = f.legal_unit_id
+                WHERE f.dataset_id = :dataset_id
+                  AND f.review_status = 'accepted'
+                  AND to_tsvector('simple', f.subject || ' ' || f.attribute || ' ' || f.value)
+                      @@ websearch_to_tsquery('simple', :query)
+                ORDER BY f.fact_id
+                LIMIT :limit
+                """
+            ),
+            {"dataset_id": dataset_id, "query": query, "limit": max(1, min(limit, 50))},
+        )
+        return [
+            RetrievalResult(
+                chunk_id=f"table-fact:{row.fact_id}",
+                document_id=str(row.document_id or ""),
+                dataset_id=dataset_id,
+                content=f"{row.subject}: {row.attribute} = {row.value}",
+                source=str(row.document_id or ""),
+                title=str(row.title or ""),
+                document_number=str(row.document_number or ""),
+                section_title=str(row.section_title or ""),
+                unit_id=str(row.legal_unit_id or ""),
+                source_start=int(row.source_start) if row.source_start is not None else None,
+                source_end=int(row.source_end) if row.source_end is not None else None,
+                text_sha256=str(row.text_sha256 or row.source_fragment_sha256 or ""),
+                channels=["table_fact"],
+            )
+            for row in result
+        ]
+
     async def document_ranking_metadata(
         self, document_ids: Sequence[str], *, dataset_id: str
     ) -> dict[str, dict[str, object]]:

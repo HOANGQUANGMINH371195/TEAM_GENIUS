@@ -845,10 +845,27 @@ class GraphRagRuntime:
             # decide an exact amount safely.
             if intent == "table":
                 lexical_results = await lexical_task
-                _record_trace_event("table:lexical_only", phase2_started, result_count=len(lexical_results))
+                table_results: list[RetrievalResult] = []
+                try:
+                    async with session_scope() as table_session:
+                        table_results = await GraphRepository(table_session).search_table_facts(
+                            query, dataset_id=dataset_id, limit=settings.max_llm_evidence
+                        )
+                except Exception as exc:
+                    # The projection is additive and may not exist during a
+                    # rolling migration. Canonical lexical retrieval remains
+                    # a safe fallback; it must never fabricate a numeric fact.
+                    _record_trace_event("postgres:table_facts", phase2_started, outcome=type(exc).__name__)
+                _record_trace_event(
+                    "table:structured", phase2_started,
+                    result_count=len(table_results), lexical_count=len(lexical_results),
+                )
                 return RetrievalBundle(
                     evidence=_verified_evidence(
-                        weighted_rrf({"lexical": lexical_results}, limit=settings.max_llm_evidence)
+                        weighted_rrf(
+                            {"table_fact": table_results, "lexical": lexical_results},
+                            limit=settings.max_llm_evidence,
+                        )
                     ),
                     relations=[],
                 )
