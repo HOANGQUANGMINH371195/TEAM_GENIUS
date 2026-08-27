@@ -839,6 +839,19 @@ class GraphRagRuntime:
                     limit=passage_candidate_limit,
                 )
             )
+            # Numeric/table questions must use the structured fact/calculator
+            # path. Until a fact row is available, keep the fallback lexical
+            # and avoid paying for an embedding/ANN round trip that cannot
+            # decide an exact amount safely.
+            if intent == "table":
+                lexical_results = await lexical_task
+                _record_trace_event("table:lexical_only", phase2_started, result_count=len(lexical_results))
+                return RetrievalBundle(
+                    evidence=_verified_evidence(
+                        weighted_rrf({"lexical": lexical_results}, limit=settings.max_llm_evidence)
+                    ),
+                    relations=[],
+                )
             async with trace_span(
                 "embedding-query",
                 as_type="embedding",
