@@ -3,6 +3,7 @@
 import { FormEvent, forwardRef, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 
@@ -243,6 +244,7 @@ export default function HomePage() {
 
         <nav className="bhyt-nav" onClick={() => setMobileMenuOpen(false)}>
           <a className="bhyt-nav-item is-active" href="#main-chat"><Icon name="chat" /><span>Tra cứu BHYT</span></a>
+          <Link className="bhyt-nav-item" href="/calculator"><Icon name="document" /><span>So sánh kịch bản</span></Link>
           <button className="bhyt-nav-item" type="button" onClick={() => chooseTopic(topicCards[2].question)}><Icon name="document" /><span>Hướng dẫn thủ tục</span></button>
           <button className="bhyt-nav-item" type="button" onClick={() => inputRef.current?.focus()}><Icon name="help" /><span>Trợ giúp &amp; Hỏi đáp</span></button>
         </nav>
