@@ -7,6 +7,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from datetime import date
 
+from src.config import get_settings
 from src.models.graph import RetrievalResult
 
 # Vietnamese instruments use both year-qualified signatures
@@ -639,7 +640,23 @@ def rerank_legal_candidates(
             "currentness_penalty": currentness_penalty,
         }
         ranked.append(item)
-    return sorted(ranked, key=lambda item: (-item.score, item.document_id, item.chunk_id))
+    ordered = sorted(ranked, key=lambda item: (-item.score, item.document_id, item.chunk_id))
+    if get_settings().reranker_backend == "cross_encoder":
+        from src.services.reranker import cross_encoder_rerank
+
+        reranked, backend_status = cross_encoder_rerank(
+            query,
+            ordered,
+            model_name=get_settings().reranker_model,
+            max_candidates=get_settings().reranker_max_candidates,
+        )
+        for item in reranked:
+            item.rank_details = {
+                **item.rank_details,
+                "reranker_backend_status": backend_status,
+            }
+        return reranked
+    return ordered
 
 
 # Backward-compatible import for evaluation scripts while callers migrate to

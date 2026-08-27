@@ -98,6 +98,11 @@ class Settings(BaseSettings):
     max_context_tokens: int = Field(default=32_000, ge=512, le=64_000)
     chunk_size: int = Field(default=800, ge=100)
     chunk_overlap: int = Field(default=120, ge=0)
+    # Optional local cross-encoder; the default heuristic path has no model
+    # download and is used unless an explicit ablation enables this backend.
+    reranker_backend: Literal["heuristic", "cross_encoder"] = "heuristic"
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    reranker_max_candidates: int = Field(default=30, ge=1, le=64)
 
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
