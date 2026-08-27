@@ -24,8 +24,13 @@ def main() -> int:
     args = parser.parse_args()
 
     render = yaml.safe_load((ROOT / "render.yaml").read_text(encoding="utf-8"))
+    worker_render = yaml.safe_load((ROOT / "render-research-worker.yaml").read_text(encoding="utf-8"))
     services = render.get("services") or []
     api = next((item for item in services if item.get("name") == "medipay-api"), {})
+    worker = next(
+        (item for item in (worker_render.get("services") or []) if item.get("name") == "medipay-research-worker"),
+        {},
+    )
     env_vars = {str(item.get("key")): item for item in api.get("envVars") or []}
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
@@ -36,6 +41,12 @@ def main() -> int:
     checks: dict[str, bool] = {
         "render_service_is_docker": api.get("runtime") == "docker",
         "render_branch_is_main": api.get("branch") == "main",
+        "research_worker_blueprint_is_main": worker.get("branch") == "main",
+        "research_worker_uses_python_entrypoint_args": str(worker.get("dockerCommand") or "").strip().startswith("-m "),
+        "research_worker_requires_redis": any(
+            item.get("key") == "RESEARCH_QUEUE_BACKEND" and item.get("value") == "redis"
+            for item in worker.get("envVars") or []
+        ),
         "render_health_check_is_liveness": api.get("healthCheckPath") == "/health",
         "managed_profile_forces_production": "APP_ENV: production" in compose,
         "render_port_is_injected": all(item.get("key") != "PORT" for item in api.get("envVars") or []),

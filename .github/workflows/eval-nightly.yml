@@ -27,9 +27,22 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install --require-hashes -r requirements/dev.lock
+      - name: Check external release artifacts
+        id: release-artifacts
+        run: |
+          if [ -f data/clean/medical_active_v31_fully_reviewed/release_benchmark.jsonl ] && \
+             [ -f data/clean/medical_active_v31_fully_reviewed/semantic_question_benchmark.jsonl ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            PYTHONPATH=. python scripts/verify_release_artifacts.py --root . --require \
+              --output eval/results/release-artifacts.json
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::External release artifacts are not mounted; source-only checks remain, semantic retrieval evaluation is not run."
+          fi
       - name: Validate release-locked suite
         run: PYTHONPATH=database/pipeline:. pytest -q eval/test_release_locked_suite.py
       - name: Evaluate Qdrant thematic retrieval
+        if: steps.release-artifacts.outputs.available == 'true'
         run: >-
           PYTHONPATH=database/pipeline:. python database/corpus/evaluate_qdrant_semantic.py
           --benchmark data/clean/medical_active_v31_fully_reviewed/semantic_question_benchmark.jsonl
@@ -39,6 +52,12 @@ jobs:
         with:
           name: nightly-qdrant-semantic
           path: eval/results/nightly-qdrant-semantic.json
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artifact-contract
+          path: eval/results/release-artifacts.json
+          if-no-files-found: ignore
 
   full-ragas:
     if: github.event_name == 'workflow_dispatch' && inputs.run_ragas

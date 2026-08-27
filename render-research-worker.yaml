@@ -9,7 +9,10 @@ services:
     branch: main
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerCommand: python -m src.research_worker
+    # Dockerfile already declares /usr/bin/python3.11 as ENTRYPOINT.  Render
+    # appends dockerCommand to that entrypoint, so pass only Python's module
+    # arguments; `python -m ...` would incorrectly invoke a file named python.
+    dockerCommand: -m src.research_worker
     envVars:
       - key: APP_ENV
         value: production
