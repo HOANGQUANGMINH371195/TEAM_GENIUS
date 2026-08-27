@@ -53,6 +53,7 @@ def main() -> int:
         "scenario_page": ROOT / "web/app/calculator/page.tsx",
         "promotion_gate": ROOT / "scripts/verify_promotion_gate.py",
         "reranker_backend": ROOT / "src/services/reranker.py",
+        "reranker_ablation_harness": ROOT / "eval/ablations/reranker/evaluate.py",
         "community_retrieval": ROOT / "src/services/global_retrieval.py",
         "community_index_builder": ROOT / "database/corpus/build_community_index.py",
         "research_job_worker": ROOT / "src/services/research_jobs.py",
