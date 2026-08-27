@@ -446,12 +446,15 @@ class GraphRepository:
                        f.legal_unit_id, f.source_fragment_sha256, d.title,
                        COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
                        COALESCE(u.heading, u.label, '') AS section_title,
+                       u.text AS legal_unit_text,
                        u.source_start, u.source_end, u.text_sha256
                 FROM table_cell_facts f
                 JOIN documents d ON d.dataset_id = f.dataset_id AND d.id = f.document_id
-                LEFT JOIN legal_units u ON u.dataset_id = f.dataset_id AND u.unit_id = f.legal_unit_id
+                JOIN legal_units u ON u.dataset_id = f.dataset_id AND u.unit_id = f.legal_unit_id
                 WHERE f.dataset_id = :dataset_id
                   AND f.review_status = 'accepted'
+                  AND u.text <> ''
+                  AND u.text_sha256 <> ''
                   AND to_tsvector('simple', f.subject || ' ' || f.attribute || ' ' || f.value)
                       @@ websearch_to_tsquery('simple', :query)
                 ORDER BY f.fact_id
@@ -465,11 +468,18 @@ class GraphRepository:
                 chunk_id=f"table-fact:{row.fact_id}",
                 document_id=str(row.document_id or ""),
                 dataset_id=dataset_id,
-                content=f"{row.subject}: {row.attribute} = {row.value}",
+                # The legal unit is the canonical text/hash pair.  The typed
+                # fact remains visible as a compact section label, while the
+                # content itself is never synthetic (otherwise provenance
+                # verification would correctly reject the result).
+                content=str(row.legal_unit_text or ""),
                 source=str(row.document_id or ""),
                 title=str(row.title or ""),
                 document_number=str(row.document_number or ""),
-                section_title=str(row.section_title or ""),
+                section_title=(
+                    f"{row.section_title or ''} — {row.subject}: "
+                    f"{row.attribute} = {row.value}"
+                ).strip(" —"),
                 unit_id=str(row.legal_unit_id or ""),
                 source_start=int(row.source_start) if row.source_start is not None else None,
                 source_end=int(row.source_end) if row.source_end is not None else None,
