@@ -24,6 +24,8 @@ from src.models.schemas import (
     AnalyzeResponse,
     BenefitCalculationRequest,
     BenefitCalculationResponse,
+    BenefitCalculationScenariosRequest,
+    BenefitCalculationScenariosResponse,
     ChatRequest,
     ChatResponse,
 )
@@ -99,6 +101,37 @@ async def calculate_bhyt(
     except CalculationInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return BenefitCalculationResponse(**result.as_dict())
+
+
+@router.post(
+    "/calculator/bhyt/scenarios",
+    response_model=BenefitCalculationScenariosResponse,
+    summary="Compare bounded BHYT calculation scenarios",
+)
+async def compare_bhyt_scenarios(
+    request: BenefitCalculationScenariosRequest,
+    _user: dict = Depends(get_current_user),
+) -> BenefitCalculationScenariosResponse:
+    """Run up to eight exact scenarios without an LLM or legal-rate lookup."""
+    if not get_settings().feature_calculator_enabled:
+        raise HTTPException(status_code=404, detail="Calculator unavailable")
+    results: list[dict[str, object]] = []
+    for index, scenario in enumerate(request.scenarios):
+        try:
+            result = calculate_bhyt_benefit(
+                covered_cost=scenario.calculation.covered_cost,
+                base_rate_percent=scenario.calculation.base_rate_percent,
+                copayment_spend=scenario.calculation.copayment_spend,
+                copayment_threshold=scenario.calculation.copayment_threshold,
+                continuous_years=scenario.calculation.continuous_years,
+                required_years=scenario.calculation.required_years,
+                threshold_rate_percent=scenario.calculation.threshold_rate_percent,
+                rule_provenance=tuple(scenario.calculation.rule_provenance),
+            )
+        except CalculationInputError as exc:
+            raise HTTPException(status_code=422, detail=f"scenario {index + 1}: {exc}") from exc
+        results.append({"label": scenario.label, "calculation": result.as_dict()})
+    return BenefitCalculationScenariosResponse(results=results)
 
 
 @router.get(

@@ -2,6 +2,11 @@ from decimal import Decimal
 
 import pytest
 
+from src.models.schemas import (
+    BenefitCalculationRequest,
+    BenefitCalculationScenario,
+    BenefitCalculationScenariosRequest,
+)
 from src.services.calculator import CalculationInputError, calculate_bhyt_benefit
 
 
@@ -40,3 +45,11 @@ def test_base_rate_is_used_when_threshold_not_met():
     assert result.threshold_met is False
     assert result.insurer_pays == Decimal("80.00")
     assert result.patient_pays == Decimal("20.00")
+
+
+def test_scenario_request_is_bounded_and_structured():
+    calculation = BenefitCalculationRequest(covered_cost="100", base_rate_percent="80")
+    request = BenefitCalculationScenariosRequest(
+        scenarios=[BenefitCalculationScenario(label="base", calculation=calculation)]
+    )
+    assert request.scenarios[0].calculation.covered_cost == "100"

@@ -91,6 +91,19 @@ class BenefitCalculationResponse(ApiModel):
     provenance: list[str]
 
 
+class BenefitCalculationScenario(ApiModel):
+    label: str = Field(..., min_length=1, max_length=120)
+    calculation: BenefitCalculationRequest
+
+
+class BenefitCalculationScenariosRequest(ApiModel):
+    scenarios: list[BenefitCalculationScenario] = Field(..., min_length=1, max_length=8)
+
+
+class BenefitCalculationScenariosResponse(ApiModel):
+    results: list[dict[str, object]]
+
+
 class ConversationSummary(ApiModel):
     conversation_id: str
     title: str = ""

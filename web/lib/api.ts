@@ -79,6 +79,28 @@ export async function fetchDocumentHtml(documentNumber: string): Promise<string>
   return response.text();
 }
 
+export type BenefitCalculationInput = {
+  covered_cost: string;
+  base_rate_percent: string;
+  copayment_spend?: string;
+  copayment_threshold?: string | null;
+  continuous_years?: string | null;
+  required_years?: string;
+  threshold_rate_percent?: string;
+  rule_provenance?: string[];
+};
+
+export async function compareBenefitScenarios(
+  scenarios: Array<{ label: string; calculation: BenefitCalculationInput }>,
+): Promise<{ results: Array<{ label: string; calculation: Record<string, unknown> }> }> {
+  const response = await adminRequest("/api/v1/calculator/bhyt/scenarios", {
+    method: "POST",
+    body: JSON.stringify({ scenarios }),
+  });
+  if (!response.ok) throw new Error("Không thể tính các kịch bản BHYT");
+  return response.json() as Promise<{ results: Array<{ label: string; calculation: Record<string, unknown> }> }>;
+}
+
 export async function fetchAdminReviews(status = "pending", domain = "all"): Promise<ReviewQueueItem[]> {
   const response = await adminRequest(`/api/v1/auth/admin/reviews?status=${encodeURIComponent(status)}&domain=${encodeURIComponent(domain)}`);
   if (!response.ok) {

@@ -370,7 +370,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields | partial: deterministic pre-score exists; calibration labels/model pending |
 | Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py`, current-authority filter | implemented, production latency gate not proven |
 | Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
-| Decimal calculator | `src/services/calculator.py`, `/calculator/bhyt`, reviewed `table_cell_facts` retrieval, `eval/cases/calculator-golden-v1.jsonl` (100 cases) | partial: multiple formula registry and end-to-end scenario UI still pending |
+| Decimal calculator | `src/services/calculator.py`, `/calculator/bhyt`, bounded `/calculator/bhyt/scenarios`, reviewed `table_cell_facts` retrieval, `eval/cases/calculator-golden-v1.jsonl` (100 cases) | partial: broader formula registry and rendered scenario UI still pending |
 | Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py`, `web/app/document/page.tsx` | hash-verified backend/UI implemented; XSS/anchor acceptance gates pending |
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight, hit/miss metrics, release-scoped keys | implemented; production Redis failover/latency proof pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
