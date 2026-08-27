@@ -390,7 +390,7 @@ Do not run or publish a model benchmark as a promotion decision while any
 - [x] Move optional document recall out of the critical failure path.
 - [ ] Enforce per-route provider/candidate/context/deadline budgets.
 - [x] Add Redis private-context/retrieval cache and single-flight.
-- [ ] Prewarm dependencies and audit region RTT/pool saturation.
+- [x] Prewarm dependencies at startup; managed-region RTT/pool saturation audit remains an external gate.
 - [ ] Lock authenticated live cold/warm/concurrency baseline.
 
 Exit: simple p95 ≤5 s, topical p95 ≤8 s, stream errors <1%, no accuracy loss.

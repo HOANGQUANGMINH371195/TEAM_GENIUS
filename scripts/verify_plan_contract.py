@@ -41,6 +41,10 @@ def main() -> int:
         "typed_fact_module": ROOT / "src/domain/facts.py",
         "typed_fact_migration": ROOT / "database/postgres/migrations/20260827_typed_legal_facts.sql",
         "golden_calculator": ROOT / "eval/cases/calculator-golden-v1.jsonl",
+        "batch_manifest": ROOT / "eval/batch_manifest.py",
+        "calibration_metrics": ROOT / "eval/calibration.py",
+        "typed_fact_importer": ROOT / "database/neo4j/scripts/import_typed_facts.py",
+        "scenario_page": ROOT / "web/app/calculator/page.tsx",
     }
     checks = {name: path.is_file() for name, path in required.items()}
     fixture = _fixture_case_count(required["golden_calculator"])
