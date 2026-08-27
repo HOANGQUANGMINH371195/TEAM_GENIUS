@@ -28,6 +28,7 @@ def test_manifest_retries_and_quarantines_and_accounts_cost():
     assert manifest.items[0].status == "quarantined"
     manifest.mark_result(item_id, output_tokens=12, actual_cost_usd=0.25)
     assert manifest.items[0].status == "complete"
+    assert manifest.items[0].started_at and manifest.items[0].finished_at
     assert manifest.ledger().output_tokens == 12
     assert manifest.ledger().actual_cost_usd == 0.25
     assert '"manifest"' in manifest.to_jsonl()

@@ -41,6 +41,8 @@ class BatchItem:
     output_tokens: int = 0
     actual_cost_usd: float | None = None
     error_class: str = ""
+    started_at: str | None = None
+    finished_at: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -56,6 +58,8 @@ class BatchItem:
             "output_tokens": self.output_tokens,
             "actual_cost_usd": self.actual_cost_usd,
             "error_class": self.error_class,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
         }
 
 
@@ -144,18 +148,22 @@ class BatchManifest:
         if item.status == "complete":
             return
         item.attempts += 1
+        item.started_at = item.started_at or datetime.now(UTC).isoformat()
         item.output_tokens = max(0, int(output_tokens))
         item.actual_cost_usd = actual_cost_usd
         item.status = "complete"
         item.error_class = ""
+        item.finished_at = datetime.now(UTC).isoformat()
 
     def mark_error(self, item_id: str, error_class: str, *, max_attempts: int = 3) -> None:
         item = self._item(item_id)
         if item.status == "complete":
             return
         item.attempts += 1
+        item.started_at = item.started_at or datetime.now(UTC).isoformat()
         item.error_class = error_class[:120]
         item.status = "quarantined" if item.attempts >= max(1, max_attempts) else "retryable_error"
+        item.finished_at = datetime.now(UTC).isoformat()
 
     def ledger(self) -> CostLedger:
         ledger = CostLedger()
