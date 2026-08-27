@@ -367,7 +367,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Typed route contract | `src/domain/route_plan.py`, route metadata in intake | partial: budgets are described but not yet enforced per request |
 | Evidence-gap planning | `src/services/planner.py`, bounded fan-out/depth metadata | partial: gap inventory is recorded; follow-up retrieval loop and calibration pending |
 | Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields | partial: deterministic pre-score exists; calibration labels/model pending |
-| Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py` | implemented, production latency gate not proven |
+| Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py`, current-authority filter | implemented, production latency gate not proven |
 | Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
 | Decimal calculator | `src/services/calculator.py`, `/calculator/bhyt`, reviewed `table_cell_facts` retrieval, `eval/cases/calculator-golden-v1.jsonl` (100 cases) | partial: multiple formula registry and end-to-end scenario UI still pending |
 | Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py`, `web/app/document/page.tsx` | hash-verified backend/UI implemented; XSS/anchor acceptance gates pending |
