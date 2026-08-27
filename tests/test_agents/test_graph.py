@@ -6,6 +6,7 @@ import pytest
 from src.agents.nodes.graphrag_nodes import (
     _audit_claims,
     _claim_facts_supported,
+    _deduplicate_response_lines,
     _deterministic_legal_unit_response,
     _looks_like_raw_evidence,
     _pack_context,
@@ -337,6 +338,11 @@ def test_raw_chunk_detector_catches_long_extractive_bullet():
     content = " ".join(["Nguồn pháp lý quy định điều kiện thanh toán BHYT."] * 20)
     evidence = [RetrievalResult(chunk_id="chunk-1", document_id="doc-1", content=content)]
     assert _looks_like_raw_evidence(f"- {content}", evidence)
+
+
+def test_guardrail_deduplicates_repeated_source_bullets_without_rewriting():
+    value = "- Quy định A.\n- Quy định A.\nKết luận ngắn."
+    assert _deduplicate_response_lines(value) == "- Quy định A.\nKết luận ngắn."
 
 
 @pytest.mark.asyncio

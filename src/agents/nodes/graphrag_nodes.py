@@ -568,6 +568,20 @@ def _looks_like_raw_evidence(value: str, evidence: Sequence[RetrievalResult]) ->
     return False
 
 
+def _deduplicate_response_lines(value: str) -> str:
+    """Remove exact repeated bullets/sentences without rewriting content."""
+    seen: set[str] = set()
+    kept: list[str] = []
+    for line in value.splitlines():
+        normalized = " ".join(line.casefold().split())
+        if normalized and normalized in seen:
+            continue
+        if normalized:
+            seen.add(normalized)
+        kept.append(line.rstrip())
+    return "\n".join(kept).strip()
+
+
 def _citations_from_evidence(
     evidence: list[RetrievalResult], *, preserve_order: bool = False
 ) -> list[Citation]:
@@ -805,7 +819,9 @@ def _normalize_response(value: object) -> str:
 async def guardrail_node(state: AgentState) -> dict:
     started = time.perf_counter()
     evidence = state.get("retrieved_evidence", [])
-    response = _sanitize_output(_normalize_response(state.get("response", "")), evidence)
+    response = _deduplicate_response_lines(
+        _sanitize_output(_normalize_response(state.get("response", "")), evidence)
+    )
     if not response:
         response = NO_EVIDENCE_RESPONSE
     if _looks_like_raw_evidence(response, evidence):
