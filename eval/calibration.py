@@ -8,6 +8,7 @@ calibration report can be considered valid.
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,4 +102,68 @@ def calibration_report(
         "brier": round(brier, 8),
         "bins": bucket_data,
         "reviewers": sorted({row.reviewer for row in rows}),
+    }
+
+
+def validate_calibration_panel(
+    records: Iterable[CalibrationRecord],
+    *,
+    min_cases: int = 30,
+    min_reviewers: int = 2,
+) -> dict[str, object]:
+    """Validate an independent review panel before calibration is promoted.
+
+    Every claim must have one label from each independent reviewer. Duplicate
+    labels by the same reviewer are rejected rather than silently averaged.
+    The function reports raw agreement only; fitting/calibrating a model still
+    requires the approved artifact and a separately reviewed decision.
+    """
+    rows = list(records)
+    if min_cases < 1 or min_reviewers < 2:
+        raise ValueError("min_cases must be positive and min_reviewers must be at least 2")
+    if not rows:
+        raise ValueError("at least one human-labelled record is required")
+    for row in rows:
+        row.validate()
+    by_claim: dict[str, list[CalibrationRecord]] = defaultdict(list)
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        key = (row.claim_id, row.reviewer)
+        if key in seen:
+            raise ValueError(f"duplicate reviewer label: {row.claim_id}/{row.reviewer}")
+        seen.add(key)
+        by_claim[row.claim_id].append(row)
+    reviewers = sorted({row.reviewer for row in rows})
+    if len(reviewers) < min_reviewers:
+        raise ValueError(
+            f"calibration panel needs at least {min_reviewers} reviewers; found {len(reviewers)}"
+        )
+    incomplete = sorted(
+        claim_id for claim_id, labels in by_claim.items()
+        if len({label.reviewer for label in labels}) < min_reviewers
+    )
+    if incomplete:
+        raise ValueError(
+            "every claim needs independent labels; incomplete claims: "
+            + ", ".join(incomplete[:10])
+        )
+    if len(by_claim) < min_cases:
+        raise ValueError(
+            f"calibration panel needs at least {min_cases} claims; found {len(by_claim)}"
+        )
+    pair_count = 0
+    pair_agreements = 0
+    for labels in by_claim.values():
+        for index, left in enumerate(labels):
+            for right in labels[index + 1 :]:
+                pair_count += 1
+                pair_agreements += int(left.outcome == right.outcome)
+    return {
+        "cases": len(by_claim),
+        "labels": len(rows),
+        "reviewers": reviewers,
+        "minimum_cases": min_cases,
+        "minimum_reviewers": min_reviewers,
+        "raw_pair_agreement": round(pair_agreements / pair_count, 8) if pair_count else None,
+        "panel_valid": True,
     }

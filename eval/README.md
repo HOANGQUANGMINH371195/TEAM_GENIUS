@@ -102,3 +102,9 @@ rows = load_calibration_records(Path("/path/to/reviewed-calibration.jsonl"))
 print(calibration_report(rows))
 PY
 ```
+
+Trước khi fit ngưỡng abstention/uncertainty, gọi thêm
+`validate_calibration_panel(rows, min_cases=30, min_reviewers=2)`. Mỗi claim
+phải có nhãn độc lập từ ít nhất hai reviewer; duplicate hoặc claim thiếu một
+reviewer bị từ chối. Raw agreement chỉ là kiểm tra quy trình, không thay thế
+legal adjudication.

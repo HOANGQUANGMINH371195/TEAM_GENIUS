@@ -60,6 +60,8 @@ def main() -> int:
     checks["golden_calculator_manifest_matches_rows"] = fixture is not None and fixture[0] == fixture[1] == 100
 
     config_text = (ROOT / "src/config.py").read_text(encoding="utf-8")
+    calibration_text = (ROOT / "eval/calibration.py").read_text(encoding="utf-8")
+    checks["independent_calibration_panel_validator"] = "validate_calibration_panel" in calibration_text
     checks["feature_flags_declared"] = all(
         f"feature_{name}_enabled" in config_text
         for name in ("planner", "reranker", "auditor", "calculator", "viewer", "graph")
