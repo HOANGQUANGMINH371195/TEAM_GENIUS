@@ -43,3 +43,35 @@ def test_cache_is_release_scoped():
         ) is None
 
     asyncio.run(scenario())
+
+
+def test_redis_failure_falls_back_to_private_memory_without_data_loss():
+    class BrokenRedis:
+        async def get(self, _key):
+            raise OSError("redis unavailable")
+
+        async def set(self, *_args, **_kwargs):
+            raise OSError("redis unavailable")
+
+        async def delete(self, _key):
+            raise OSError("redis unavailable")
+
+        async def aclose(self):
+            return None
+
+    async def scenario():
+        cache = ConversationContextCache(ttl_seconds=60, max_turns=3)
+        cache._redis = BrokenRedis()
+
+        async def loader():
+            return [{"turn_id": "1"}, {"turn_id": "2"}]
+
+        first = await cache.get_or_load(
+            owner_uid="u", conversation_id="c", release_id="r", loader=loader
+        )
+        second = await cache.get(
+            owner_uid="u", conversation_id="c", release_id="r"
+        )
+        assert first == second == [{"turn_id": "1"}, {"turn_id": "2"}]
+
+    asyncio.run(scenario())
