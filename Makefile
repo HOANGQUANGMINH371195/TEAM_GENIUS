@@ -7,7 +7,7 @@ ENV_FILE ?= .env
 LOCAL_PROFILE ?= local-full
 
 .DEFAULT_GOAL := help
-.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan \
+.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan typed-facts-check \
 	build up dev down restart logs health deploy-contract render-validate \
 	deploy-render deploy-vercel clean
 
@@ -21,6 +21,7 @@ help:
 	@echo "  make build              Build all deployable images and frontend"
 	@echo "  make deploy-contract    Verify Render/Vercel/Docker contracts locally"
 	@echo "  make verify-plan        Verify forward-plan delivery contracts"
+	@echo "  make typed-facts-check  Validate an accepted release fact JSONL (FACTS_FILE/RELEASE_ID)"
 	@echo "  make render-validate    Validate render.yaml (CLI if installed, structural fallback otherwise)"
 	@echo "  make deploy-render      Trigger an existing Render service deploy"
 	@echo "  make deploy-vercel      Deploy web/ through Vercel CLI (requires VERCEL_TOKEN)"
@@ -88,6 +89,10 @@ deploy-contract:
 
 verify-plan:
 	$(PYTHON) scripts/verify_plan_contract.py
+
+typed-facts-check:
+	@test -n "$(FACTS_FILE)" -a -n "$(RELEASE_ID)" || { echo "Set FACTS_FILE and RELEASE_ID"; exit 2; }
+	PYTHONPATH=. $(PYTHON) database/neo4j/scripts/import_typed_facts.py "$(FACTS_FILE)" --release-id "$(RELEASE_ID)" --dry-run
 
 render-validate:
 	@if command -v render >/dev/null 2>&1; then \
