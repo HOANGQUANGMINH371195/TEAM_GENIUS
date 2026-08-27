@@ -30,6 +30,7 @@ from src.integrations.neo4j import Neo4jGraphStore
 from src.integrations.qdrant import QdrantVectorStore, VectorHit
 from src.models.graph import Citation, DocumentCandidate, RetrievalResult
 from src.services.circuit import AsyncCircuitBreaker
+from src.services.experience_retrieval import ExperienceIndex
 from src.services.global_retrieval import CommunitySummary, drift_search
 from src.services.llm import get_llm
 from src.services.metrics import metrics
@@ -154,6 +155,7 @@ class GraphRagRuntime:
         self._readiness_cache: tuple[dict[str, bool], float] | None = None
         self._readiness_task: asyncio.Task[dict[str, bool]] | None = None
         self._community_index_cache: tuple[str, int, str, tuple[CommunitySummary, ...]] | None = None
+        self._experience_index_cache: tuple[str, int, str, ExperienceIndex] | None = None
 
     def _get_embeddings(self) -> EmbeddingModel:
         if self._embeddings is None:
@@ -658,6 +660,29 @@ class GraphRagRuntime:
             dict.fromkeys(document_id for hit in hits for document_id in hit.document_ids)
         )
         return document_ids[: settings.retrieval_candidate_k]
+
+    def experience_hints(self, query: str, *, release_id: str) -> list[dict[str, object]]:
+        """Return reviewed workflow hints without making them legal evidence."""
+        settings = get_settings()
+        if not settings.feature_experience_retrieval_enabled or not settings.experience_index_path:
+            return []
+        path = Path(settings.experience_index_path)
+        try:
+            stat = path.stat()
+            cache_key = (str(path), stat.st_mtime_ns, release_id)
+            cached = self._experience_index_cache
+            if cached and cached[:3] == cache_key:
+                index = cached[3]
+            else:
+                index = ExperienceIndex.load(path, release_id=release_id)
+                self._experience_index_cache = (*cache_key, index)
+            hints = index.search(query, max_hits=3)
+            metrics.inc("experience_index_load_total", outcome="success", hits=len(hints))
+            return hints
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            self._experience_index_cache = None
+            metrics.inc("experience_index_load_total", outcome="invalid")
+            return []
 
     async def _retrieve(self, query: str) -> RetrievalBundle:
         return await self._retrieve_staged(query)
@@ -2079,6 +2104,8 @@ class GraphRagRuntime:
         self._retrieval_cache.clear()
         self._rewrite_cache.clear()
         self._answer_cache.clear()
+        self._community_index_cache = None
+        self._experience_index_cache = None
 
 
 def _merge_evidence(vector_results: list, graph_results: list) -> list:

@@ -77,3 +77,19 @@ services:
         value: "3"
       - key: GLOBAL_MAX_ROUNDS
         value: "2"
+      - key: FEATURE_EXPERIENCE_RETRIEVAL_ENABLED
+        value: "false"
+      - key: EXPERIENCE_INDEX_PATH
+        value: ""
+      - key: RESEARCH_QUEUE_BACKEND
+        value: "memory"
+      - key: RESEARCH_QUEUE_REDIS_URL
+        sync: false
+      - key: RESEARCH_QUEUE_MAX_PENDING
+        value: "32"
+      - key: RESEARCH_QUEUE_MAX_WORKERS
+        value: "2"
+      - key: RESEARCH_QUEUE_TIMEOUT_SECONDS
+        value: "90"
+      - key: RESEARCH_QUEUE_TTL_SECONDS
+        value: "900"

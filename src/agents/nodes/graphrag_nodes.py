@@ -94,6 +94,10 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
     else:
         bundle = await runtime.retrieve_bundle(query)
     evidence, relations = bundle.evidence, bundle.relations
+    release_id = next((item.dataset_id for item in evidence if item.dataset_id), "")
+    if not release_id:
+        release_id = (runtime._active_release or ("", 0, 0.0))[0]
+    experience_hints = runtime.experience_hints(query, release_id=release_id) if release_id else []
     planner_started = time.perf_counter()
     route_plan = (state.get("metadata") or {}).get("route_plan") or {}
     grounded_plan = evidence_gap_plan(
@@ -162,6 +166,7 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
             "planner_followup_ms": planner_followup_ms,
             "planner_ms": round((time.perf_counter() - planner_started) * 1000, 2),
             "grounded_plan": grounded_plan.as_dict(),
+            "experience_hint_count": len(experience_hints),
         }
     )
     return {
@@ -179,6 +184,7 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
         ),
         "direct_citations": bundle.direct_citations or [],
         "metadata": metadata,
+        "experience_hints": experience_hints,
     }
 
 

@@ -38,6 +38,10 @@ def main() -> int:
         "rollback_runbook": ROOT / "ops/runbooks/rollback.md",
         "outage_runbook": ROOT / "ops/runbooks/provider-outage.md",
         "retention_runbook": ROOT / "ops/runbooks/supabase-retention.md",
+        "research_worker_runbook": ROOT / "ops/runbooks/research-worker.md",
+        "research_worker_blueprint": ROOT / "render-research-worker.yaml",
+        "plan_suite_compiler": ROOT / "eval/prepare_plan_suite.py",
+        "implementation_gate": ROOT / "scripts/verify_implementation_gate.py",
         "route_module": ROOT / "src/domain/route_plan.py",
         "calculator_module": ROOT / "src/services/calculator.py",
         "viewer_module": ROOT / "src/services/document_viewer.py",
@@ -58,9 +62,14 @@ def main() -> int:
         "community_retrieval": ROOT / "src/services/global_retrieval.py",
         "community_index_builder": ROOT / "database/corpus/build_community_index.py",
         "research_job_worker": ROOT / "src/services/research_jobs.py",
+        "research_worker_entrypoint": ROOT / "src/research_worker.py",
         "production_attestation_verifier": ROOT / "scripts/verify_production_attestation.py",
         "production_attestation_template": ROOT / "ops/attestations/production-attestation.template.json",
         "parity_verifier": ROOT / "database/corpus/verify_live_corpus_parity.py",
+        "experience_retrieval": ROOT / "src/services/experience_retrieval.py",
+        "auditor_ablation": ROOT / "eval/ablations/auditor/evaluate.py",
+        "typed_graph_ablation": ROOT / "eval/ablations/typed-graph/evaluate.py",
+        "grounded_planning_ablation": ROOT / "eval/ablations/grounded-planning/evaluate.py",
     }
     checks = {name: path.is_file() for name, path in required.items()}
     fixture = _fixture_case_count(required["golden_calculator"])
@@ -71,7 +80,7 @@ def main() -> int:
     checks["independent_calibration_panel_validator"] = "validate_calibration_panel" in calibration_text
     checks["feature_flags_declared"] = all(
         f"feature_{name}_enabled" in config_text
-        for name in ("planner", "reranker", "auditor", "calculator", "viewer", "graph", "global_search")
+        for name in ("planner", "reranker", "auditor", "calculator", "viewer", "graph", "global_search", "experience_retrieval")
     )
     route_text = (ROOT / "src/agents/nodes/graphrag_nodes.py").read_text(encoding="utf-8")
     checks["route_plan_recorded_in_intake"] = "route_plan" in route_text

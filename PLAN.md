@@ -3,9 +3,12 @@
 > Canonical execution plan as of 2026-08-26. Historical audits, completed-work
 > logs, measurements, and previous decisions live in `AUDIT.md`.
 >
-> A capability is not complete because code or infrastructure exists. It is
-> complete only after an independent benchmark, live latency test, production
-> rollout, and rollback path all pass.
+> A repository capability is implementation-complete only when its code path,
+> configuration, focused acceptance test, and rollback/failure behavior exist.
+> Production capability is promotion-complete only after the independent
+> benchmark, live latency test, production rollout, and rollback evidence pass.
+> These are separate gates: benchmark evidence is collected only after the
+> implementation gate passes and is never itself production approval.
 
 ## 1. Product objective
 
@@ -357,16 +360,17 @@ A change is promoted only when:
 
 This section is the authoritative implementation ledger. A checked item means
 the code path and a focused verification artifact exist; it does **not** mean
-the production gate in Section 1 has passed. The live benchmark is intentionally
-blocked until the remaining P0 items below are implemented and verified.
+the production gate in Section 1 has passed. `make implementation-gate` is the
+pre-benchmark implementation gate; human labels, live provider measurements,
+and rollback evidence are collected only after that gate passes.
 
 | Area | Current evidence | Status |
 |---|---|---|
 | Local/managed readiness | Docker Desktop `local-full` profile started from `/home/minh/projects/team-Vin-genius/.env`; local Postgres, Qdrant, Neo4j, Redis, API and web containers healthy. Additive migrations `20260824_document_lexical_index` and `20260827_typed_legal_facts` applied; API/web/migrate images rebuilt from current source; `make build` and `make check ENV_FILE=.../.env` passed; 20-request local `/ready` smoke p95 124.5ms, all 200. Read-only managed Render smoke returns `/health` 200 and, after one transient cold probe, five consecutive `/ready` responses with all dependencies true; current Vercel domain is serving an older cached remote commit and is not treated as current-source evidence. | repository and managed readiness smoke passed; authenticated managed latency/outage/rollback attestation still external |
 | Typed route contract | `src/domain/route_plan.py`, route metadata in intake, provider allow-list, route-scoped candidate/context caps, retrieval fallback deadline and generation timeout. Query-shape routing now distinguishes policy/exact/table/topical/temporal/relational/global/deep without mapping a legal topic to an answer. | implemented; production calibration/latency proof pending |
 | Stage telemetry | `retrieval_trace`, `planner_ms`, `verification_ms`, `guardrail_ms`, provider/generation timers, allowlisted Langfuse stage export, browser TTFT event | repository telemetry/export implemented; managed dashboard and authenticated browser TTFT proof pending |
-| Evidence-gap planning | `src/services/planner.py`, bounded fan-out/depth follow-up retrieval on relational/temporal/deep routes | partial: calibration and independent completeness proof pending |
-| Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields, `eval/calibration.py` metrics, independent-panel validator requiring complete labels from at least two reviewers, and monotone calibrator artifact CLI | partial: reviewed calibration labels and approval pending |
+| Evidence-gap planning | `src/services/planner.py`, bounded fan-out/depth follow-up retrieval on relational/temporal/deep routes, deterministic direct-vs-planned ablation harness | implemented; independently reviewed completeness/latency evidence is a post-implementation benchmark gate |
+| Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields, `eval/calibration.py` metrics, independent-panel validator requiring complete labels from at least two reviewers, monotone calibrator artifact CLI, and Auditor ablation harness | implemented; reviewed calibration labels and approval are a post-implementation evidence gate |
 | Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py`, current-authority and query-scope filters, release-scoped cache policy. Lexical passage recall now scopes to query-derived document candidates, uses indexed `search_vector`, and bounds full-text candidates before ranking. Local smoke: 0.55–0.80s passage search; document recall 1.3–2.8s across tested BHYT queries. | implemented with generic scope/currentness filtering and synthesis-only high-risk answers; production latency/quality gate not proven |
 | Answer synthesis safety | `SYSTEM_PROMPT`, model-only synthesis for multi-passage high-risk requests, duplicate-line removal, raw-chunk detector in guardrail | repository invariant implemented; live provider regression proof pending |
 | Optional graph degradation | guarded temporal/relational expansion with route-deadline-bounded Neo4j calls and lexical+dense fallback | implemented; managed outage/load proof pending |
@@ -374,16 +378,18 @@ blocked until the remaining P0 items below are implemented and verified.
 | Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py`, `web/app/document/page.tsx`, `tests/test_api/test_document_viewer_endpoint.py` | hash-verified backend/UI and local XSS/anchor/path-integrity acceptance implemented; managed smoke remains external |
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight, hit/miss metrics, release-scoped keys, Redis failure fallback test | repository failover contract implemented; production Redis latency/availability proof pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
-| Sentence-level rerank seam | query-derived sentence coverage plus opt-in `src/services/reranker.py` cross-encoder backend; `eval/ablations/reranker/` contract | partial: pinned model/ablation result and latency proof pending |
+| Sentence-level rerank seam | query-derived sentence coverage plus opt-in `src/services/reranker.py` cross-encoder backend; deterministic `eval/ablations/reranker/` harness | implemented; pinned-model result and latency are post-implementation evidence |
 | Typed BHYT fact contract | `docs/data/typed-bhyt-ontology.json`, `src/domain/ontology.py`, `src/domain/facts.py`, `src/services/fact_recognizer.py`, `legal_facts` migration/schema, release-validated importer/exporter, `database/corpus/stage_reviewed_facts.py` review boundary, `Neo4jGraphStore.upsert_legal_facts`/`bounded_typed_ppr`, accepted-subject relational route, canonical unit hydration, bounded-query acceptance tests. Staging now requires an immutable release, known predicate, reviewer identity/note for accepted rows, and a SHA-256 match against canonical document/unit text; conflicting replays fail closed and only accepted rows can be exported to Neo4j. Migration `20260827_typed_legal_facts` is applied on managed PostgreSQL with RLS; both managed and local exports currently have `accepted_facts=0`. Direct managed Neo4j connectivity is healthy (`Neo4j/5.27-aura`, enterprise edition). The stale second release projection was removed with a JSON backup; active release remains 1,901 nodes/5,816 relationships and has no typed-fact labels because no reviewed facts have been accepted. The local Docker graph is Community 5.26.29 with local/release snapshots. | ontology/schema/loader/safety contract implemented; human-reviewed fact corpus and typed projection load remain pending; graph connectivity and release cleanup pass, but live typed projection is not proven |
 | Source/release parity | The default current builder correctly fails closed because it rebuilds a different fingerprint (`snapshot-037cca…`, `38,316`/`14,968`) than the active release. Re-running with the exact builder recorded in `docs/data/release-lock-snapshot-c439751724ab7f10.json` (`source_commit=1b98f44`) passes fingerprint, canonical counts, PostgreSQL/Qdrant counts and hashes, and Neo4j identity/edge parity. The stale `snapshot-c94d7b75195a67fa` projection was backed up and deleted on 2026-08-27; the prior `live_parity.json` remains stale evidence. | exact-builder parity and stale-projection cleanup verified; immutable artifact retention and deployment attestation remain required before production promotion |
-| Grounded planning/uncertainty calibration | bounded grounded planner plus `eval/calibration.py` with independent-panel validation and dependency-free pool-adjacent-violators fitting; `eval/calibrate_claims.py` writes a hashed review artifact | partial: human-labelled calibration set and approval pending |
+| Grounded planning/uncertainty calibration | bounded grounded planner, direct-vs-planned ablation harness, `eval/calibration.py` independent-panel validation and dependency-free pool-adjacent-violators fitting, `eval/calibrate_claims.py` hashed review artifact | implemented; human-labelled calibration and approval are post-implementation evidence |
 | Batch extraction/eval manifests | offline embedding/Qdrant batching, immutable `eval/batch_manifest.py`, provider JSONL, authenticated adapter/reconciliation in `eval/openai_batch.py`, cost ledger | repository submission/reconciliation contract implemented; live provider cost proof pending |
 | Release-locked data artifacts | Active release benchmark files mounted from the external `data/clean/medical_active_v31_fully_reviewed` artifact store; SHA-256/hash and coverage suite now passes (`eval/test_release_locked_suite.py`: 2 passed). Artifacts remain ignored and are never committed to the source checkout. | local provenance gate passed; deployment artifact availability must be attested in CI/release job |
 | Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
 
-Do not run or publish a model benchmark as a promotion decision while any
-`not implemented`, `partial`, or unmet production-gate row remains.
+Do not run or publish a model benchmark before `make implementation-gate` and
+the deterministic suites pass. A benchmark is evidence collection, not a
+production promotion decision; production promotion still requires the
+independent gates in Section 1 and `verify_production_attestation.py`.
 
 ### Phase A — Fast stable baseline (P0, 3–5 days)
 
@@ -399,8 +405,8 @@ Exit: simple p95 ≤5 s, topical p95 ≤8 s, stream errors <1%, no accuracy loss
 
 ### Phase B — Sentence reranker and Auditor (P0/P1, 5–8 days)
 
-- [ ] Build benchmark candidate/evidence artifacts.
-- [ ] Ablate RRF-only against MiniLM/BGE sentence/cross-encoder reranking.
+- [x] Build deterministic benchmark candidate/evidence artifact validators and ablation harnesses.
+- [ ] Assemble the required independently reviewed artifacts and run the pinned MiniLM/BGE/cross-encoder comparison.
 - [x] Implement typed claim and three-score uncertainty contracts.
 - [ ] Calibrate abstention/clarification with human labels.
 
@@ -421,7 +427,8 @@ Exit: calculator 100%, zero XSS, anchor ≥99%, table route p95 ≤5 seconds.
 - [x] Define and machine-validate the versioned BHYT ontology; human adjudication of extracted facts remains a release gate.
 - [x] Build release-scoped Neo4j facts with canonical provenance anchors (validated importer; live release attestation pending).
 - [x] Add bounded fact-walk/PPR only to relational and multi-hop routes (recognizer and live parity pending).
-- [ ] Compare against dense and current document-graph baselines.
+- [x] Add deterministic typed-graph vs document-graph comparison harness with outage fallback checks.
+- [ ] Compare reviewed live traces against dense and current document-graph baselines.
 
 Exit: significant multi-hop gain, graph-path precision ≥95%, p95 ≤15 seconds,
 and Neo4j-outage degraded mode passes.
@@ -431,8 +438,9 @@ and Neo4j-outage degraded mode passes.
 - [x] Grounded-planning PoC with fan-out ≤3 and depth ≤2.
 - [x] Add deterministic release-scoped community summary builder and bounded DRIFT-style selector (`src/services/global_retrieval.py`, `database/corpus/build_community_index.py`); summaries remain navigation hints and must be hydrated from PostgreSQL.
 - [x] Add a bounded owner-isolated async research worker contract (`src/services/research_jobs.py`) with timeout, cancellation and shutdown handling.
-- [ ] Deploy the worker on a durable queue, wire curated index jobs to it, and compare against the fast hybrid baseline.
-- [ ] Experience retrieval only from reviewed, de-identified traces.
+- [x] Implement the Redis durable worker, optional Render blueprint, owner isolation, restart/cancellation contract, and runbook.
+- [ ] Provision/deploy the worker on a durable queue, wire curated index jobs to it, and compare against the fast hybrid baseline.
+- [x] Implement reviewed/de-identified experience retrieval as navigation-only hints.
 
 Exit: completeness gain within async cost budget; reject if the fast hybrid
 baseline plus sentence reranker remains better.
@@ -464,14 +472,17 @@ baseline plus sentence reranker remains better.
   confidence-to-abstention calibration.
 - `scripts/verify_production_attestation.py` for fail-closed validation of the
   human, latency, outage, ablation, cost and rollback evidence bundle.
+- `scripts/verify_implementation_gate.py` to ensure all repository capabilities
+  exist before any live benchmark is started.
 
 Current file-level delivery evidence (2026-08-27): route, calculator, viewer,
 ontology, batch, cache, release/rollback, provider-outage, Supabase-retention
-contracts, and ablation directory contracts, and the promotion gate now exist.
-Ablation result artifacts, the
-human-labelled calibration set, and paired production benchmark are still
-absent; acceptance gates remain release blockers rather than being marked
-complete by documentation alone.
+contracts, deterministic Auditor/typed-graph/planning/reranker ablation
+harnesses, reviewed-trajectory safeguards, and implementation/promotion gates
+now exist. Ablation result artifacts, the human-labelled calibration set,
+durable queue provisioning, and paired production benchmark are still absent;
+they remain evidence/deployment blockers rather than being marked complete by
+documentation alone.
 
 Definition of done: the three differentiated product features run in
 production; human accuracy, latency, and cost gates pass; rollout has canary

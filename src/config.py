@@ -106,6 +106,13 @@ class Settings(BaseSettings):
     community_index_path: str = ""
     global_max_communities: int = Field(default=3, ge=1, le=12)
     global_max_rounds: int = Field(default=2, ge=1, le=3)
+    experience_index_path: str = ""
+    research_queue_backend: Literal["memory", "redis"] = "memory"
+    research_queue_redis_url: str = ""
+    research_queue_max_pending: int = Field(default=32, ge=1, le=10_000)
+    research_queue_max_workers: int = Field(default=2, ge=1, le=64)
+    research_queue_timeout_seconds: float = Field(default=90.0, gt=0, le=3600)
+    research_queue_ttl_seconds: int = Field(default=900, ge=60, le=86_400)
 
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
@@ -120,6 +127,7 @@ class Settings(BaseSettings):
     feature_viewer_enabled: bool = True
     feature_graph_enabled: bool = True
     feature_global_search_enabled: bool = False
+    feature_experience_retrieval_enabled: bool = False
 
     # Firebase Admin SDK
     firebase_service_account_json: str = ""

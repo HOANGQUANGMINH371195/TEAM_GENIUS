@@ -21,3 +21,4 @@ class AgentState(TypedDict, total=False):
     error: str
     metadata: dict
     verification_failed: bool
+    experience_hints: list[dict]

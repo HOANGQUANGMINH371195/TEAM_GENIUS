@@ -1,0 +1,43 @@
+# Optional second Render service. Deploy only after provisioning Redis and
+# completing the outage/restart attestation; it is intentionally separate from
+# render.yaml so a normal API deploy cannot accidentally create paid workers.
+services:
+  - type: worker
+    name: medipay-research-worker
+    runtime: docker
+    plan: starter
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python -m src.research_worker
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: RESEARCH_QUEUE_BACKEND
+        value: redis
+      - key: RESEARCH_QUEUE_REDIS_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: RUNTIME_DATABASE_URL
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: NEO4J_DATABASE
+        value: neo4j
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: MODEL_NAME
+        sync: false
+      - key: EMBEDDING_MODEL
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
