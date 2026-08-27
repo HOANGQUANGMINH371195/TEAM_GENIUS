@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from src.config import get_settings
+from src.domain.facts import LegalFact
 from src.models.graph import Relation
 
 
@@ -104,6 +105,99 @@ class Neo4jGraphStore:
                 relationship_id=str(row.get("relationship_id") or ""),
                 adverse=bool(row.get("adverse")),
                 direction=str(row.get("direction") or ""),
+            )
+            for row in rows
+        ]
+
+    async def upsert_legal_facts(self, facts: Sequence[LegalFact]) -> int:
+        """Project reviewed-source facts into a release-scoped typed graph.
+
+        PostgreSQL remains the canonical text store.  Neo4j receives only
+        normalized fact metadata and provenance anchors; callers must still
+        hydrate ``document_id/unit_id/source_*`` from PostgreSQL before citing.
+        """
+        records = [fact.as_record() for fact in facts]
+        if not records:
+            return 0
+        query = """
+        UNWIND $facts AS fact
+        MERGE (subject:FactSubject {key: fact.release_id + ':' + fact.subject})
+        SET subject.dataset_id = fact.release_id,
+            subject.name = fact.subject
+        MERGE (value:FactValue {
+            key: fact.release_id + ':' + fact.predicate + ':' + fact.normalized_value
+        })
+        SET value.dataset_id = fact.release_id,
+            value.name = fact.normalized_value
+        MERGE (subject)-[edge:LEGAL_FACT {fact_id: fact.fact_id}]->(value)
+        SET edge.dataset_id = fact.release_id,
+            edge.predicate = fact.predicate,
+            edge.normalized_value = fact.normalized_value,
+            edge.effective_from = fact.effective_from,
+            edge.effective_to = fact.effective_to,
+            edge.jurisdiction = fact.jurisdiction,
+            edge.provision_id = fact.provision_id,
+            edge.document_id = fact.document_id,
+            edge.unit_id = fact.unit_id,
+            edge.source_start = fact.source_start,
+            edge.source_end = fact.source_end,
+            edge.source_sha256 = fact.source_sha256,
+            edge.review_status = fact.review_status
+        RETURN count(edge) AS count
+        """
+        async with self.driver.session(database=self.database) as session:
+            result = await session.run(query, facts=records)
+            row = await result.single()
+        return int(row["count"]) if row else 0
+
+    async def expand_typed_facts(
+        self,
+        subjects: Sequence[str],
+        *,
+        dataset_id: str,
+        limit: int = 20,
+    ) -> list[Relation]:
+        """Return only accepted, release-scoped fact edges for relational routes."""
+        if not subjects or not dataset_id:
+            return []
+        query = """
+        MATCH (subject:FactSubject)-[edge:LEGAL_FACT]->(value:FactValue)
+        WHERE subject.dataset_id = $dataset_id
+          AND edge.dataset_id = $dataset_id
+          AND edge.review_status = 'accepted'
+          AND subject.name IN $subjects
+        RETURN subject.name AS subject,
+               value.name AS value,
+               edge.predicate AS predicate,
+               edge.fact_id AS fact_id,
+               edge.document_id AS document_id,
+               edge.unit_id AS unit_id,
+               edge.source_start AS source_start,
+               edge.source_end AS source_end
+        ORDER BY edge.fact_id
+        LIMIT $limit
+        """
+        async with self.driver.session(database=self.database) as session:
+            result = await session.run(
+                query,
+                dataset_id=dataset_id,
+                subjects=list(dict.fromkeys(str(item) for item in subjects))[:limit],
+                limit=max(1, min(int(limit), 100)),
+            )
+            rows = await result.data()
+        return [
+            Relation(
+                source=str(row.get("subject") or ""),
+                target=str(row.get("value") or ""),
+                source_id=str(row.get("document_id") or ""),
+                target_id=str(row.get("unit_id") or ""),
+                relation_type=str(row.get("predicate") or "LEGAL_FACT"),
+                description=(
+                    f"{row.get('predicate') or 'LEGAL_FACT'}: "
+                    f"{row.get('value') or ''}"
+                ).strip(),
+                relationship_id=str(row.get("fact_id") or ""),
+                direction="outbound",
             )
             for row in rows
         ]

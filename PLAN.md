@@ -366,7 +366,7 @@ blocked until the remaining P0 items below are implemented and verified.
 |---|---|---|
 | Typed route contract | `src/domain/route_plan.py`, route metadata in intake, route-scoped candidate/context caps | partial: provider deadline enforcement and production calibration pending |
 | Stage telemetry | `retrieval_trace`, `planner_ms`, `verification_ms`, `guardrail_ms`, provider and generation timers | partial: browser TTFT and production export/dashboard pending |
-| Evidence-gap planning | `src/services/planner.py`, bounded fan-out/depth metadata | partial: gap inventory is recorded; follow-up retrieval loop and calibration pending |
+| Evidence-gap planning | `src/services/planner.py`, bounded fan-out/depth follow-up retrieval on relational/temporal/deep routes | partial: calibration and independent completeness proof pending |
 | Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields | partial: deterministic pre-score exists; calibration labels/model pending |
 | Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py`, current-authority filter | implemented, production latency gate not proven |
 | Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
@@ -375,7 +375,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight, hit/miss metrics, release-scoped keys | implemented; production Redis failover/latency proof pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
 | Sentence-level rerank seam | query-derived sentence coverage in `rerank_legal_candidates`; `eval/ablations/reranker/` contract | partial: no learned cross-encoder or ablation result |
-| Typed BHYT fact contract | `src/domain/facts.py`, `legal_facts` migration and ontology document | partial: Neo4j fact projection, recognition and bounded PPR pending |
+| Typed BHYT fact contract | `src/domain/facts.py`, `legal_facts` migration, `Neo4jGraphStore.upsert_legal_facts`, accepted-subject relational route and canonical unit hydration | partial: release importer/recognizer and bounded PPR acceptance proof pending |
 | Grounded planning/uncertainty calibration | no human-labelled calibration set | not implemented |
 | Batch extraction/eval manifests | offline embedding/Qdrant batching; `docs/architecture/batch-contract.md` | partial: provider Batch API and cost ledger pending |
 | Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
@@ -417,7 +417,7 @@ Exit: calculator 100%, zero XSS, anchor ≥99%, table route p95 ≤5 seconds.
 ### Phase D — Typed graph and bounded PPR (P1, 8–15 days)
 
 - [ ] Define and review BHYT ontology.
-- [ ] Build release-scoped Neo4j facts with canonical provenance anchors.
+- [ ] Build release-scoped Neo4j facts with canonical provenance anchors (adapter exists; release job/attestation pending).
 - [ ] Add fact recognition/PPR only to relational and multi-hop routes.
 - [ ] Compare against dense and current document-graph baselines.
 
@@ -426,7 +426,7 @@ and Neo4j-outage degraded mode passes.
 
 ### Phase E — Grounded planning/global research (P2, gated)
 
-- [ ] Grounded-planning PoC with fan-out ≤3 and depth ≤2.
+- [x] Grounded-planning PoC with fan-out ≤3 and depth ≤2.
 - [ ] Community/global/DRIFT only on curated async thematic routes.
 - [ ] Experience retrieval only from reviewed, de-identified traces.
 

@@ -238,6 +238,75 @@ class GraphRepository:
         row = result.one_or_none()
         return (str(row.dataset_id), int(row.semantic_passages)) if row is not None else None
 
+    async def search_legal_fact_subjects(
+        self, terms: Sequence[str], *, dataset_id: str, limit: int = 8
+    ) -> list[str]:
+        """Find accepted typed-fact subjects using only query-derived terms."""
+        needles = list(dict.fromkeys(str(term).strip() for term in terms if str(term).strip()))[:24]
+        if not needles or not dataset_id:
+            return []
+        result = await self.session.execute(
+            text(
+                """
+                SELECT DISTINCT subject
+                FROM legal_facts
+                WHERE dataset_id = :dataset_id
+                  AND review_status = 'accepted'
+                  AND EXISTS (
+                      SELECT 1 FROM unnest(CAST(:terms AS text[])) AS needle
+                      WHERE lower(subject) LIKE '%' || lower(needle) || '%'
+                  )
+                ORDER BY subject
+                LIMIT :limit
+                """
+            ),
+            {"dataset_id": dataset_id, "terms": needles, "limit": max(1, min(int(limit), 24))},
+        )
+        return [str(row.subject) for row in result]
+
+    async def hydrate_units_by_ids(
+        self, unit_ids: Sequence[str], *, dataset_id: str, limit: int = 12
+    ) -> list[RetrievalResult]:
+        """Hydrate typed-fact anchors back to canonical PostgreSQL text."""
+        ids = list(dict.fromkeys(str(unit_id) for unit_id in unit_ids if str(unit_id)))[:50]
+        if not ids or not dataset_id:
+            return []
+        result = await self.session.execute(
+            text(
+                """
+                SELECT u.unit_id, u.document_id, u.heading, u.text,
+                       u.source_start, u.source_end, u.text_sha256, d.title
+                FROM legal_units u
+                JOIN documents d ON d.dataset_id = u.dataset_id AND d.id = u.document_id
+                WHERE u.dataset_id = :dataset_id
+                  AND u.unit_id = ANY(CAST(:unit_ids AS text[]))
+                  AND NOT d.is_external
+                  AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                ORDER BY u.source_start NULLS LAST, u.unit_id
+                LIMIT :limit
+                """
+            ),
+            {"dataset_id": dataset_id, "unit_ids": ids, "limit": max(1, min(int(limit), 50))},
+        )
+        return [
+            RetrievalResult(
+                chunk_id=f"unit:{row.unit_id}",
+                document_id=str(row.document_id),
+                dataset_id=dataset_id,
+                content=str(row.text or row.heading or ""),
+                source=str(row.document_id),
+                title=str(row.title or ""),
+                section_title=str(row.heading or ""),
+                unit_id=str(row.unit_id),
+                source_start=int(row.source_start) if row.source_start is not None else None,
+                source_end=int(row.source_end) if row.source_end is not None else None,
+                text_sha256=str(row.text_sha256 or ""),
+                channels=["typed_fact"],
+                score=1.0,
+            )
+            for row in result
+        ]
+
     async def current_projection_contract(self, dataset_id: str) -> dict[str, dict[str, object]]:
         """Return release-scoped projection rows for readiness/parity checks."""
         result = await self.session.execute(

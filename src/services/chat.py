@@ -1478,7 +1478,59 @@ class GraphRagRuntime:
                 channels["document_operatives"] = document_operatives
 
             graph_results: list = []
+            typed_graph_results: list = []
+            typed_fact_evidence: list[RetrievalResult] = []
             seed_ids = list(dict.fromkeys(item.document_id for item in weighted_rrf(channels, limit=6)))
+            if settings.feature_graph_enabled and intent == "relational":
+                typed_started = time.perf_counter()
+                fact_subjects: list[str] = []
+                try:
+                    # Subject lookup is a cheap, release-scoped SQL seed. The
+                    # typed graph is consulted only after this step, never for
+                    # every ordinary topical request.
+                    async with session_scope() as fact_session:
+                        fact_repository = GraphRepository(fact_session)
+                        fact_subjects = await fact_repository.search_legal_fact_subjects(
+                            extract_query_terms(query), dataset_id=dataset_id, limit=8
+                        )
+                    if fact_subjects:
+                        typed_relations = await self._provider_call(
+                            "neo4j_typed_facts",
+                            self._neo4j_breaker,
+                            lambda: self._get_graph_store().expand_typed_facts(
+                                fact_subjects,
+                                dataset_id=dataset_id,
+                                limit=settings.graph_evidence_limit,
+                            ),
+                        )
+                        typed_graph_results.extend(typed_relations)
+                        graph_results.extend(typed_relations)
+                        typed_unit_ids = [
+                            relation.target_id for relation in typed_relations if relation.target_id
+                        ]
+                        if typed_unit_ids:
+                            async with session_scope() as fact_hydration_session:
+                                typed_fact_evidence = await GraphRepository(
+                                    fact_hydration_session
+                                ).hydrate_units_by_ids(
+                                    typed_unit_ids,
+                                    dataset_id=dataset_id,
+                                    limit=settings.graph_evidence_limit,
+                                )
+                    _record_trace_event(
+                        "neo4j:typed_facts",
+                        typed_started,
+                        subject_count=len(fact_subjects),
+                        relation_count=len(graph_results),
+                    )
+                except Exception as exc:
+                    # The typed-fact migration/projection is additive. A
+                    # missing projection or Neo4j outage must preserve the
+                    # canonical lexical+dense route.
+                    metrics.inc("retrieval_optional_failures", stage="typed_facts")
+                    _record_trace_event(
+                        "neo4j:typed_facts", typed_started, outcome=type(exc).__name__
+                    )
             # Graph traversal is valuable for an explicit reference chain or
             # a named instrument's temporal history.  For an ordinary
             # "hiện hành" question it adds a remote hop and a second database
@@ -1493,7 +1545,7 @@ class GraphRagRuntime:
                     async with trace_span(
                         "neo4j-expand", as_type="retriever", metadata={"dataset_id": dataset_id}
                     ) as span:
-                        graph_results = await self._provider_call(
+                        document_graph_results = await self._provider_call(
                             "neo4j",
                             self._neo4j_breaker,
                             lambda: self._get_graph_store().expand(
@@ -1504,11 +1556,12 @@ class GraphRagRuntime:
                             )
                         )
                         if span is not None:
-                            span.update(output={"relation_count": len(graph_results)})
+                            span.update(output={"relation_count": len(document_graph_results)})
+                    graph_results.extend(document_graph_results)
                     related_ids = list(
                         dict.fromkeys(
                             identifier
-                            for relation in graph_results
+                            for relation in document_graph_results
                             for identifier in (relation.source_id, relation.target_id)
                             if identifier and identifier not in seed_ids
                         )
@@ -1547,12 +1600,15 @@ class GraphRagRuntime:
                     # evidence source. A DNS/Aura outage must degrade to the
                     # independently verified lexical+dense path, not turn a
                     # valid legal question into a 503/no-answer response.
-                    graph_results = []
+                    graph_results = list(typed_graph_results)
                     metrics.inc("retrieval_optional_dependency_total", dependency="neo4j", outcome="fallback")
                     logger.warning(
                         "Neo4j expansion unavailable (%s); using lexical+dense retrieval",
                         type(exc).__name__,
                     )
+
+            if typed_fact_evidence:
+                channels["typed_fact"] = typed_fact_evidence
 
             fused_evidence = weighted_rrf(
                 channels,

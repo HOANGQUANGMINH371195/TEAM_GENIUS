@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from collections.abc import Sequence
@@ -14,12 +15,13 @@ from src.domain.route_plan import build_route_plan
 from src.models.graph import Citation, Entity, Relation, RetrievalResult
 from src.services.chat import get_runtime
 from src.services.claims import build_legal_claim, claim_dict
-from src.services.planner import evidence_gap_plan
+from src.services.planner import evidence_gap_plan, followup_queries
 from src.services.retrieval import (
     decompose_query,
     extract_query_phrases,
     no_answer_response,
     requires_evidence_verification,
+    rerank_legal_candidates,
     retrieval_intent,
 )
 
@@ -93,6 +95,48 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
     else:
         bundle = await runtime.retrieve_bundle(query)
     evidence, relations = bundle.evidence, bundle.relations
+    planner_started = time.perf_counter()
+    route_plan = (state.get("metadata") or {}).get("route_plan") or {}
+    grounded_plan = evidence_gap_plan(
+        query,
+        evidence,
+        enabled=get_settings().feature_planner_enabled,
+    )
+    planner_followup_count = 0
+    planner_followup_outcome = "not_needed"
+    planner_followup_started = time.perf_counter()
+    # Grounded planning is deliberately restricted to routes where a
+    # relationship/temporal gap can change the answer. Ordinary topical and
+    # exact requests stay on the fast single-pass path.
+    if (
+        grounded_plan.enabled
+        and len(grounded_plan.missing_facts) >= 2
+        and route_plan.get("route") in {"relational", "temporal", "deep"}
+    ):
+        followups = followup_queries(query, grounded_plan)
+        try:
+            followup_bundle = await asyncio.wait_for(
+                runtime.retrieve_bundle_many(followups),
+                timeout=min(
+                    3.0,
+                    max(0.25, float(route_plan.get("retrieval_budget_ms", 3000)) / 1000),
+                ),
+            )
+            by_chunk = {item.chunk_id: item for item in evidence}
+            by_chunk.update({item.chunk_id: item for item in followup_bundle.evidence})
+            evidence = rerank_legal_candidates(query, list(by_chunk.values()))[
+                : get_settings().max_llm_evidence
+            ]
+            relations = [*relations, *followup_bundle.relations]
+            planner_followup_count = len(followups)
+            planner_followup_outcome = "success"
+        except TimeoutError:
+            planner_followup_outcome = "timeout"
+        except Exception:
+            # Follow-up retrieval is additive. A provider outage must not turn
+            # the already valid preliminary evidence into a 503.
+            planner_followup_outcome = "fallback"
+    planner_followup_ms = round((time.perf_counter() - planner_followup_started) * 1000, 2)
     metadata_shortcut = bool(
         bundle.direct_response
         and bundle.direct_citations
@@ -103,12 +147,6 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
         )
     )
     metadata = dict(state.get("metadata") or {})
-    planner_started = time.perf_counter()
-    grounded_plan = evidence_gap_plan(
-        query,
-        evidence,
-        enabled=get_settings().feature_planner_enabled,
-    )
     metadata.update(
         {
             "route_intent": retrieval_intent(query),
@@ -120,6 +158,9 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
                 {channel for item in evidence for channel in item.channels}
             ),
             "retrieval_trace": bundle.trace,
+            "planner_followup_count": planner_followup_count,
+            "planner_followup_outcome": planner_followup_outcome,
+            "planner_followup_ms": planner_followup_ms,
             "planner_ms": round((time.perf_counter() - planner_started) * 1000, 2),
             "grounded_plan": grounded_plan.as_dict(),
         }

@@ -24,6 +24,27 @@ class LegalFact:
     review_status: str
     release_id: str
 
+    def as_record(self) -> dict[str, object]:
+        """Serialize a fact for release-scoped SQL/Neo4j projection."""
+        self.validate()
+        return {
+            "fact_id": self.fact_id,
+            "subject": self.subject,
+            "predicate": self.predicate,
+            "normalized_value": self.normalized_value,
+            "effective_from": self.effective_from.isoformat() if self.effective_from else None,
+            "effective_to": self.effective_to.isoformat() if self.effective_to else None,
+            "jurisdiction": self.jurisdiction,
+            "provision_id": self.provision_id,
+            "document_id": self.document_id,
+            "unit_id": self.unit_id,
+            "source_start": self.source_start,
+            "source_end": self.source_end,
+            "source_sha256": self.source_sha256,
+            "review_status": self.review_status,
+            "release_id": self.release_id,
+        }
+
     def validate(self) -> None:
         required = {
             "fact_id": self.fact_id,
