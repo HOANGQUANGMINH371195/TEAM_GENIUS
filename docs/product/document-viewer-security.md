@@ -1,0 +1,15 @@
+# Document viewer security
+
+`GET /documents/{public-document-number}/html` resolves a public legal
+signature in the active PostgreSQL release. Internal dataset, document and
+chunk IDs are not accepted as the public key.
+
+The response sanitizes canonical HTML with an allowlist of text, headings,
+lists and tables. Scripts, styles, frames, forms, SVG, event handlers and
+active URL schemes are removed. It sends `nosniff`, `frame-ancestors 'none'`,
+`base-uri 'none'`, and a restrictive CSP. Raw HTML hashes remain server-side;
+the release repository verifies source content before ingest.
+
+The frontend must render this fragment in the trusted viewer shell and show
+the public document number, effective interval and official URL from the
+citation contract. Add XSS and citation-anchor fixtures before public launch.

@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     rate_limit_requests: int = Field(default=60, ge=1, le=10_000)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=86_400)
     rate_limit_redis_url: str = ""
+    conversation_cache_ttl_seconds: int = Field(default=120, ge=10, le=3600)
+    conversation_cache_max_turns: int = Field(default=10, ge=1, le=20)
     cost_quota_units: int = Field(default=100_000, ge=1_000, le=10_000_000)
     cost_quota_window_seconds: int = Field(default=86_400, ge=60, le=31_536_000)
     metrics_token: str = ""
@@ -101,6 +103,14 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = ""
     langfuse_host: str = ""
     langfuse_base_url: str = ""
+
+    # Explicit kill switches for staged rollout and rollback.
+    feature_planner_enabled: bool = True
+    feature_reranker_enabled: bool = True
+    feature_auditor_enabled: bool = True
+    feature_calculator_enabled: bool = True
+    feature_viewer_enabled: bool = True
+    feature_graph_enabled: bool = True
 
     # Firebase Admin SDK
     firebase_service_account_json: str = ""

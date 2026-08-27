@@ -10,6 +10,7 @@ from uuid import uuid4
 from src.agents.prompts import NO_EVIDENCE_RESPONSE
 from src.agents.state import AgentState
 from src.config import get_settings
+from src.domain.route_plan import build_route_plan
 from src.models.graph import Citation, Entity, Relation, RetrievalResult
 from src.services.chat import get_runtime
 from src.services.claims import build_legal_claim, claim_dict
@@ -56,6 +57,10 @@ async def intake_node(state: AgentState) -> dict:
         return {"error": "Query must not be empty"}
     metadata = dict(state.get("metadata") or {})
     metadata.setdefault("trace_id", uuid4().hex)
+    # The plan carries budgets/provider permissions, never legal evidence.
+    # Keeping it in metadata makes each route auditable without changing the
+    # public response contract.
+    metadata["route_plan"] = build_route_plan(query, settings=get_settings()).as_dict()
     return {"query": query, "metadata": metadata}
 
 

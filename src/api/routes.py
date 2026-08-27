@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
+from html import escape
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.agents.graph import get_agent
 from src.api.auth import get_current_user
@@ -18,15 +19,102 @@ from src.models.schemas import (
     AgentStatusResponse,
     AnalyzeRequest,
     AnalyzeResponse,
+    BenefitCalculationRequest,
+    BenefitCalculationResponse,
     ChatRequest,
     ChatResponse,
 )
 from src.services.chat import ChatProviderError, GraphRagUnavailableError
+from src.services.calculator import CalculationInputError, calculate_bhyt_benefit
+from src.services.document_viewer import sanitize_document_html
+from src.db.session import session_scope
+from src.db.repositories import GraphRepository
 from src.services.conversation_context import build_conversation_anchors, resolve_conversational_query
+from src.services.conversation_cache import get_conversation_cache
 from src.services.conversations import ConversationStoreError, get_conversation_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent"])
+
+
+async def _recent_turns_for_request(*, owner_uid: str, conversation_id: str) -> list[dict]:
+    cache = get_conversation_cache()
+    cached = await cache.get(owner_uid=owner_uid, conversation_id=conversation_id)
+    if cached is not None:
+        return cached
+    turns = await get_conversation_store().recent_turns(
+        owner_uid=owner_uid,
+        conversation_id=conversation_id,
+        limit=get_settings().conversation_cache_max_turns,
+    )
+    await cache.put(owner_uid=owner_uid, conversation_id=conversation_id, turns=turns)
+    return turns
+
+
+@router.post(
+    "/calculator/bhyt",
+    response_model=BenefitCalculationResponse,
+    summary="Calculate a BHYT covered amount from verified rule facts",
+)
+async def calculate_bhyt(
+    request: BenefitCalculationRequest,
+    _user: dict = Depends(get_current_user),
+) -> BenefitCalculationResponse:
+    """Perform exact arithmetic; retrieval supplies the legal rule values.
+
+    The endpoint deliberately does not select a percentage from the question.
+    Callers must provide the selected rule and its provenance after retrieval
+    and verification.
+    """
+    if not get_settings().feature_calculator_enabled:
+        raise HTTPException(status_code=404, detail="Calculator unavailable")
+    try:
+        result = calculate_bhyt_benefit(
+            covered_cost=request.covered_cost,
+            base_rate_percent=request.base_rate_percent,
+            copayment_spend=request.copayment_spend,
+            copayment_threshold=request.copayment_threshold,
+            continuous_years=request.continuous_years,
+            required_years=request.required_years,
+            threshold_rate_percent=request.threshold_rate_percent,
+            rule_provenance=tuple(request.rule_provenance),
+        )
+    except CalculationInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return BenefitCalculationResponse(**result.as_dict())
+
+
+@router.get(
+    "/documents/{document_number:path}/html",
+    response_class=HTMLResponse,
+    summary="Render sanitized canonical legal HTML",
+)
+async def document_html(
+    document_number: str,
+    _user: dict = Depends(get_current_user),
+) -> HTMLResponse:
+    """Expose public-signature HTML only after server-side sanitization."""
+    if not get_settings().feature_viewer_enabled:
+        raise HTTPException(status_code=404, detail="Document viewer unavailable")
+    if len(document_number) > 80 or any(token in document_number for token in ("/../", "\\")):
+        raise HTTPException(status_code=404, detail="Document not found")
+    async with session_scope() as session:
+        document = await GraphRepository(session).public_document_html(document_number)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    body = sanitize_document_html(str(document.get("raw_html") or ""))
+    title = str(document.get("title") or document_number)
+    # The viewer is deliberately a fragment.  The frontend supplies the
+    # surrounding chrome and its CSP; no active source content is returned.
+    html = f'<article data-document="{escape(document_number, quote=True)}" data-title="{escape(title, quote=True)}">{body}</article>'
+    return HTMLResponse(
+        html,
+        headers={
+            "Content-Security-Policy": "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+        },
+    )
 
 
 def _langgraph_provider():
@@ -81,7 +169,7 @@ async def _invoke_agent(
     resolved_message = message
     if owner_uid and conversation_id:
         try:
-            turns = await get_conversation_store().recent_turns(
+            turns = await _recent_turns_for_request(
                 owner_uid=owner_uid, conversation_id=conversation_id
             )
             resolved_message = resolve_conversational_query(message, turns)
@@ -149,6 +237,9 @@ async def _persist_chat_turn(
             anchors=build_conversation_anchors(citations),
             request_id=request_id,
         )
+        await get_conversation_cache().invalidate(
+            owner_uid=owner_uid, conversation_id=request.conversation_id
+        )
     except ConversationStoreError as exc:
         logger.warning("Conversation turn rejected", extra={"reason": str(exc), "request_id": request_id})
     except Exception:
@@ -174,7 +265,7 @@ async def _stream_agent(
     resolved_message = message
     if owner_uid and conversation_id:
         try:
-            turns = await get_conversation_store().recent_turns(
+            turns = await _recent_turns_for_request(
                 owner_uid=owner_uid, conversation_id=conversation_id
             )
             resolved_message = resolve_conversational_query(message, turns)

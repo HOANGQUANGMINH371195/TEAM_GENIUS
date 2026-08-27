@@ -68,6 +68,29 @@ class AnalyzeResponse(ApiModel):
     analysis: str = Field(..., description="Kết quả phân tích input.")
 
 
+class BenefitCalculationRequest(ApiModel):
+    """Calculator input; rule values must come from verified table facts."""
+
+    covered_cost: str = Field(..., min_length=1, max_length=40)
+    base_rate_percent: str = Field(..., min_length=1, max_length=20)
+    copayment_spend: str = Field(default="0", max_length=40)
+    copayment_threshold: str | None = Field(default=None, max_length=40)
+    continuous_years: str | None = Field(default=None, max_length=20)
+    required_years: str = Field(default="5", max_length=20)
+    threshold_rate_percent: str = Field(default="100", max_length=20)
+    rule_provenance: list[str] = Field(default_factory=list, max_length=8)
+
+
+class BenefitCalculationResponse(ApiModel):
+    covered_cost: str
+    applied_rate_percent: str
+    insurer_pays: str
+    patient_pays: str
+    threshold_met: bool
+    formula_id: str
+    provenance: list[str]
+
+
 class ConversationSummary(ApiModel):
     conversation_id: str
     title: str = ""

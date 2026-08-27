@@ -1450,7 +1450,11 @@ class GraphRagRuntime:
             # "hiện hành" question it adds a remote hop and a second database
             # hydration without improving passage recall; the canonical
             # lexical+dense path already carries currentness metadata.
-            if (intent == "relational" or (intent == "temporal" and exact_document_ids)) and seed_ids:
+            if (
+                settings.feature_graph_enabled
+                and (intent == "relational" or (intent == "temporal" and exact_document_ids))
+                and seed_ids
+            ):
                 try:
                     async with trace_span(
                         "neo4j-expand", as_type="retriever", metadata={"dataset_id": dataset_id}
@@ -1880,7 +1884,8 @@ class GraphRagRuntime:
             # source-derived legal ranking once more after fusion so an exact,
             # distinctive operative phrase is not evicted by several generic
             # dense/BM25 matches that merely co-occur across channels.
-            fused_evidence = rerank_legal_candidates(query, fused_evidence)
+            if settings.feature_reranker_enabled:
+                fused_evidence = rerank_legal_candidates(query, fused_evidence)
             fused_evidence = exclude_unverified_legacy_subordinate_sources(query, fused_evidence)
             if operative_anchors:
                 anchor_ids = {item.chunk_id for item in operative_anchors[:2]}

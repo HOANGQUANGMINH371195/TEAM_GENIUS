@@ -355,6 +355,31 @@ A change is promoted only when:
 
 ## 12. Delivery roadmap
 
+## 12.0 Execution status — 2026-08-27
+
+This section is the authoritative implementation ledger. A checked item means
+the code path and a focused verification artifact exist; it does **not** mean
+the production gate in Section 1 has passed. The live benchmark is intentionally
+blocked until the remaining P0 items below are implemented and verified.
+
+| Area | Current evidence | Status |
+|---|---|---|
+| Typed route contract | `src/domain/route_plan.py`, route metadata in intake | partial: budgets are described but not yet enforced per request |
+| Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py` | implemented, production latency gate not proven |
+| Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
+| Decimal calculator | `src/services/calculator.py`, `/calculator/bhyt`, focused golden tests | implemented as a verified-fact calculator; table-fact wiring pending |
+| Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py` | backend implemented; citation deep-link UI and XSS/anchor gates pending |
+| Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback | partial: release-fingerprint invalidation and hit/miss telemetry pending |
+| Feature flags | `FEATURE_*` settings and rollout switches | implemented |
+| Learned sentence/cross-encoder reranker | no validated model/ablation artifact | not implemented |
+| Typed BHYT fact graph/PPR | document graph only | not implemented |
+| Grounded planning/uncertainty calibration | no human-labelled calibration set | not implemented |
+| Batch extraction/eval manifests | offline embedding/Qdrant batching exists | partial: provider Batch API and cost ledger pending |
+| Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
+
+Do not run or publish a model benchmark as a promotion decision while any
+`not implemented`, `partial`, or unmet production-gate row remains.
+
 ### Phase A — Fast stable baseline (P0, 3–5 days)
 
 - [ ] Add stage timers for planner, SQL, embedding, Qdrant, hydration, Neo4j,

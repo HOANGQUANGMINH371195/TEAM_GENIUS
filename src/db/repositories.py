@@ -106,6 +106,38 @@ class GraphRepository:
         dataset_id = result.scalar_one_or_none()
         return str(dataset_id) if dataset_id is not None else None
 
+    async def public_document_html(
+        self, document_number: str, *, dataset_id: str | None = None
+    ) -> dict[str, object] | None:
+        """Load canonical HTML by public signature from the active release."""
+        normalized = normalize_identifier(document_number)
+        result = await self.session.execute(
+            text(
+                """
+                SELECT d.id, d.title, d.raw_html, d.raw_html_sha256,
+                       COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', d.payload ->> 'ngay_co_hieu_luc', '') AS effective_from,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_het_hieu_luc', d.payload ->> 'ngay_het_hieu_luc', '') AS effective_to,
+                       COALESCE(d.payload -> 'metadata' ->> 'official_status_url', d.payload ->> 'official_status_url', '') AS source_url
+                FROM documents d
+                JOIN datasets ds ON ds.dataset_id = d.dataset_id
+                WHERE d.dataset_id = COALESCE(:dataset_id, (
+                    SELECT COALESCE(pointer.active_dataset_id, state.active_dataset_id)
+                    FROM dataset_state state
+                    LEFT JOIN ops.active_release pointer ON pointer.singleton = TRUE
+                    WHERE state.singleton = TRUE
+                ))
+                  AND ds.status = 'active'
+                  AND upper(replace(replace(COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', ''), 'Ð', 'Đ'), 'ð', 'đ')) = :document_number
+                  AND d.raw_html <> ''
+                LIMIT 1
+                """
+            ),
+            {"dataset_id": dataset_id, "document_number": normalized},
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None
+
     async def search_title_documents(
         self, query: str, *, dataset_id: str, limit: int = 4
     ) -> list[str]:
