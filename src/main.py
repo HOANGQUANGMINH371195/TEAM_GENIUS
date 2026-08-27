@@ -21,7 +21,7 @@ from src.api.limits import (
     RedisCostQuota,
     RedisRateLimiter,
 )
-from src.api.routes import router
+from src.api.routes import close_research_queue, router
 from src.config import get_settings
 from src.db.session import dispose_database
 from src.integrations.langfuse import configure_langfuse, flush_langfuse, tracing_enabled
@@ -59,6 +59,7 @@ async def lifespan(app: FastAPI):
         await get_runtime().readiness()
     yield
     flush_langfuse()
+    await close_research_queue()
     await get_runtime().close()
     if _rate_limiter is not None:
         await _rate_limiter.close()

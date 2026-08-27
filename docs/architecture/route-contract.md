@@ -23,5 +23,9 @@ Rules:
 - when the retrieval deadline expires, optional embedding/Qdrant work is
   cancelled and release-scoped lexical evidence remains the safe floor;
   table routes retain their structured-fact path.
+- deep/global requests that may exceed the interactive budget can use the
+  owner-isolated `POST /api/v1/research/jobs` endpoint; clients poll or cancel
+  with the same `conversation_id`. The Redis worker persists only the public
+  answer/citation envelope and never makes a summary or graph path a citation.
 
 Changing a route requires a paired latency and legal-accuracy evaluation.

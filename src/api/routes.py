@@ -6,7 +6,7 @@ import logging
 from collections.abc import AsyncIterator
 from html import escape
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.agents.graph import get_agent
@@ -17,6 +17,7 @@ from src.application.answer import AnswerLegalQuestion, StreamLegalQuestion
 from src.config import get_settings
 from src.db.repositories import GraphRepository
 from src.db.session import session_scope
+from src.domain.route_plan import build_route_plan
 from src.integrations.langfuse import configure_langfuse, trace_span, tracing_enabled
 from src.models.schemas import (
     AgentStatusResponse,
@@ -35,9 +36,30 @@ from src.services.conversation_cache import get_conversation_cache
 from src.services.conversation_context import build_conversation_anchors, resolve_conversational_query
 from src.services.conversations import ConversationStoreError, get_conversation_store
 from src.services.document_viewer import sanitize_document_html
+from src.services.research_jobs import (
+    RedisResearchJobQueue,
+    ResearchJobQueue,
+    ResearchQueueFullError,
+    create_research_queue,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent"])
+_research_queue: ResearchJobQueue | RedisResearchJobQueue | None = None
+
+
+def _get_research_queue() -> ResearchJobQueue | RedisResearchJobQueue:
+    global _research_queue
+    if _research_queue is None:
+        _research_queue = create_research_queue()
+    return _research_queue
+
+
+async def close_research_queue() -> None:
+    global _research_queue
+    if _research_queue is not None:
+        await _research_queue.close()
+        _research_queue = None
 
 
 def _trace_stage_metrics(result: dict) -> dict[str, object]:
@@ -529,3 +551,86 @@ async def analyze(
 )
 async def agent_status() -> AgentStatusResponse:
     return AgentStatusResponse(status="ready", agent="LangGraph GraphRAG Agent v1.0")
+
+
+@router.post(
+    "/research/jobs",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue a bounded deep/global research request",
+)
+async def submit_research_job(
+    request: ChatRequest,
+    _http_request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Queue only routes that may exceed the interactive latency budget."""
+    route = build_route_plan(request.message, settings=get_settings())
+    if route.route not in {"deep", "global"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only deep or global research requests use the async job endpoint",
+        )
+    owner_uid = str(user.get("uid") or "").strip()
+    if not owner_uid:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User identity is required")
+    release_id = await _context_release_id()
+    if not release_id:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Active release unavailable")
+    try:
+        queue = _get_research_queue()
+        if isinstance(queue, RedisResearchJobQueue):
+            job = await queue.submit(
+                owner_uid=owner_uid,
+                conversation_id=request.conversation_id or "default",
+                release_id=release_id,
+                query=request.message,
+            )
+        else:
+            from src.research_worker import execute_research
+
+            job = await queue.submit(
+                owner_uid=owner_uid,
+                conversation_id=request.conversation_id or "default",
+                release_id=release_id,
+                query=request.message,
+                executor=execute_research,
+            )
+    except ResearchQueueFullError as exc:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Research queue is full") from exc
+    except (RuntimeError, ValueError) as exc:
+        logger.exception("Research queue unavailable")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Research queue unavailable") from exc
+    return job.public_status()
+
+
+@router.get("/research/jobs/{job_id}", summary="Read an owner-isolated research job")
+async def get_research_job(
+    job_id: str,
+    conversation_id: str = Query(default="default", max_length=128),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    owner_uid = str(user.get("uid") or "").strip()
+    job = await _get_research_queue().get(
+        owner_uid=owner_uid,
+        conversation_id=conversation_id or "default",
+        job_id=job_id,
+    )
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Research job not found")
+    return job.public_status()
+
+
+@router.delete("/research/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Cancel a research job")
+async def cancel_research_job(
+    job_id: str,
+    conversation_id: str = Query(default="default", max_length=128),
+    user: dict = Depends(get_current_user),
+) -> None:
+    owner_uid = str(user.get("uid") or "").strip()
+    cancelled = await _get_research_queue().cancel(
+        owner_uid=owner_uid,
+        conversation_id=conversation_id or "default",
+        job_id=job_id,
+    )
+    if not cancelled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Research job not found")
