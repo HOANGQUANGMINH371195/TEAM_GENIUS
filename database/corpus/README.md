@@ -93,6 +93,14 @@ Quy trình kiểm soát:
 3. `verify_live_corpus_parity.py --external-embedding-artifact ...` đối chiếu
    source, Supabase, Neo4j và artifact theo từng passage/edge trước khi báo pass.
 
+`verify_live_corpus_parity.py` cũng kiểm tra `snapshot_id`/fingerprint và các
+đếm canonical trước khi đối chiếu database. Không được dùng lại một
+`dataset_id` cũ cho thư mục clean đã được rebuild bằng parser/chunker khác:
+hãy cung cấp đúng source manifest của release hoặc tạo release mới rồi parity
+ở cả PostgreSQL, Qdrant và Neo4j. Báo cáo sẽ ghi rõ `source_snapshot` và vẫn
+fail an toàn nếu embedding artifact không khớp, thay vì coi file
+`live_parity.json` cũ là bằng chứng hiện tại.
+
 Artifact và candidate nằm dưới `data/clean/` nên không được commit. Không xóa
 `data/clean/embeddings-reused/snapshot-c439751724ab7f10/` trước khi import và
 verify Qdrant.

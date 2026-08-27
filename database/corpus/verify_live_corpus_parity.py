@@ -102,12 +102,49 @@ def main() -> int:
     }
     validation = json.loads((args.source_dir / "canonical_validation.json").read_text(encoding="utf-8"))
     snapshot = build_snapshot(args.source_dir)
-    external_embeddings = (
-        verify_external_embedding_artifact(
-            args.external_embedding_artifact, args.dataset_id, snapshot
+    # A release ID is a content fingerprint, not a caller-provided label.  A
+    # source directory that was rebuilt with a newer parser/chunker must fail
+    # loudly instead of producing an opaque passage-ID mismatch later.  This
+    # also catches stale ``canonical_validation.json`` files before any remote
+    # store is inspected.
+    errors: list[str] = []
+    if str(validation.get("dataset_id", "")) != args.dataset_id:
+        errors.append(
+            "canonical validation dataset ID differs from requested release "
+            f"({validation.get('dataset_id', '')!r} != {args.dataset_id!r})"
         )
-        if args.external_embedding_artifact else None
-    )
+    if str(snapshot.dataset_id) != args.dataset_id:
+        errors.append(
+            "source snapshot fingerprint differs from requested release "
+            f"({snapshot.dataset_id!r} != {args.dataset_id!r})"
+        )
+    validation_counts = validation.get("counts", {})
+    snapshot_counts = {
+        "documents": len(snapshot.documents),
+        "aliases": len(snapshot.aliases),
+        "relationships": len(snapshot.relationships),
+        "passages": len(snapshot.passages),
+        "semantic_passages": sum(bool(row.get("semantic_eligible")) for row in snapshot.passages),
+        "legal_units": len(snapshot.legal_units),
+    }
+    for key, actual in snapshot_counts.items():
+        expected = validation_counts.get(key)
+        if expected is not None and int(expected) != actual:
+            errors.append(
+                f"canonical source artifact drift for {key}: "
+                f"validation={int(expected)} rebuilt={actual}"
+            )
+    external_embeddings = None
+    if args.external_embedding_artifact:
+        try:
+            external_embeddings = verify_external_embedding_artifact(
+                args.external_embedding_artifact, args.dataset_id, snapshot
+            )
+        except (OSError, ValueError, KeyError) as exc:
+            # Keep the parity report machine-readable and continue checking
+            # PostgreSQL/Neo4j/Qdrant.  The report remains failed and gives the
+            # operator the exact artifact mismatch rather than a traceback.
+            errors.append(f"external embedding artifact invalid: {exc}")
     expected_chunks = {
         str(row["passage_id"]): (
             str(row["document_id"]),
@@ -116,8 +153,6 @@ def main() -> int:
         )
         for row in snapshot.passages
     }
-    errors: list[str] = []
-
     with connection() as db, db.cursor(row_factory=psycopg.rows.dict_row) as cursor:
         cursor.execute("SELECT active_dataset_id FROM dataset_state WHERE singleton")
         active = str(cursor.fetchone()["active_dataset_id"])
@@ -220,12 +255,29 @@ def main() -> int:
         finally:
             qdrant.close()
 
+    neo4j_dataset_counts: dict[str, int] = {}
+    warnings: list[str] = []
     driver = GraphDatabase.driver(
         os.environ["NEO4J_URI"],
         auth=(os.getenv("NEO4J_USERNAME", "neo4j"), os.environ["NEO4J_PASSWORD"]),
     )
     try:
         with driver.session(database=os.getenv("NEO4J_DATABASE", "neo4j")) as session:
+            neo4j_dataset_counts = {
+                str(row["dataset"]): int(row["count"])
+                for row in session.run(
+                    """MATCH (n:Document)
+                       WHERE n.dataset_id IS NOT NULL
+                       RETURN n.dataset_id AS dataset, count(n) AS count
+                       ORDER BY dataset"""
+                ).data()
+            }
+            stale_datasets = sorted(set(neo4j_dataset_counts) - {args.dataset_id})
+            if stale_datasets:
+                warnings.append(
+                    "Neo4j contains release-scoped datasets outside the requested "
+                    f"release: {stale_datasets}"
+                )
             node_rows = session.run(
                 """MATCH (n:Document {dataset_id:$dataset_id})
                    WHERE n.node_kind IN ['canonical_document', 'document_alias']
@@ -305,6 +357,17 @@ def main() -> int:
         "status": "pass" if not errors else "fail",
         "dataset_id": args.dataset_id,
         "errors": errors,
+        "warnings": warnings,
+        "source_snapshot": {
+            "rebuilt_dataset_id": str(snapshot.dataset_id),
+            "validation_dataset_id": str(validation.get("dataset_id", "")),
+            "rebuilt_counts": snapshot_counts,
+            "validation_counts": {
+                key: validation_counts.get(key)
+                for key in snapshot_counts
+                if key in validation_counts
+            },
+        },
         "external_embeddings": external_embeddings,
         "counts": {
             "postgres_documents": len(postgres_rows),
@@ -324,6 +387,7 @@ def main() -> int:
             "missing_semantic_embeddings": int(chunk_counts["missing_embeddings"]),
             "chunk_content_mismatches": len(chunk_mismatches),
             "neo4j_document_nodes": len(actual_nodes),
+            "neo4j_dataset_nodes": neo4j_dataset_counts,
             "neo4j_reference_nodes": reference_nodes,
             "neo4j_approved_evidence": approved_edges,
             "neo4j_legal_relationships": len(actual_edges),

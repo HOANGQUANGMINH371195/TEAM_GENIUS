@@ -37,12 +37,15 @@ import vào Neo4j. Online expansion và endpoint relationships phải bổ sung
 `r.serving_status = 'approved_evidence'`; các cạnh audit-only không được dùng
 để tạo câu trả lời hay cảnh báo hiệu lực.
 
-Active `snapshot-c439751724ab7f10` đã parity-pass ngày 2026-08-18: 1.901
-nodes (682 canonical, 1.211 reference-only, 8 alias), 5.808 legal relationships
-và 8 `ALIAS_OF` edges. Supabase giữ text/chunk lexical; 14.393 vector 1536 chiều
-được offload vào artifact local đã đối chiếu passage ID và input SHA-256 để chờ
-import Qdrant. Mọi query graph online vẫn phải lấy `dataset_id` active từ
-Supabase.
+Báo cáo ngày 2026-08-18 từng ghi `snapshot-c439751724ab7f10` parity-pass với
+1.901 nodes (682 canonical, 1.211 reference-only, 8 alias), 5.808 legal
+relationships và 8 `ALIAS_OF` edges. Đây chỉ là bằng chứng lịch sử: lần kiểm
+tra lại ngày 2026-08-27 phát hiện thư mục clean hiện tại dựng thành fingerprint
+khác và Neo4j managed còn một snapshot cũ, vì vậy parity hiện tại đang **fail**
+cho đến khi cung cấp đúng source manifest của release hoặc dựng release mới.
+Không dùng file `live_parity.json` cũ để quyết định deploy. Supabase vẫn giữ
+text/chunk lexical; 14.393 vector 1536 chiều được offload vào artifact local.
+Mọi query graph online vẫn phải lấy `dataset_id` active từ Supabase.
 
 Typed facts có một bước export riêng để bảo đảm Neo4j chỉ nhận các dòng đã
 được reviewer duyệt trong `public.legal_facts`:
