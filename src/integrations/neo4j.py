@@ -116,6 +116,10 @@ class Neo4jGraphStore:
         normalized fact metadata and provenance anchors; callers must still
         hydrate ``document_id/unit_id/source_*`` from PostgreSQL before citing.
         """
+        if any(fact.review_status != "accepted" for fact in facts):
+            raise ValueError("only accepted legal facts may be projected")
+        if any(fact.source_start is None or fact.source_end is None for fact in facts):
+            raise ValueError("typed fact projection requires a canonical source span")
         records = [fact.as_record() for fact in facts]
         if not records:
             return 0

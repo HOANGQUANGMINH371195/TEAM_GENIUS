@@ -1,5 +1,6 @@
 import pytest
 
+from src.domain.facts import LegalFact
 from src.integrations.neo4j import Neo4jGraphStore
 
 
@@ -97,3 +98,25 @@ async def test_typed_fact_expansion_is_release_scoped_and_bounded():
     assert len(session.params["subjects"]) == 1
     assert session.params["limit"] == 100
     assert "edge.review_status = 'accepted'" in session.query
+
+
+@pytest.mark.asyncio
+async def test_typed_fact_projection_rejects_unreviewed_or_unanchored_facts():
+    store = object.__new__(Neo4jGraphStore)
+    pending = LegalFact(
+        fact_id="f1", subject="group", predicate="coverage_rate", normalized_value="80%",
+        effective_from=None, effective_to=None, jurisdiction="VN", provision_id="u1",
+        document_id="d1", unit_id="u1", source_start=0, source_end=4,
+        source_sha256="hash", review_status="pending", release_id="snapshot-test",
+    )
+    with pytest.raises(ValueError, match="accepted"):
+        await store.upsert_legal_facts([pending])
+
+    unanchored = LegalFact(
+        fact_id="f2", subject="group", predicate="coverage_rate", normalized_value="80%",
+        effective_from=None, effective_to=None, jurisdiction="VN", provision_id="u1",
+        document_id="d1", unit_id="u1", source_start=None, source_end=None,
+        source_sha256="hash", review_status="accepted", release_id="snapshot-test",
+    )
+    with pytest.raises(ValueError, match="source span"):
+        await store.upsert_legal_facts([unanchored])
