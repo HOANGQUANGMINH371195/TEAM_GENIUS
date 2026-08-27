@@ -63,7 +63,7 @@ class ChatProviderError(RuntimeError):
 # Bump whenever ranking/selection semantics change.  This is part of each
 # in-process cache namespace, so an answer produced before the domain/scope
 # policy cannot be replayed after a rolling deployment.
-_RETRIEVAL_POLICY_VERSION = "hybrid-v12-scoped-synthesis"
+_RETRIEVAL_POLICY_VERSION = "hybrid-v14-no-domain-anchor-mapping"
 logger = logging.getLogger(__name__)
 _ProviderResult = TypeVar("_ProviderResult")
 _trace_context: ContextVar[dict[str, Any] | None] = ContextVar(
@@ -292,41 +292,13 @@ class GraphRagRuntime:
             if preserved:
                 ranked = preserved + [item for item in ranked if item.chunk_id not in seen]
         if requires_evidence_verification(query) and not extract_document_numbers(query):
-            primary_laws = [
-                item
-                for bundle in valid
-                for item in bundle.evidence
-                if (
-                    item.document_type.strip().casefold() == "luật"
-                    or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
-                )
-            ]
-            def issued_year(item: RetrievalResult) -> int:
-                values = [int(value) for value in re.findall(r"\b(?:19|20)\d{2}\b", item.issued_date)]
-                return max(values, default=0)
-
-            current_year = max((issued_year(item) for item in primary_laws), default=0)
-            bhyt_primary = [
-                item for item in primary_laws
-                if any("bhyt" in str(category).casefold() for category in item.categories)
-            ]
-            if bhyt_primary:
-                primary_laws = bhyt_primary
-                current_year = max((issued_year(item) for item in primary_laws), default=0)
-            current_items = [item for item in primary_laws if issued_year(item) == current_year]
+            # Adaptive retrieval must use the same generic currentness policy
+            # as the primary route.  Never privilege a domain/category label
+            # or a hand-written legal phrase here; the candidate metadata and
+            # query-derived scope policy determine the order.
+            current_items = filter_current_authority_candidates(query, ranked)
             if current_items:
-                current_items.sort(key=lambda item: -float(item.score))
-                current_ids = {item.chunk_id for item in current_items[:3]}
-                exclusion_items = [
-                    item
-                    for item in ranked
-                    if "không được hưởng" in f"{item.section_title} {item.content}".casefold()
-                ]
-                ranked = current_items[:3] + exclusion_items + [
-                    item for item in ranked
-                    if item.chunk_id not in current_ids
-                    and item.chunk_id not in {candidate.chunk_id for candidate in exclusion_items}
-                ]
+                ranked = current_items
         return RetrievalBundle(
             evidence=ranked[: settings.max_llm_evidence],
             relations=merged.relations,
@@ -1421,15 +1393,12 @@ class GraphRagRuntime:
                             for term in query_term_anchors
                         )
                         or (
-                            bool(re.search(r"\d+%|mức hưởng|thanh toán", item.content.casefold()))
+                            bool(re.search(r"\d|%", item.content.casefold()))
                             and sum(
                                 term in f"{item.section_title} {item.content}".casefold()
                                 for term in extract_query_terms(query, limit=16)
                             ) >= 2
                         )
-                    ) and (
-                        "luật" in item.document_type.casefold()
-                        or item.title.casefold().startswith("luật ")
                     )
                 ]
                 if (
@@ -1709,271 +1678,28 @@ class GraphRagRuntime:
             anchor_phrases = [
                 phrase for phrase in query_phrases if len(phrase.split()) >= 2
             ]
-            operative_anchors = [
-                item
-                for item in document_recall_operatives
-                if (
-                    any(
-                        phrase.casefold() in f"{item.section_title} {item.content}".casefold()
-                        for phrase in anchor_phrases
-                    )
-                    or (
-                        bool(re.search(r"\d+%|mức hưởng|thanh toán", item.content.casefold()))
-                        and sum(
-                            term in f"{item.section_title} {item.content}".casefold()
-                            for term in extract_query_terms(query, limit=16)
-                        ) >= 2
-                    )
-                )
-            ]
-            # For current entitlement questions, prefer the newest primary
-            # law already present in the bounded candidate set.  This keeps a
-            # 2026 service-price passage from outranking the 2024 governing
-            # statute merely because it repeats words such as “cấp cứu”.
-            if requires_evidence_verification(query):
-                primary_anchors = [
-                    item
-                    for item in operative_anchors
-                    if (
-                        item.document_type.strip().casefold() == "luật"
-                        or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
-                        or "không được hưởng" in f"{item.section_title} {item.content}".casefold()
-                    )
-                ]
-                if primary_anchors:
-                    newest_anchor_year = max(
-                        (
-                            max(
-                                (
-                                    int(value)
-                                    for value in re.findall(
-                                        r"\b(?:19|20)\d{2}\b",
-                                        " ".join((item.issued_date, item.document_number)),
-                                    )
-                                ),
-                                default=0,
-                            )
-                            for item in primary_anchors
-                        ),
-                        default=0,
-                    )
-                    if newest_anchor_year:
-                        newest_primary = [
-                            item
-                            for item in primary_anchors
-                            if newest_anchor_year
-                            == max(
-                                (
-                                    int(value)
-                                    for value in re.findall(
-                                        r"\b(?:19|20)\d{2}\b",
-                                        " ".join((item.issued_date, item.document_number)),
-                                    )
-                                ),
-                                default=0,
-                            )
-                        ]
-                        # Synthetic/curated source rows may not carry a
-                        # publication year, but an exact exclusion clause is
-                        # still authoritative when it matches the query.
-                        newest_primary.extend(
-                            item
-                            for item in primary_anchors
-                            if "không được hưởng" in f"{item.section_title} {item.content}".casefold()
-                            and item not in newest_primary
-                        )
-                        if newest_primary:
-                            operative_anchors = newest_primary
-            anchor_term_frequency = {
-                term: sum(
-                    term in f"{item.section_title} {item.content}".casefold()
-                    for item in operative_anchors
-                )
-                for term in extract_query_terms(query, limit=16)
-            }
-            anchor_phrase_frequency = {
-                phrase: sum(
-                    phrase.casefold() in f"{item.section_title} {item.content}".casefold()
-                    for item in operative_anchors
-                )
-                for phrase in anchor_phrases
-            }
+            query_terms_for_anchor = extract_query_terms(query, limit=16)
+            operative_anchors = []
+            for item in document_recall_operatives:
+                source_text = f"{item.section_title} {item.content}".casefold()
+                phrase_hits = sum(phrase.casefold() in source_text for phrase in anchor_phrases)
+                term_hits = sum(term in source_text for term in query_terms_for_anchor)
+                has_structured_value = bool(re.search(r"\d|%", source_text))
+                if phrase_hits or (has_structured_value and term_hits >= 2):
+                    item.rank_details = {
+                        **item.rank_details,
+                        "query_anchor_phrase_hits": float(phrase_hits),
+                        "query_anchor_term_hits": float(term_hits),
+                    }
+                    operative_anchors.append(item)
             operative_anchors.sort(
                 key=lambda item: (
-                    max(
-                        (
-                            int(value)
-                            for value in re.findall(
-                                r"\b(?:19|20)\d{2}\b",
-                                " ".join((item.issued_date, item.document_number)),
-                            )
-                        ),
-                        default=0,
-                    )
-                    if requires_evidence_verification(query)
-                    else 0,
-                    int("100%" in item.content or "100%" in item.section_title),
-                    int(
-                        item.document_type.strip().casefold() == "luật"
-                        or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
-                    ),
-                    int(
-                        bool(re.search(r"\d+%|mức hưởng|thanh toán", item.content.casefold()))
-                        and any(
-                            phrase.casefold() in f"{item.section_title} {item.content}".casefold()
-                            for phrase in anchor_phrases
-                        )
-                    ),
-                    sum(
-                        frequency <= max(1, len(operative_anchors) // 2)
-                        and term in f"{item.section_title} {item.content}".casefold()
-                        for term, frequency in anchor_term_frequency.items()
-                    ),
-                    sum(
-                        frequency <= max(1, len(operative_anchors) // 2)
-                        and phrase.casefold() in f"{item.section_title} {item.content}".casefold()
-                        for phrase, frequency in anchor_phrase_frequency.items()
-                    ),
-                    sum(
-                        phrase.casefold() in f"{item.section_title} {item.content}".casefold()
-                        for phrase in anchor_phrases
-                    ),
-                    int(bool(re.search(r"\d+%|mức hưởng|cấp cứu|liên tục", item.content.casefold()))),
+                    float(item.rank_details.get("query_anchor_phrase_hits", 0.0)),
+                    float(item.rank_details.get("query_anchor_term_hits", 0.0)),
                     float(item.score),
                 ),
                 reverse=True,
             )
-            # Keep one decisive source fragment when a query phrase and an
-            # operative marker occur in the same canonical unit.  This
-            # prevents a neighboring percentage clause from replacing the
-            # actual exception/condition clause during the two-item context
-            # cut.  The phrase and marker are both derived from the query and
-            # source text; no document-specific mapping is involved.
-            decisive_anchors = [
-                item
-                for item in operative_anchors
-                if bool(re.search(r"\d+%|mức hưởng|thanh toán", item.content.casefold()))
-                and any(
-                    len(phrase.split()) >= 2
-                    and phrase.casefold() in item.section_title.casefold()
-                    for phrase in anchor_phrases
-                )
-            ]
-            # Preserve an exact exclusion clause even when it has no numeric
-            # marker. The signal is entirely query/source-derived.
-            exclusion_anchors = [
-                item
-                for item in operative_anchors
-                if "không được hưởng" in f"{item.section_title} {item.content}".casefold()
-                and any(
-                    len(phrase.split()) >= 2
-                    and phrase.casefold() in f"{item.section_title} {item.content}".casefold()
-                    for phrase in anchor_phrases
-                )
-            ]
-            if exclusion_anchors:
-                decisive_anchors = exclusion_anchors[:1] + [
-                    item for item in decisive_anchors if item.chunk_id != exclusion_anchors[0].chunk_id
-                ]
-            if decisive_anchors:
-                operative_anchors = decisive_anchors[:1] + [
-                    item for item in operative_anchors if item.chunk_id != decisive_anchors[0].chunk_id
-                ]
-            forced_source = document_recall_operatives
-            if requires_evidence_verification(query):
-                current_primary_source = [
-                    item
-                    for item in document_recall_operatives
-                    if (
-                        item.document_type.strip().casefold() == "luật"
-                        or item.title.strip().casefold().startswith(("luật ", "bộ luật "))
-                    )
-                ]
-                if current_primary_source:
-                    newest_source_year = max(
-                        (
-                            max(
-                                (
-                                    int(value)
-                                    for value in re.findall(
-                                        r"\b(?:19|20)\d{2}\b",
-                                        " ".join((item.issued_date, item.document_number)),
-                                    )
-                                ),
-                                default=0,
-                            )
-                            for item in current_primary_source
-                        ),
-                        default=0,
-                    )
-                    forced_source = [
-                        item
-                        for item in current_primary_source
-                        if newest_source_year
-                        == max(
-                            (
-                                int(value)
-                                for value in re.findall(
-                                    r"\b(?:19|20)\d{2}\b",
-                                    " ".join((item.issued_date, item.document_number)),
-                                )
-                            ),
-                            default=0,
-                        )
-                    ]
-            query_numeric_markers = [
-                " ".join(match.split()).casefold()
-                for match in re.findall(
-                    r"\b\d+\s+(?:năm|lần|tháng|ngày)\b", query.casefold()
-                )
-            ]
-            forced_phrase_anchors = [
-                item
-                for item in forced_source
-                if bool(re.search(r"\d+%|mức hưởng", item.section_title.casefold()))
-                and (
-                    any(
-                        len(phrase.split()) >= 2
-                        and phrase.casefold() in item.section_title.casefold()
-                        for phrase in anchor_phrases
-                    )
-                    or any(marker in item.section_title.casefold() for marker in query_numeric_markers)
-                )
-            ]
-            if forced_phrase_anchors:
-                forced_phrase_frequency = {
-                    phrase: sum(
-                        phrase.casefold() in item.section_title.casefold()
-                        for item in forced_phrase_anchors
-                    )
-                    for phrase in anchor_phrases
-                }
-                forced_phrase_anchors.sort(
-                    key=lambda item: (
-                        int(any(marker in item.section_title.casefold() for marker in query_numeric_markers)),
-                        sum(
-                            1.0 / max(1, frequency)
-                            for phrase, frequency in forced_phrase_frequency.items()
-                            if frequency
-                            and phrase.casefold() in item.section_title.casefold()
-                        ),
-                        sum(
-                            frequency <= max(1, len(forced_phrase_anchors) // 3)
-                            and phrase.casefold() in item.section_title.casefold()
-                            for phrase, frequency in forced_phrase_frequency.items()
-                        ),
-                        sum(
-                            phrase.casefold() in item.section_title.casefold()
-                            for phrase in anchor_phrases
-                        ),
-                        -len(item.section_title),
-                        float(item.score),
-                    ),
-                    reverse=True,
-                )
-                operative_anchors = [forced_phrase_anchors[0]] + [
-                    item for item in operative_anchors if item.chunk_id != forced_phrase_anchors[0].chunk_id
-                ]
             for item in operative_anchors[:2]:
                 # Preserve the exact phrase signal through the final
                 # source-aware reranker; this is still query-derived and
