@@ -35,7 +35,7 @@ def main() -> int:
 
     checks: dict[str, bool] = {
         "render_service_is_docker": api.get("runtime") == "docker",
-        "render_branch_is_feat_data": api.get("branch") == "feat/data",
+        "render_branch_is_main": api.get("branch") == "main",
         "render_health_check_is_liveness": api.get("healthCheckPath") == "/health",
         "managed_profile_forces_production": "APP_ENV: production" in compose,
         "render_port_is_injected": all(item.get("key") != "PORT" for item in api.get("envVars") or []),
