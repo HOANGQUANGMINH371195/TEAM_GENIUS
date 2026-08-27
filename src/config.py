@@ -194,6 +194,15 @@ class Settings(BaseSettings):
         origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
         if not origins or "*" in origins or any("localhost" in origin for origin in origins):
             missing.append("CORS_ORIGINS (explicit HTTPS origins)")
+        if self.feature_global_search_enabled:
+            if not self.community_index_path.strip():
+                missing.append("COMMUNITY_INDEX_PATH when FEATURE_GLOBAL_SEARCH_ENABLED=true")
+            if self.research_queue_backend != "redis":
+                missing.append("RESEARCH_QUEUE_BACKEND=redis when FEATURE_GLOBAL_SEARCH_ENABLED=true")
+            if not self.research_queue_redis_url.strip():
+                missing.append("RESEARCH_QUEUE_REDIS_URL when FEATURE_GLOBAL_SEARCH_ENABLED=true")
+        if self.feature_experience_retrieval_enabled and not self.experience_index_path.strip():
+            missing.append("EXPERIENCE_INDEX_PATH when FEATURE_EXPERIENCE_RETRIEVAL_ENABLED=true")
         if missing:
             raise ValueError("Production configuration incomplete: " + ", ".join(missing))
 
