@@ -45,6 +45,7 @@ def main() -> int:
         "calibration_metrics": ROOT / "eval/calibration.py",
         "typed_fact_importer": ROOT / "database/neo4j/scripts/import_typed_facts.py",
         "scenario_page": ROOT / "web/app/calculator/page.tsx",
+        "promotion_gate": ROOT / "scripts/verify_promotion_gate.py",
     }
     checks = {name: path.is_file() for name, path in required.items()}
     fixture = _fixture_case_count(required["golden_calculator"])
