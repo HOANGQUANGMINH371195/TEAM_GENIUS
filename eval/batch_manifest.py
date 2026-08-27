@@ -186,6 +186,22 @@ class BatchManifest:
         rows.extend({"item": item.as_dict()} for item in self.items)
         return "\n".join(_canonical(row) for row in rows) + "\n"
 
+    def to_provider_jsonl(self, *, endpoint: str = "/v1/responses") -> str:
+        """Serialize request lines accepted by a provider Batch API."""
+        if not endpoint.startswith("/"):
+            raise ValueError("endpoint must be an absolute API path")
+        rows = [
+            {
+                "custom_id": item.item_id,
+                "method": "POST",
+                "url": endpoint,
+                "body": {"model": self.model, **item.payload},
+            }
+            for item in self.items
+            if item.status not in {"complete", "quarantined"}
+        ]
+        return "\n".join(_canonical(row) for row in rows) + ("\n" if rows else "")
+
     def _item(self, item_id: str) -> BatchItem:
         for item in self.items:
             if item.item_id == item_id:
