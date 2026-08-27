@@ -362,6 +362,7 @@ blocked until the remaining P0 items below are implemented and verified.
 
 | Area | Current evidence | Status |
 |---|---|---|
+| Local Docker stack/readiness | Docker Desktop `local-full` profile started from `/home/minh/projects/team-Vin-genius/.env`; Postgres, Qdrant, Neo4j, Redis, API and web containers up; `/health` and `/ready` return 200 after provider variables are loaded | repository/developer smoke passed; managed deployment attestation still external |
 | Typed route contract | `src/domain/route_plan.py`, route metadata in intake, provider allow-list, route-scoped candidate/context caps, retrieval fallback deadline and generation timeout | implemented; production calibration/latency proof pending |
 | Stage telemetry | `retrieval_trace`, `planner_ms`, `verification_ms`, `guardrail_ms`, provider/generation timers, allowlisted Langfuse stage export, browser TTFT event | repository telemetry/export implemented; managed dashboard and authenticated browser TTFT proof pending |
 | Evidence-gap planning | `src/services/planner.py`, bounded fan-out/depth follow-up retrieval on relational/temporal/deep routes | partial: calibration and independent completeness proof pending |
