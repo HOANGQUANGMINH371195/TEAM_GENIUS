@@ -20,6 +20,11 @@ FORMULA_REGISTRY: dict[str, dict[str, object]] = {
         "description": "covered cost multiplied by verified entitlement rate",
         "inputs": ("covered_cost", "base_rate_percent", "copayment_threshold", "continuous_years"),
         "rounding": "Decimal cents, ROUND_HALF_UP",
+    },
+    "bhyt.copayment_threshold.v1": {
+        "description": "copayment threshold and continuous participation eligibility",
+        "inputs": ("copayment_spend", "copayment_threshold", "continuous_years", "required_years"),
+        "rounding": "Decimal comparison, no rounding",
     }
 }
 
@@ -66,6 +71,23 @@ class BenefitCalculation:
         }
 
 
+def copayment_threshold_met(
+    *,
+    copayment_spend: object,
+    copayment_threshold: object,
+    continuous_years: object,
+    required_years: object = "5",
+) -> bool:
+    """Evaluate the reviewed threshold rule with exact Decimal comparisons."""
+    spend = _decimal(copayment_spend, "copayment_spend")
+    threshold = _decimal(copayment_threshold, "copayment_threshold")
+    years = _decimal(continuous_years, "continuous_years")
+    required = _decimal(required_years, "required_years")
+    if required <= 0:
+        raise CalculationInputError("required_years must be positive")
+    return spend >= threshold and years >= required
+
+
 def calculate_bhyt_benefit(
     *,
     covered_cost: object,
@@ -91,12 +113,12 @@ def calculate_bhyt_benefit(
     if copayment_threshold is not None:
         if continuous_years is None:
             raise CalculationInputError("continuous_years is required when copayment_threshold is supplied")
-        threshold = _decimal(copayment_threshold, "copayment_threshold")
-        years = _decimal(continuous_years, "continuous_years")
-        required = _decimal(required_years, "required_years")
-        if required <= 0:
-            raise CalculationInputError("required_years must be positive")
-        threshold_met = spend >= threshold and years >= required
+        threshold_met = copayment_threshold_met(
+            copayment_spend=spend,
+            copayment_threshold=copayment_threshold,
+            continuous_years=continuous_years,
+            required_years=required_years,
+        )
         if threshold_met:
             applied_rate = _rate(threshold_rate_percent, "threshold_rate_percent")
     insurer = (cost * applied_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
