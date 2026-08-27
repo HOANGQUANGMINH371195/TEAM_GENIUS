@@ -75,6 +75,14 @@ def _trace_stage_metrics(result: dict) -> dict[str, object]:
     return {key: metadata[key] for key in allowed if key in metadata}
 
 
+def _public_route(result: dict) -> str:
+    """Return only the bounded route enum for browser/evidence telemetry."""
+    metadata = result.get("metadata") if isinstance(result, dict) else None
+    route_plan = metadata.get("route_plan") if isinstance(metadata, dict) else None
+    route = route_plan.get("route") if isinstance(route_plan, dict) else ""
+    return route if route in {"simple", "exact", "policy", "table", "topical", "temporal", "relational", "global", "deep"} else ""
+
+
 async def _context_release_id() -> str:
     """Read the active release pointer for conversation-cache isolation.
 
@@ -419,13 +427,14 @@ async def _stream_agent(
         if not isinstance(response, str) or not response.strip():
             raise RuntimeError("Agent returned an empty response")
         browser_citations = public_citations(final.get("citations") or [])
-        yield _sse_event(
-            "final",
-            {
-                "response": response.strip(),
-                "citations": [citation.model_dump() for citation in browser_citations],
-            },
-        )
+        final_payload = {
+            "response": response.strip(),
+            "citations": [citation.model_dump() for citation in browser_citations],
+        }
+        route = _public_route(final)
+        if route:
+            final_payload["route"] = route
+        yield _sse_event("final", final_payload)
         await _persist_chat_turn(
             owner_uid=owner_uid,
             request=ChatRequest(message=message, conversation_id=conversation_id, turn_id=turn_id),

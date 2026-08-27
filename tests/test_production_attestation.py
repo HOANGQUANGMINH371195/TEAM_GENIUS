@@ -9,8 +9,11 @@ def _valid(tmp_path: Path):
     run = {
         "kind": "cold",
         "simple_p95_seconds": 2,
+        "exact_p95_seconds": 2,
+        "table_p95_seconds": 2,
         "topical_p95_seconds": 4,
         "temporal_p95_seconds": 10,
+        "relational_p95_seconds": 10,
         "ttft_p95_seconds": 0.8,
         "stream_error_rate": 0,
         "availability": 1,

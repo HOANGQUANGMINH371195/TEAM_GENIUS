@@ -86,8 +86,11 @@ def validate_attestation(
         prefix = f"runs[{index}]"
         for metric, ceiling in (
             ("simple_p95_seconds", 5.0),
+            ("exact_p95_seconds", 5.0),
+            ("table_p95_seconds", 5.0),
             ("topical_p95_seconds", 8.0),
             ("temporal_p95_seconds", 15.0),
+            ("relational_p95_seconds", 15.0),
             ("ttft_p95_seconds", 1.0),
             ("stream_error_rate", 0.01),
         ):

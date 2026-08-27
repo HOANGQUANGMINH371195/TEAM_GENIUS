@@ -97,7 +97,16 @@ async def _probe_stream(client: httpx.AsyncClient, url: str, headers: dict[str, 
                 error = f"http_{status_code}"
     except Exception as exc:  # retain only exception type in evidence
         error = type(exc).__name__
-    return _safe_result(case_id=str(case["case_id"]), case_kind=str(case.get("kind") or case.get("category") or ""), status_code=status_code, payload=payload, latency_ms=(time.perf_counter() - started) * 1000, ttft_ms=ttft, error=error)
+    case_kind = str(
+        payload.get("route")
+        or case.get("route")
+        or case.get("kind")
+        or case.get("category")
+        or ""
+    )
+    if case_kind == "policy":
+        case_kind = "simple"
+    return _safe_result(case_id=str(case["case_id"]), case_kind=case_kind, status_code=status_code, payload=payload, latency_ms=(time.perf_counter() - started) * 1000, ttft_ms=ttft, error=error)
 
 
 async def _run_phase(url: str, cases: list[dict[str, Any]], *, headers: dict[str, str], concurrency: int, warm_repeats: int = 1) -> list[dict[str, Any]]:
@@ -118,15 +127,16 @@ def _phase_summary(rows: list[dict[str, Any]], *, kind: str) -> dict[str, Any]:
     latencies = [float(row["latency_ms"]) / 1000 for row in rows if row.get("status") == "completed"]
     ttft = [float(row["ttft_ms"]) / 1000 for row in rows if row.get("ttft_ms") is not None]
     failures = sum(row.get("status") != "completed" for row in rows)
+    route_names = ("simple", "exact", "table", "topical", "temporal", "relational", "global", "deep")
     route_values = {
         route: [
             float(row["latency_ms"]) / 1000
             for row in rows
             if row.get("status") == "completed" and str(row.get("case_kind") or "").casefold() == route
         ]
-        for route in ("simple", "topical", "temporal")
+        for route in route_names
     }
-    return {
+    summary = {
         "kind": kind,
         "cases": len(rows),
         "completed": len(rows) - failures,
@@ -134,10 +144,11 @@ def _phase_summary(rows: list[dict[str, Any]], *, kind: str) -> dict[str, Any]:
         "overall_p95_seconds": _p95(latencies),
         "simple_p95_seconds": _p95(route_values["simple"]),
         "topical_p95_seconds": _p95(route_values["topical"]),
-        "temporal_p95_seconds": _p95(route_values["temporal"]),
         "ttft_p95_seconds": _p95(ttft),
         "availability": (len(rows) - failures) / len(rows) if rows else 0.0,
     }
+    summary.update({f"{route}_p95_seconds": _p95(route_values[route]) for route in route_names})
+    return summary
 
 
 async def collect(*, endpoint: str, cases: list[dict[str, Any]], token: str, concurrency: int, warm_repeats: int) -> dict[str, Any]:

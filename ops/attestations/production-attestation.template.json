@@ -4,8 +4,11 @@
     {
       "kind": "cold",
       "simple_p95_seconds": null,
+      "exact_p95_seconds": null,
+      "table_p95_seconds": null,
       "topical_p95_seconds": null,
       "temporal_p95_seconds": null,
+      "relational_p95_seconds": null,
       "ttft_p95_seconds": null,
       "stream_error_rate": null,
       "availability": null
@@ -13,8 +16,11 @@
     {
       "kind": "warm",
       "simple_p95_seconds": null,
+      "exact_p95_seconds": null,
+      "table_p95_seconds": null,
       "topical_p95_seconds": null,
       "temporal_p95_seconds": null,
+      "relational_p95_seconds": null,
       "ttft_p95_seconds": null,
       "stream_error_rate": null,
       "availability": null
@@ -22,8 +28,11 @@
     {
       "kind": "concurrency",
       "simple_p95_seconds": null,
+      "exact_p95_seconds": null,
+      "table_p95_seconds": null,
       "topical_p95_seconds": null,
       "temporal_p95_seconds": null,
+      "relational_p95_seconds": null,
       "ttft_p95_seconds": null,
       "stream_error_rate": null,
       "availability": null

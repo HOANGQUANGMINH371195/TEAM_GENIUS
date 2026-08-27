@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from src.api.auth import get_current_user
-from src.api.routes import _trace_stage_metrics
+from src.api.routes import _public_route, _trace_stage_metrics
 from src.main import app
 from src.models.graph import RetrievalResult
 
@@ -26,6 +26,11 @@ def test_langfuse_stage_export_is_allowlisted_and_secret_free():
         "retrieval_ms": 12.3,
         "generation_ms": 4.5,
     }
+
+
+def test_public_route_exposes_only_known_route_enum():
+    assert _public_route({"metadata": {"route_plan": {"route": "temporal"}}}) == "temporal"
+    assert _public_route({"metadata": {"route_plan": {"route": "unknown-private-value"}}}) == ""
 
 
 @pytest.mark.asyncio
@@ -106,6 +111,7 @@ async def test_chat_stream_emits_only_verified_final_event(client):
                         }
                     ],
                     "claims": [{"claim_id": "private-claim-id"}],
+                    "metadata": {"route_plan": {"route": "temporal"}},
                 }
             },
         }
@@ -118,6 +124,7 @@ async def test_chat_stream_emits_only_verified_final_event(client):
     assert "event: status" in response.text
     assert '"response": "Đã kiểm chứng"' in response.text
     assert '"document_number": "01/2026/QH15"' in response.text
+    assert '"route": "temporal"' in response.text
     assert "private-doc-id" not in response.text
     assert "private-chunk-id" not in response.text
     assert "private-dataset-id" not in response.text
