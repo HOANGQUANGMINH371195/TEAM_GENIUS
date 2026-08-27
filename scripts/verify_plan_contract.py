@@ -57,6 +57,7 @@ def main() -> int:
         "community_index_builder": ROOT / "database/corpus/build_community_index.py",
         "research_job_worker": ROOT / "src/services/research_jobs.py",
         "production_attestation_verifier": ROOT / "scripts/verify_production_attestation.py",
+        "production_attestation_template": ROOT / "ops/attestations/production-attestation.template.json",
         "parity_verifier": ROOT / "database/corpus/verify_live_corpus_parity.py",
     }
     checks = {name: path.is_file() for name, path in required.items()}

@@ -1,0 +1,53 @@
+{
+  "release_id": "snapshot-<immutable-release>",
+  "runs": [
+    {
+      "kind": "cold",
+      "simple_p95_seconds": null,
+      "topical_p95_seconds": null,
+      "temporal_p95_seconds": null,
+      "ttft_p95_seconds": null,
+      "stream_error_rate": null,
+      "availability": null
+    },
+    {
+      "kind": "warm",
+      "simple_p95_seconds": null,
+      "topical_p95_seconds": null,
+      "temporal_p95_seconds": null,
+      "ttft_p95_seconds": null,
+      "stream_error_rate": null,
+      "availability": null
+    },
+    {
+      "kind": "concurrency",
+      "simple_p95_seconds": null,
+      "topical_p95_seconds": null,
+      "temporal_p95_seconds": null,
+      "ttft_p95_seconds": null,
+      "stream_error_rate": null,
+      "availability": null
+    }
+  ],
+  "human_adjudication": {
+    "critical_accuracy": null,
+    "high_risk_citation_support": null,
+    "calculator_exactness": null,
+    "cost_reduction": null,
+    "cases": null,
+    "reviewers": null,
+    "catastrophic_errors": null,
+    "approved": false
+  },
+  "outage_drills": {
+    "graph_degraded": false,
+    "redis_degraded": false,
+    "provider_degraded": false
+  },
+  "ablations": {
+    "reranker": {"reviewed": false, "no_regression": false},
+    "typed_graph": {"reviewed": false, "no_regression": false},
+    "grounded_planning": {"reviewed": false, "no_regression": false}
+  },
+  "rollback": {"canary": false, "tested": false}
+}
