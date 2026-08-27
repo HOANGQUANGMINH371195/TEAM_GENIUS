@@ -616,6 +616,8 @@ class GraphRagRuntime:
         """Retrieve in bounded DB phases; never hold a SQL session over providers."""
         settings = get_settings()
         route_plan = build_route_plan(query, settings=settings)
+        route_started = time.perf_counter()
+        route_deadline = route_started + route_plan.retrieval_budget_ms / 1000
 
         async def lexical_search(
             *, dataset_id: str, document_ids: Sequence[str] | None = None, limit: int
@@ -843,6 +845,32 @@ class GraphRagRuntime:
                     limit=passage_candidate_limit,
                 )
             )
+
+            async def lexical_budget_fallback() -> RetrievalBundle:
+                """Return canonical lexical evidence when optional providers time out."""
+                lexical_results = await lexical_task
+                evidence = weighted_rrf(
+                    {"lexical": lexical_results},
+                    limit=settings.max_llm_evidence,
+                    max_per_document=settings.max_chunks_per_document,
+                )
+                _record_trace_event(
+                    "route:budget_fallback",
+                    route_started,
+                    route=route_plan.route,
+                    budget_ms=route_plan.retrieval_budget_ms,
+                    lexical_count=len(lexical_results),
+                )
+                return RetrievalBundle(
+                    evidence=_verified_evidence(
+                        exclude_unverified_legacy_subordinate_sources(
+                            query,
+                            filter_current_authority_candidates(query, evidence),
+                        )
+                    ),
+                    relations=[],
+                )
+
             # Numeric/table questions must use the structured fact/calculator
             # path. Until a fact row is available, keep the fallback lexical
             # and avoid paying for an embedding/ANN round trip that cannot
@@ -873,13 +901,30 @@ class GraphRagRuntime:
                     ),
                     relations=[],
                 )
+            # Canonical lexical retrieval is the safe floor. Once the route
+            # budget is consumed, do not start another remote provider call.
+            if vector_override is None and time.perf_counter() >= route_deadline:
+                metrics.inc("retrieval_route_budget_exhausted", route=route_plan.route)
+                return await lexical_budget_fallback()
             async with trace_span(
                 "embedding-query",
                 as_type="embedding",
                 input={"query_length": len(query)},
                 metadata={"model": settings.embedding_model},
             ) as span:
-                vector = vector_override if vector_override is not None else await self._embed_query(query)
+                if vector_override is not None:
+                    vector = vector_override
+                else:
+                    remaining = route_deadline - time.perf_counter()
+                    if remaining <= 0:
+                        return await lexical_budget_fallback()
+                    try:
+                        vector = await asyncio.wait_for(
+                            self._embed_query(query), timeout=remaining
+                        )
+                    except TimeoutError:
+                        metrics.inc("retrieval_route_budget_exhausted", route=route_plan.route)
+                        return await lexical_budget_fallback()
                 if span is not None:
                     span.update(output={"embedding_dimensions": len(vector)})
             if len(vector) != settings.embedding_dimensions:
@@ -918,11 +963,27 @@ class GraphRagRuntime:
                         if document_semantic_candidate_ids
                         else None
                     )
-                    lexical_result, vector_result = await asyncio.gather(
-                        lexical_task,
-                        semantic_task,
-                        return_exceptions=True,
-                    )
+                    remaining = route_deadline - time.perf_counter()
+                    if remaining <= 0:
+                        semantic_task.cancel()
+                        if document_semantic_task is not None:
+                            document_semantic_task.cancel()
+                        await asyncio.gather(semantic_task, return_exceptions=True)
+                        if document_semantic_task is not None:
+                            await asyncio.gather(document_semantic_task, return_exceptions=True)
+                        return await lexical_budget_fallback()
+                    try:
+                        vector_result = await asyncio.wait_for(semantic_task, timeout=remaining)
+                    except TimeoutError:
+                        metrics.inc("retrieval_route_budget_exhausted", route=route_plan.route)
+                        semantic_task.cancel()
+                        if document_semantic_task is not None:
+                            document_semantic_task.cancel()
+                        await asyncio.gather(semantic_task, return_exceptions=True)
+                        if document_semantic_task is not None:
+                            await asyncio.gather(document_semantic_task, return_exceptions=True)
+                        return await lexical_budget_fallback()
+                    lexical_result = await lexical_task
                     # Lexical recall is an optional channel.  A slow/failed
                     # PostgreSQL full-text query must not discard a valid
                     # dense result (or turn the whole chat into a 503).

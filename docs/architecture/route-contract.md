@@ -17,5 +17,8 @@ Rules:
 - high-risk routes require authority, conditions, exceptions, and effective
   interval checks;
 - a provider timeout degrades to the primary route or a bounded abstention.
+- when the retrieval deadline expires, optional embedding/Qdrant work is
+  cancelled and release-scoped lexical evidence remains the safe floor;
+  table routes retain their structured-fact path.
 
 Changing a route requires a paired latency and legal-accuracy evaluation.
