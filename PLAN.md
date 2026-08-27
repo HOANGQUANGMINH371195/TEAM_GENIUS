@@ -452,6 +452,7 @@ baseline plus sentence reranker remains better.
 - `docs/product/calculator-contract.md`
 - `docs/product/document-viewer-security.md`
 - `docs/data/typed-bhyt-ontology.md`
+- `docs/data/release-lock-snapshot-c439751724ab7f10.json`
 - `eval/cases/market-leadership-v1.jsonl`
 - `eval/results/baseline-live-<timestamp>/`
 - `eval/ablations/{reranker,auditor,typed-graph,grounded-planning}/`

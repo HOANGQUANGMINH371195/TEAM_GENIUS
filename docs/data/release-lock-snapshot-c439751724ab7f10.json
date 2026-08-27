@@ -1,0 +1,41 @@
+{
+  "release_id": "snapshot-c439751724ab7f10",
+  "lock_status": "historical_source_required",
+  "locked_at_utc": "2026-08-18T04:16:19.373045+00:00",
+  "pipeline": {
+    "build_version": "fully-reviewed-corpus-v1",
+    "pipeline_version": "canonical-evidence-v5",
+    "normalizer_version": "html-visible-text-v1",
+    "passage_version": "legal-unit-sentence-token-chunks-v5",
+    "legal_unit_version": "legal-page-index-v2"
+  },
+  "source_files_sha256": {
+    "metadata.csv": "90a55ab3160eb93b2cfaad86c6ec64d43d4344fe330a8cf4450f943ebb3b6a1f",
+    "content.csv": "df9d20b3107d5c11a891fdb14050652553cec4c16d280251ec8b4c7bfce99830",
+    "relationships.csv": "b893d6b5e1c32b5a9ff7dc608e5b6635d454cad99ace79dc3fe85d875b7bb06d",
+    "aliases.csv": "0da783a460fff3e227e8988466f707f9e1a00a0386c1dc587052e44c89538db9"
+  },
+  "canonical_counts": {
+    "documents": 682,
+    "aliases": 8,
+    "relationships": 5808,
+    "passages": 37170,
+    "semantic_passages": 14393,
+    "legal_units": 28285,
+    "relationship_reference_only_endpoints": 1211
+  },
+  "projection_counts": {
+    "postgres_chunks": 37170,
+    "qdrant_points": 14393,
+    "neo4j_document_nodes": 1901,
+    "neo4j_legal_relationships": 5808,
+    "neo4j_alias_relationships": 8
+  },
+  "embedding_artifact": {
+    "model": "text-embedding-3-small",
+    "dimensions": 1536,
+    "rows": 14393,
+    "source_backup_dataset_id": "snapshot-c94d7b75195a67fa"
+  },
+  "verification_rule": "The lock is evidence only when the exact source files and embedding artifact are available; never regenerate or publish under this release_id when any hash, parser version, or count differs."
+}

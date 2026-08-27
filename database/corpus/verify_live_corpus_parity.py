@@ -84,6 +84,10 @@ def main() -> int:
         "--external-embedding-artifact", type=Path,
         help="Accept absent in-database vector values only when this complete Qdrant-ready artifact matches.",
     )
+    parser.add_argument(
+        "--release-lock", type=Path,
+        help="Optional tracked release lock containing source hashes, versions and expected counts.",
+    )
     args = parser.parse_args()
 
     metadata = read_csv(args.source_dir / "metadata.csv")
@@ -118,6 +122,27 @@ def main() -> int:
             "source snapshot fingerprint differs from requested release "
             f"({snapshot.dataset_id!r} != {args.dataset_id!r})"
         )
+    if args.release_lock:
+        try:
+            release_lock = json.loads(args.release_lock.read_text(encoding="utf-8"))
+            if str(release_lock.get("release_id", "")) != args.dataset_id:
+                errors.append("release lock belongs to another dataset")
+            for filename, expected_hash in (release_lock.get("source_files_sha256") or {}).items():
+                path = args.source_dir / str(filename)
+                actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+                if actual_hash != str(expected_hash):
+                    errors.append(f"release lock source hash mismatch: {filename}")
+            locked_pipeline = release_lock.get("pipeline") or {}
+            for lock_key, manifest_key in (
+                ("pipeline_version", "pipeline_version"),
+                ("normalizer_version", "normalizer_version"),
+                ("passage_version", "passage_version"),
+                ("legal_unit_version", "legal_unit_version"),
+            ):
+                if lock_key in locked_pipeline and str(snapshot.manifest.get(manifest_key, "")) != str(locked_pipeline[lock_key]):
+                    errors.append(f"release lock {lock_key} mismatch")
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            errors.append(f"release lock invalid: {exc}")
     validation_counts = validation.get("counts", {})
     snapshot_counts = {
         "documents": len(snapshot.documents),

@@ -32,6 +32,7 @@ def main() -> int:
         "viewer_security": ROOT / "docs/product/document-viewer-security.md",
         "viewer_acceptance_tests": ROOT / "tests/test_api/test_document_viewer_endpoint.py",
         "typed_ontology": ROOT / "docs/data/typed-bhyt-ontology.md",
+        "release_lock": ROOT / "docs/data/release-lock-snapshot-c439751724ab7f10.json",
         "cache_runbook": ROOT / "ops/runbooks/cache.md",
         "release_runbook": ROOT / "ops/runbooks/release.md",
         "rollback_runbook": ROOT / "ops/runbooks/rollback.md",

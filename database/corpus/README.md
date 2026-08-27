@@ -90,7 +90,8 @@ Quy trình kiểm soát:
    embedding-input SHA-256 khớp; input mới phải được embed lại.
 2. `offload_staging_embeddings.py` chỉ dọn staging vector metadata sau khi
    artifact local khớp dataset ID, row count, dimensions và toàn bộ vector hữu hạn.
-3. `verify_live_corpus_parity.py --external-embedding-artifact ...` đối chiếu
+3. `verify_live_corpus_parity.py --release-lock docs/data/release-lock-...json
+   --external-embedding-artifact ...` đối chiếu
    source, Supabase, Neo4j và artifact theo từng passage/edge trước khi báo pass.
 
 `verify_live_corpus_parity.py` cũng kiểm tra `snapshot_id`/fingerprint và các
