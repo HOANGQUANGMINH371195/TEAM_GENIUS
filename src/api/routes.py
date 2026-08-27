@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import hashlib
 from collections.abc import AsyncIterator
 from html import escape
 
@@ -100,7 +101,11 @@ async def document_html(
         document = await GraphRepository(session).public_document_html(document_number)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    body = sanitize_document_html(str(document.get("raw_html") or ""))
+    raw_html = str(document.get("raw_html") or "")
+    expected_hash = str(document.get("raw_html_sha256") or "").strip().casefold()
+    if expected_hash and hashlib.sha256(raw_html.encode("utf-8")).hexdigest() != expected_hash:
+        raise HTTPException(status_code=503, detail="Document integrity check failed")
+    body = sanitize_document_html(raw_html)
     title = str(document.get("title") or document_number)
     # The viewer is deliberately a fragment.  The frontend supplies the
     # surrounding chrome and its CSP; no active source content is returned.
