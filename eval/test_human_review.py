@@ -36,6 +36,18 @@ def test_review_packet_redacts_secret_and_binds_answer_hash(tmp_path: Path) -> N
     assert manifest["cases"] == 1
 
 
+def test_review_packet_accepts_live_result_json_document(tmp_path: Path) -> None:
+    fixture, _ = _packet_inputs(tmp_path)
+    answers = tmp_path / "answers.json"
+    answers.write_text(
+        json.dumps({"run_id": "r", "cases": [{"case_id": "c1", "answer": "ok", "citations": []}]}),
+        encoding="utf-8",
+    )
+    output = tmp_path / "packet.jsonl"
+    build_packet(fixture, answers, output, release_id="snapshot-test")
+    assert json.loads(output.read_text(encoding="utf-8").splitlines()[1])["response"] == "ok"
+
+
 def test_review_panel_requires_two_unanimous_reviewers(tmp_path: Path) -> None:
     path = tmp_path / "review.jsonl"
     digest = "a" * 64

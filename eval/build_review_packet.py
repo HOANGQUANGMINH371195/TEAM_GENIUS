@@ -27,7 +27,14 @@ def _safe_text(value: Any, *, limit: int = 12_000) -> str:
 
 
 def _load_jsonl(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    raw = path.read_text(encoding="utf-8")
+    try:
+        document = json.loads(raw)
+    except json.JSONDecodeError:
+        document = None
+    if isinstance(document, dict) and isinstance(document.get("cases"), list):
+        return document, [row for row in document["cases"] if isinstance(row, dict)]
+    rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
     if not rows or not isinstance(rows[0].get("manifest"), dict):
         raise ValueError(f"{path}: manifest required")
     return rows[0]["manifest"], [row for row in rows[1:] if isinstance(row, dict)]
@@ -45,7 +52,10 @@ def build_packet(fixture: Path, answers: Path, output: Path, *, release_id: str)
         answer = by_case.get(case_id)
         if answer is None:
             raise ValueError(f"missing answer for {case_id}")
-        response = _safe_text(answer.get("response"), limit=20_000)
+        response = _safe_text(
+            answer.get("response") if answer.get("response") is not None else answer.get("answer"),
+            limit=20_000,
+        )
         citations = []
         for item in answer.get("citations") or []:
             if not isinstance(item, dict):
