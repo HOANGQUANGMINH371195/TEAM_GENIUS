@@ -13,7 +13,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
+
+# Direct script execution puts ``eval`` on sys.path; expose the repository
+# package root before importing the sibling calibration module.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eval.calibration import (
     calibration_report,

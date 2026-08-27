@@ -13,8 +13,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+# Direct script execution puts ``database/corpus`` on sys.path, not the
+# repository root. Keep the CLI usable exactly as documented from the root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.services.global_retrieval import build_community_summaries
 

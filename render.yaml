@@ -69,3 +69,11 @@ services:
         sync: false
       - key: METRICS_TOKEN
         sync: false
+      - key: FEATURE_GLOBAL_SEARCH_ENABLED
+        value: "false"
+      - key: COMMUNITY_INDEX_PATH
+        value: ""
+      - key: GLOBAL_MAX_COMMUNITIES
+        value: "3"
+      - key: GLOBAL_MAX_ROUNDS
+        value: "2"
