@@ -375,7 +375,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight, hit/miss metrics, release-scoped keys | implemented; production Redis failover/latency proof pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
 | Sentence-level rerank seam | query-derived sentence coverage in `rerank_legal_candidates`; `eval/ablations/reranker/` contract | partial: no learned cross-encoder or ablation result |
-| Typed BHYT fact contract | `src/domain/facts.py`, `legal_facts` migration, release-validated importer, `Neo4jGraphStore.upsert_legal_facts`/`bounded_typed_ppr`, accepted-subject relational route and canonical unit hydration | partial: source recognizer and live parity attestation pending |
+| Typed BHYT fact contract | `src/domain/facts.py`, `src/services/fact_recognizer.py`, `legal_facts` migration, release-validated importer, `Neo4jGraphStore.upsert_legal_facts`/`bounded_typed_ppr`, accepted-subject relational route and canonical unit hydration | partial: human review/recognition quality and live parity attestation pending |
 | Grounded planning/uncertainty calibration | bounded grounded planner plus `eval/calibration.py` | partial: human-labelled calibration set and model fitting pending |
 | Batch extraction/eval manifests | offline embedding/Qdrant batching, `eval/batch_manifest.py`, immutable JSONL and cost ledger | partial: provider Batch API adapter and live cost reconciliation pending |
 | Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
