@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 
 from src.domain.facts import LegalFact
+from src.domain.ontology import ontology_issues
 from src.integrations.neo4j import Neo4jGraphStore
 from src.services.fact_recognizer import recognize_fact_rows
 
@@ -30,6 +31,10 @@ def load_facts(path: Path, *, release_id: str) -> list[LegalFact]:
             rows.append(row)
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             raise ValueError(f"invalid fact at line {line_number}: {exc}") from exc
+    for index, row in enumerate(rows, start=1):
+        issues = ontology_issues(row)
+        if issues:
+            raise ValueError(f"invalid fact at line {index}: ontology issues: {', '.join(issues[:4])}")
     result = recognize_fact_rows(rows, release_id=release_id)
     if result.rejected:
         first = result.rejected[0]

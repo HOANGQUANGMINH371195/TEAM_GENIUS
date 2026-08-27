@@ -45,3 +45,10 @@ def test_loader_accepts_valid_release_scoped_fact(tmp_path: Path):
     facts = load_facts(path, release_id="release-1")
     assert len(facts) == 1
     assert facts[0].fact_id == "fact-1"
+
+
+def test_loader_rejects_unknown_ontology_predicate(tmp_path: Path):
+    path = tmp_path / "facts.jsonl"
+    path.write_text(json.dumps(_row(predicate="not-a-reviewed-predicate")) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="ontology"):
+        load_facts(path, release_id="release-1")

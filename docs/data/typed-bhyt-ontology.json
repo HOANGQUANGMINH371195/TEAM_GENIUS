@@ -1,0 +1,51 @@
+{
+  "ontology_id": "bhyt-core",
+  "version": "1.0.0",
+  "status": "review-required",
+  "jurisdiction": "VN",
+  "entities": [
+    "BeneficiaryGroup",
+    "ParticipationPeriod",
+    "CareEvent",
+    "HospitalLevel",
+    "ReferralStatus",
+    "EmergencyCondition",
+    "CoverageRate",
+    "CopaymentThreshold",
+    "Exclusion",
+    "EffectiveInterval",
+    "LegalProvision"
+  ],
+  "predicates": [
+    "eligible_for",
+    "has_participation_period",
+    "has_care_event",
+    "has_hospital_level",
+    "has_referral_status",
+    "has_emergency_condition",
+    "coverage_rate",
+    "copayment_threshold",
+    "excludes",
+    "effective_interval",
+    "amends",
+    "replaces",
+    "refers_to"
+  ],
+  "required_fact_fields": [
+    "fact_id",
+    "subject",
+    "predicate",
+    "normalized_value",
+    "document_id",
+    "unit_id",
+    "source_sha256",
+    "review_status",
+    "release_id"
+  ],
+  "review_rules": [
+    "Only accepted facts may drive a calculator or typed graph walk.",
+    "Every accepted fact must resolve to one document and legal unit in the same release.",
+    "A source span/hash must be checked against canonical PostgreSQL text before serving.",
+    "Effective dates and jurisdiction must be explicit or marked as unknown for review."
+  ]
+}

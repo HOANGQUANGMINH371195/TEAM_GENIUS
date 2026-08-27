@@ -60,4 +60,6 @@ PYTHONPATH=. python database/neo4j/scripts/import_typed_facts.py \
 ```
 
 Export không tự nhận dạng hoặc tự chấp thuận facts; khi chưa có review rows,
-file sẽ rỗng và importer không tạo typed graph giả.
+file sẽ rỗng và importer không tạo typed graph giả. Importer cũng kiểm tra
+predicate với `docs/data/typed-bhyt-ontology.json`, source span và trạng thái
+`accepted` trước khi mở transaction Neo4j.
