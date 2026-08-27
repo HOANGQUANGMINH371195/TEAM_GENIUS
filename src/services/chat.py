@@ -1559,14 +1559,22 @@ class GraphRagRuntime:
                         typed_walk = getattr(
                             typed_graph, "bounded_typed_ppr", typed_graph.expand_typed_facts
                         )
-                        typed_relations = await self._provider_call(
-                            "neo4j_typed_facts",
-                            self._neo4j_breaker,
-                            lambda: typed_walk(
-                                fact_subjects,
-                                dataset_id=dataset_id,
-                                limit=settings.graph_evidence_limit,
+                        # Graph is an optional recall signal.  Keep its
+                        # remote hop inside the same route deadline so an
+                        # Aura/DNS stall cannot turn a relational request into
+                        # a full-request timeout.
+                        typed_timeout = max(0.05, route_deadline - time.perf_counter())
+                        typed_relations = await asyncio.wait_for(
+                            self._provider_call(
+                                "neo4j_typed_facts",
+                                self._neo4j_breaker,
+                                lambda: typed_walk(
+                                    fact_subjects,
+                                    dataset_id=dataset_id,
+                                    limit=settings.graph_evidence_limit,
+                                ),
                             ),
+                            timeout=typed_timeout,
                         )
                         typed_graph_results.extend(typed_relations)
                         graph_results.extend(typed_relations)
@@ -1610,15 +1618,19 @@ class GraphRagRuntime:
                     async with trace_span(
                         "neo4j-expand", as_type="retriever", metadata={"dataset_id": dataset_id}
                     ) as span:
-                        document_graph_results = await self._provider_call(
-                            "neo4j",
-                            self._neo4j_breaker,
-                            lambda: self._get_graph_store().expand(
-                                seed_ids,
-                                dataset_id=dataset_id,
-                                hops=min(settings.graph_hops, 2 if intent == "temporal" else 1),
-                                limit=settings.graph_neighbor_limit,
-                            )
+                        graph_timeout = max(0.05, route_deadline - time.perf_counter())
+                        document_graph_results = await asyncio.wait_for(
+                            self._provider_call(
+                                "neo4j",
+                                self._neo4j_breaker,
+                                lambda: self._get_graph_store().expand(
+                                    seed_ids,
+                                    dataset_id=dataset_id,
+                                    hops=min(settings.graph_hops, 2 if intent == "temporal" else 1),
+                                    limit=settings.graph_neighbor_limit,
+                                ),
+                            ),
+                            timeout=graph_timeout,
                         )
                         if span is not None:
                             span.update(output={"relation_count": len(document_graph_results)})
