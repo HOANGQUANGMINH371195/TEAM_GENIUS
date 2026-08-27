@@ -383,7 +383,7 @@ and rollback evidence are collected only after that gate passes.
 | Source/release parity | The default current builder correctly fails closed because it rebuilds a different fingerprint (`snapshot-037cca…`, `38,316`/`14,968`) than the active release. Re-running with the exact builder recorded in `docs/data/release-lock-snapshot-c439751724ab7f10.json` (`source_commit=1b98f44`) passes fingerprint, canonical counts, PostgreSQL/Qdrant counts and hashes, and Neo4j identity/edge parity. The stale `snapshot-c94d7b75195a67fa` projection was backed up and deleted on 2026-08-27; the prior `live_parity.json` remains stale evidence. | exact-builder parity and stale-projection cleanup verified; immutable artifact retention and deployment attestation remain required before production promotion |
 | Grounded planning/uncertainty calibration | bounded grounded planner, direct-vs-planned ablation harness, `eval/calibration.py` independent-panel validation and dependency-free pool-adjacent-violators fitting, `eval/calibrate_claims.py` hashed review artifact | implemented; human-labelled calibration and approval are post-implementation evidence |
 | Batch extraction/eval manifests | offline embedding/Qdrant batching, immutable `eval/batch_manifest.py`, provider JSONL, authenticated adapter/reconciliation in `eval/openai_batch.py`, cost ledger | repository submission/reconciliation contract implemented; live provider cost proof pending |
-| Release-locked data artifacts | Active release benchmark files mounted from the external `data/clean/medical_active_v31_fully_reviewed` artifact store; SHA-256/hash and coverage suite now passes (`eval/test_release_locked_suite.py`: 2 passed). Artifacts remain ignored and are never committed to the source checkout. | local provenance gate passed; deployment artifact availability must be attested in CI/release job |
+| Release-locked data artifacts | Active release benchmark files mounted from the external `data/clean/medical_active_v31_fully_reviewed` artifact store; SHA-256/hash and coverage suite now passes (`eval/test_release_locked_suite.py`: 2 passed). `scripts/verify_release_artifacts.py` now reports `available=false, verified=false` for source-only checkouts and fails closed on missing/mismatched files when required; the nightly workflow records the contract and runs Qdrant evaluation only when artifacts are mounted. Artifacts remain ignored and are never committed to the source checkout. | local provenance gate passed; a release job still must mount and attest the immutable artifact |
 | Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
 
 Do not run or publish a model benchmark before `make implementation-gate` and
@@ -475,6 +475,8 @@ baseline plus sentence reranker remains better.
   human, latency, outage, ablation, cost and rollback evidence bundle.
 - `scripts/verify_implementation_gate.py` to ensure all repository capabilities
   exist before any live benchmark is started.
+- `scripts/verify_release_artifacts.py` for fail-closed CI verification of the
+  externally mounted release benchmark hashes and locked-suite coverage.
 
 Current file-level delivery evidence (2026-08-27): route, calculator, viewer,
 ontology, batch, cache, release/rollback, provider-outage, Supabase-retention
