@@ -367,7 +367,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Typed route contract | `src/domain/route_plan.py`, route metadata in intake, route-scoped candidate/context caps, optional-provider deadline fallback | partial: generation deadline and production calibration pending |
 | Stage telemetry | `retrieval_trace`, `planner_ms`, `verification_ms`, `guardrail_ms`, provider and generation timers | partial: browser TTFT and production export/dashboard pending |
 | Evidence-gap planning | `src/services/planner.py`, bounded fan-out/depth follow-up retrieval on relational/temporal/deep routes | partial: calibration and independent completeness proof pending |
-| Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields | partial: deterministic pre-score exists; calibration labels/model pending |
+| Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields, `eval/calibration.py` human-label metrics | partial: reviewed calibration labels/model fitting pending |
 | Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py`, current-authority filter | implemented, production latency gate not proven |
 | Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
 | Decimal calculator | `src/services/calculator.py`, two registered Decimal formulas, `/calculator/bhyt`, bounded `/calculator/bhyt/scenarios`, `web/app/calculator/page.tsx`, reviewed `table_cell_facts` retrieval, `eval/cases/calculator-golden-v1.jsonl` (100 cases) | partial: end-to-end table-fact acceptance and UX validation pending |
@@ -376,7 +376,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
 | Sentence-level rerank seam | query-derived sentence coverage in `rerank_legal_candidates`; `eval/ablations/reranker/` contract | partial: no learned cross-encoder or ablation result |
 | Typed BHYT fact contract | `src/domain/facts.py`, `legal_facts` migration, release-validated importer, `Neo4jGraphStore.upsert_legal_facts`/`bounded_typed_ppr`, accepted-subject relational route and canonical unit hydration | partial: source recognizer and live parity attestation pending |
-| Grounded planning/uncertainty calibration | no human-labelled calibration set | not implemented |
+| Grounded planning/uncertainty calibration | bounded grounded planner plus `eval/calibration.py` | partial: human-labelled calibration set and model fitting pending |
 | Batch extraction/eval manifests | offline embedding/Qdrant batching, `eval/batch_manifest.py`, immutable JSONL and cost ledger | partial: provider Batch API adapter and live cost reconciliation pending |
 | Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
 
