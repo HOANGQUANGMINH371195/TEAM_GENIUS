@@ -8,7 +8,7 @@ ENV_FILE ?= .env
 LOCAL_PROFILE ?= local-full
 
 .DEFAULT_GOAL := help
-.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan promotion-gate typed-facts-check \
+.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan promotion-gate typed-facts-export typed-facts-check \
 	build up dev down restart logs health deploy-contract render-validate \
 	deploy-render deploy-vercel clean
 
@@ -98,6 +98,10 @@ promotion-gate:
 typed-facts-check:
 	@test -n "$(FACTS_FILE)" -a -n "$(RELEASE_ID)" || { echo "Set FACTS_FILE and RELEASE_ID"; exit 2; }
 	PYTHONPATH=. $(PYTHON) database/neo4j/scripts/import_typed_facts.py "$(FACTS_FILE)" --release-id "$(RELEASE_ID)" --dry-run
+
+typed-facts-export:
+	@test -n "$(FACTS_FILE)" -a -n "$(RELEASE_ID)" || { echo "Set FACTS_FILE and RELEASE_ID"; exit 2; }
+	PYTHONPATH=. $(PYTHON) database/neo4j/scripts/export_typed_facts.py --env-file "$(ENV_FILE)" --release-id "$(RELEASE_ID)" --output "$(FACTS_FILE)"
 
 render-validate:
 	@if command -v render >/dev/null 2>&1; then \

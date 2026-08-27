@@ -43,3 +43,21 @@ và 8 `ALIAS_OF` edges. Supabase giữ text/chunk lexical; 14.393 vector 1536 ch
 được offload vào artifact local đã đối chiếu passage ID và input SHA-256 để chờ
 import Qdrant. Mọi query graph online vẫn phải lấy `dataset_id` active từ
 Supabase.
+
+Typed facts có một bước export riêng để bảo đảm Neo4j chỉ nhận các dòng đã
+được reviewer duyệt trong `public.legal_facts`:
+
+```bash
+make typed-facts-export \
+  RELEASE_ID=snapshot-c439751724ab7f10 \
+  FACTS_FILE=/tmp/snapshot-c439751724ab7f10-facts.jsonl
+make typed-facts-check \
+  RELEASE_ID=snapshot-c439751724ab7f10 \
+  FACTS_FILE=/tmp/snapshot-c439751724ab7f10-facts.jsonl
+PYTHONPATH=. python database/neo4j/scripts/import_typed_facts.py \
+  /tmp/snapshot-c439751724ab7f10-facts.jsonl \
+  --release-id snapshot-c439751724ab7f10
+```
+
+Export không tự nhận dạng hoặc tự chấp thuận facts; khi chưa có review rows,
+file sẽ rỗng và importer không tạo typed graph giả.
