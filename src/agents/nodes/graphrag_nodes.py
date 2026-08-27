@@ -734,6 +734,12 @@ def _audit_claims(response: str, citations: Sequence[Citation], query: str = "")
             (citation for citation in citations if citation.chunk_id == best_id),
             None,
         )
+        token_denominator = max(1, len(tokens))
+        faithfulness = min(1.0, best_overlap / token_denominator)
+        factuality = 1.0 if best_id and _claim_facts_supported(sentence, [source_text[best_id]]) else 0.0
+        if best_citation is not None and not best_citation.provenance_verified:
+            factuality *= 0.75
+        completeness = min(1.0, best_overlap / max(1, len(_claim_tokens(query)))) if query else faithfulness
         claims.append(
             claim_dict(
                 build_legal_claim(
@@ -742,6 +748,9 @@ def _audit_claims(response: str, citations: Sequence[Citation], query: str = "")
                     citation=best_citation,
                     verification=verification,
                     reason=reason,
+                    faithfulness=faithfulness,
+                    factuality=factuality,
+                    completeness=completeness,
                 )
             )
         )

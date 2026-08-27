@@ -365,6 +365,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Area | Current evidence | Status |
 |---|---|---|
 | Typed route contract | `src/domain/route_plan.py`, route metadata in intake | partial: budgets are described but not yet enforced per request |
+| Claim uncertainty contract | `LegalClaim.uncertainty` with faithfulness/factuality/completeness fields | partial: deterministic pre-score exists; calibration labels/model pending |
 | Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py` | implemented, production latency gate not proven |
 | Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
 | Decimal calculator | `src/services/calculator.py`, `/calculator/bhyt`, focused golden tests | implemented as a verified-fact calculator; table-fact wiring pending |
@@ -452,6 +453,12 @@ baseline plus sentence reranker remains better.
 - `eval/ablations/{reranker,auditor,typed-graph,grounded-planning}/`
 - `ops/runbooks/{release,rollback,cache,provider-outage,supabase-retention}.md`
 - Feature flags for planner, reranker, Auditor, calculator, viewer, and graph.
+
+Current file-level delivery evidence (2026-08-27): route, calculator, viewer,
+ontology, batch, cache, provider-outage, and Supabase-retention contracts now
+exist. The ablation directories, human-labelled calibration set, production
+viewer UI, and paired production benchmark are still absent; they remain
+release blockers rather than being marked complete by documentation alone.
 
 Definition of done: the three differentiated product features run in
 production; human accuracy, latency, and cost gates pass; rollout has canary
