@@ -314,6 +314,39 @@ create index if not exists table_cell_facts_value_idx
 create index if not exists table_cell_facts_document_unit_idx
     on table_cell_facts(dataset_id, document_id, legal_unit_id);
 
+-- Typed facts are a reviewed projection.  Canonical text and provenance remain
+-- in documents/legal_units; pending or rejected rows are never public.
+create table if not exists legal_facts (
+    fact_id text primary key,
+    dataset_id text not null references datasets(dataset_id) on delete cascade,
+    subject text not null,
+    predicate text not null,
+    normalized_value text not null,
+    effective_from date,
+    effective_to date,
+    jurisdiction text not null default '',
+    provision_id text not null default '',
+    document_id text not null,
+    unit_id text not null,
+    source_start integer,
+    source_end integer,
+    source_sha256 text not null,
+    review_status text not null default 'pending'
+        check (review_status in ('pending', 'accepted', 'rejected')),
+    payload jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(),
+    foreign key (dataset_id, document_id)
+        references documents(dataset_id, id) on delete cascade,
+    foreign key (dataset_id, unit_id)
+        references legal_units(dataset_id, unit_id) on delete cascade,
+    check (source_end is null or source_start is null or source_end >= source_start),
+    check (effective_to is null or effective_from is null or effective_to >= effective_from)
+);
+create index if not exists legal_facts_lookup_idx
+    on legal_facts(dataset_id, subject, predicate, review_status);
+create index if not exists legal_facts_temporal_idx
+    on legal_facts(dataset_id, effective_from, effective_to);
+
 create table if not exists chunks (
     dataset_id text not null,
     chunk_id text not null,
@@ -439,7 +472,7 @@ begin
         'datasets', 'dataset_state', 'documents', 'document_aliases',
         'release_projections',
         'legal_units', 'document_tables', 'table_cells',
-        'chunks', 'users', 'conversations', 'conversation_turns',
+        'legal_facts', 'chunks', 'users', 'conversations', 'conversation_turns',
         'review_queue_items', 'review_audit_events'
     ] loop
         execute format('alter table public.%I enable row level security', table_name);
@@ -456,7 +489,7 @@ begin
 
     foreach table_name in array ARRAY[
         'documents', 'document_aliases', 'release_projections', 'legal_units', 'document_tables',
-        'table_cells', 'chunks'
+        'table_cells', 'legal_facts', 'chunks'
     ] loop
         execute format(
             'create policy active_release_read on public.%I for select to anon, authenticated ' ||
@@ -464,6 +497,16 @@ begin
             table_name
         );
     end loop;
+
+    drop policy if exists service_role_all on public.legal_facts;
+    create policy service_role_all on public.legal_facts
+        for all to service_role using (true) with check (true);
+    drop policy if exists active_release_read on public.legal_facts;
+    create policy active_release_read on public.legal_facts
+        for select to anon, authenticated using (
+            dataset_id = (select active_dataset_id from public.dataset_state where singleton)
+            and review_status = 'accepted'
+        );
 
     drop policy if exists service_role_all on public.users;
     drop policy if exists authenticated_read_own on public.users;

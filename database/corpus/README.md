@@ -106,3 +106,25 @@ fail an toàn nếu embedding artifact không khớp, thay vì coi file
 Artifact và candidate nằm dưới `data/clean/` nên không được commit. Không xóa
 `data/clean/embeddings-reused/snapshot-c439751724ab7f10/` trước khi import và
 verify Qdrant.
+
+## Typed-fact review boundary
+
+Facts extracted by an annotator or an offline model must pass the immutable
+review boundary before they can affect Neo4j. `stage_reviewed_facts.py` checks
+the release ID, ontology predicate, reviewer decision/note, canonical
+document/unit source span and SHA-256, then inserts idempotently into
+`public.legal_facts`. A conflicting replay of an existing `fact_id` fails
+closed; a same-content replay is counted and skipped. Pending rows may be
+staged for review, but only `accepted` rows are exported to Neo4j or exposed
+through the active-release read policy.
+
+```bash
+make typed-facts-stage \
+  RELEASE_ID=snapshot-c439751724ab7f10 \
+  FACTS_FILE=/tmp/reviewed-facts.jsonl \
+  ENV_FILE=/absolute/path/to/.env
+```
+
+The command performs no LLM extraction and never mutates canonical text. Run
+`typed-facts-check`/the Neo4j importer only after staging and independent
+review; an empty export is an explicit safe state, not a failed import.
