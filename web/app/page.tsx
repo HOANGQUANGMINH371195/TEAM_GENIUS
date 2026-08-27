@@ -435,7 +435,7 @@ function CitationCard({ citation, expanded, onToggle }: { citation: ChatCitation
         <span className="bhyt-evidence-copy"><small>{citation.document_number || "Nguồn pháp lý"}</small><strong>{citation.title || "Văn bản nguồn"}</strong><span>{citation.quote}</span></span>
         <span className="bhyt-evidence-chevron"><Icon name="chevron" /></span>
       </button>
-      {expanded ? <div className="bhyt-evidence-content" id={`evidence-${citation.evidenceId}`}><p>{citation.quote}</p>{citation.section_title ? <strong>{citation.section_title}</strong> : null}{citation.source_url ? <a href={citation.source_url} target="_blank" rel="noreferrer">Mở nguồn chính thức</a> : null}</div> : null}
+      {expanded ? <div className="bhyt-evidence-content" id={`evidence-${citation.evidenceId}`}><p>{citation.quote}</p>{citation.section_title ? <strong>{citation.section_title}</strong> : null}{citation.document_number ? <a href={`/document?number=${encodeURIComponent(citation.document_number)}`}>Mở bản HTML đã làm sạch</a> : null}{citation.source_url ? <a href={citation.source_url} target="_blank" rel="noreferrer">Mở nguồn chính thức</a> : null}</div> : null}
     </article>
   );
 }

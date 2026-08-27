@@ -369,13 +369,13 @@ blocked until the remaining P0 items below are implemented and verified.
 | Exact/lexical/dense/PageIndex retrieval | `src/services/chat.py`, `src/db/repositories.py` | implemented, production latency gate not proven |
 | Optional graph degradation | guarded temporal/relational expansion | implemented, outage/load proof pending |
 | Decimal calculator | `src/services/calculator.py`, `/calculator/bhyt`, focused golden tests | implemented as a verified-fact calculator; table-fact wiring pending |
-| Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py` | backend implemented; citation deep-link UI and XSS/anchor gates pending |
+| Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py`, `web/app/document/page.tsx` | backend/UI implemented; XSS/anchor acceptance gates pending |
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback | partial: release-fingerprint invalidation and hit/miss telemetry pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
-| Sentence-level rerank seam | query-derived sentence coverage in `rerank_legal_candidates` | partial: no learned cross-encoder or ablation gate |
+| Sentence-level rerank seam | query-derived sentence coverage in `rerank_legal_candidates`; `eval/ablations/reranker/` contract | partial: no learned cross-encoder or ablation result |
 | Typed BHYT fact graph/PPR | document graph only | not implemented |
 | Grounded planning/uncertainty calibration | no human-labelled calibration set | not implemented |
-| Batch extraction/eval manifests | offline embedding/Qdrant batching exists | partial: provider Batch API and cost ledger pending |
+| Batch extraction/eval manifests | offline embedding/Qdrant batching; `docs/architecture/batch-contract.md` | partial: provider Batch API and cost ledger pending |
 | Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
 
 Do not run or publish a model benchmark as a promotion decision while any

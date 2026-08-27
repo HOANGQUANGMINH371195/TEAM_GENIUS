@@ -72,6 +72,13 @@ async function adminRequest(path: string, init: RequestInit = {}): Promise<Respo
   return response;
 }
 
+export async function fetchDocumentHtml(documentNumber: string): Promise<string> {
+  const path = `/api/v1/documents/${documentNumber.split("/").map(encodeURIComponent).join("/")}/html`;
+  const response = await adminRequest(path, { headers: { Accept: "text/html" } });
+  if (!response.ok) throw new Error("Không thể tải văn bản nguồn");
+  return response.text();
+}
+
 export async function fetchAdminReviews(status = "pending", domain = "all"): Promise<ReviewQueueItem[]> {
   const response = await adminRequest(`/api/v1/auth/admin/reviews?status=${encodeURIComponent(status)}&domain=${encodeURIComponent(domain)}`);
   if (!response.ok) {
