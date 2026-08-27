@@ -40,6 +40,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent"])
 
 
+def _trace_stage_metrics(result: dict) -> dict[str, object]:
+    """Keep Langfuse stage telemetry numeric/route-scoped and secret-free."""
+    metadata = result.get("metadata") if isinstance(result, dict) else None
+    if not isinstance(metadata, dict):
+        return {}
+    allowed = (
+        "route_intent", "retrieval_ms", "planner_ms", "verification_ms",
+        "guardrail_ms", "generation_ms", "context_ms", "candidate_count",
+        "relation_count", "planner_followup_count", "planner_followup_outcome",
+    )
+    return {key: metadata[key] for key in allowed if key in metadata}
+
+
 async def _context_release_id() -> str:
     """Read the active release pointer for conversation-cache isolation.
 
@@ -266,7 +279,8 @@ async def _invoke_agent(
                 "response": response if isinstance(response, str) else "",
                 "citation_count": len(citations),
                 "claim_count": len(result.get("claims") or []),
-            }
+            },
+            metadata={"stage_metrics": _trace_stage_metrics(result)},
         )
         return result
 
@@ -370,7 +384,13 @@ async def _stream_agent(
                 if close_stream is not None:
                     await close_stream()
             if stream_span is not None:
-                stream_span.update(output={"verified": bool(final), "citation_count": len((final or {}).get("citations") or [])})
+                stream_span.update(
+                    output={
+                        "verified": bool(final),
+                        "citation_count": len((final or {}).get("citations") or []),
+                    },
+                    metadata={"stage_metrics": _trace_stage_metrics(final or {})},
+                )
         if not final:
             raise RuntimeError("Agent stream ended without a verified final event")
         response = final.get("response")

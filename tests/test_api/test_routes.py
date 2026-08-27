@@ -4,8 +4,28 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from src.api.auth import get_current_user
+from src.api.routes import _trace_stage_metrics
 from src.main import app
 from src.models.graph import RetrievalResult
+
+
+def test_langfuse_stage_export_is_allowlisted_and_secret_free():
+    metrics = _trace_stage_metrics(
+        {
+            "metadata": {
+                "route_intent": "relational",
+                "retrieval_ms": 12.3,
+                "generation_ms": 4.5,
+                "retrieval_trace": {"chunk_ids": ["private"]},
+                "OPENAI_API_KEY": "secret",
+            }
+        }
+    )
+    assert metrics == {
+        "route_intent": "relational",
+        "retrieval_ms": 12.3,
+        "generation_ms": 4.5,
+    }
 
 
 @pytest.mark.asyncio
