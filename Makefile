@@ -8,7 +8,7 @@ ENV_FILE ?= .env
 LOCAL_PROFILE ?= local-full
 
 .DEFAULT_GOAL := help
-.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan promotion-gate typed-facts-export typed-facts-check typed-facts-stage calibrate-claims \
+.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan promotion-gate verify-attestation typed-facts-export typed-facts-check typed-facts-stage calibrate-claims \
 	build up dev down restart logs health deploy-contract render-validate \
 	deploy-render deploy-vercel clean
 
@@ -23,6 +23,7 @@ help:
 	@echo "  make deploy-contract    Verify Render/Vercel/Docker contracts locally"
 	@echo "  make verify-plan        Verify forward-plan delivery contracts"
 	@echo "  make promotion-gate     Refuse model benchmark while PLAN has blockers"
+	@echo "  make verify-attestation Validate the external production gate artifact (ATTESTATION_FILE)"
 	@echo "  make typed-facts-check  Validate an accepted release fact JSONL (FACTS_FILE/RELEASE_ID)"
 	@echo "  make typed-facts-stage  Stage reviewer facts into PostgreSQL (FACTS_FILE/RELEASE_ID)"
 	@echo "  make calibrate-claims   Fit an isotonic calibrator from reviewed labels (LABELS_FILE/OUTPUT)"
@@ -97,6 +98,10 @@ verify-plan:
 
 promotion-gate:
 	$(PYTHON) scripts/verify_promotion_gate.py
+
+verify-attestation:
+	@test -n "$(ATTESTATION_FILE)" || { echo "Set ATTESTATION_FILE"; exit 2; }
+	$(PYTHON) scripts/verify_production_attestation.py "$(ATTESTATION_FILE)" --output "$(ATTESTATION_FILE).report.json"
 
 typed-facts-check:
 	@test -n "$(FACTS_FILE)" -a -n "$(RELEASE_ID)" || { echo "Set FACTS_FILE and RELEASE_ID"; exit 2; }
