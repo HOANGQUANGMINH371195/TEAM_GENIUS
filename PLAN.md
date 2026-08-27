@@ -377,7 +377,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Sentence-level rerank seam | query-derived sentence coverage in `rerank_legal_candidates`; `eval/ablations/reranker/` contract | partial: no learned cross-encoder or ablation result |
 | Typed BHYT fact contract | `src/domain/facts.py`, `legal_facts` migration, release-validated importer, `Neo4jGraphStore.upsert_legal_facts`/`bounded_typed_ppr`, accepted-subject relational route and canonical unit hydration | partial: source recognizer and live parity attestation pending |
 | Grounded planning/uncertainty calibration | no human-labelled calibration set | not implemented |
-| Batch extraction/eval manifests | offline embedding/Qdrant batching; `docs/architecture/batch-contract.md` | partial: provider Batch API and cost ledger pending |
+| Batch extraction/eval manifests | offline embedding/Qdrant batching, `eval/batch_manifest.py`, immutable JSONL and cost ledger | partial: provider Batch API adapter and live cost reconciliation pending |
 | Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
 
 Do not run or publish a model benchmark as a promotion decision while any
