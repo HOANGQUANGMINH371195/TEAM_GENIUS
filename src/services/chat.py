@@ -1555,10 +1555,14 @@ class GraphRagRuntime:
                             extract_query_terms(query), dataset_id=dataset_id, limit=8
                         )
                     if fact_subjects:
+                        typed_graph = self._get_graph_store()
+                        typed_walk = getattr(
+                            typed_graph, "bounded_typed_ppr", typed_graph.expand_typed_facts
+                        )
                         typed_relations = await self._provider_call(
                             "neo4j_typed_facts",
                             self._neo4j_breaker,
-                            lambda: self._get_graph_store().expand_typed_facts(
+                            lambda: typed_walk(
                                 fact_subjects,
                                 dataset_id=dataset_id,
                                 limit=settings.graph_evidence_limit,

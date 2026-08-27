@@ -375,7 +375,7 @@ blocked until the remaining P0 items below are implemented and verified.
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight, hit/miss metrics, release-scoped keys | implemented; production Redis failover/latency proof pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
 | Sentence-level rerank seam | query-derived sentence coverage in `rerank_legal_candidates`; `eval/ablations/reranker/` contract | partial: no learned cross-encoder or ablation result |
-| Typed BHYT fact contract | `src/domain/facts.py`, `legal_facts` migration, `Neo4jGraphStore.upsert_legal_facts`, accepted-subject relational route and canonical unit hydration | partial: release importer/recognizer and bounded PPR acceptance proof pending |
+| Typed BHYT fact contract | `src/domain/facts.py`, `legal_facts` migration, release-validated importer, `Neo4jGraphStore.upsert_legal_facts`/`bounded_typed_ppr`, accepted-subject relational route and canonical unit hydration | partial: source recognizer and live parity attestation pending |
 | Grounded planning/uncertainty calibration | no human-labelled calibration set | not implemented |
 | Batch extraction/eval manifests | offline embedding/Qdrant batching; `docs/architecture/batch-contract.md` | partial: provider Batch API and cost ledger pending |
 | Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
@@ -417,8 +417,8 @@ Exit: calculator 100%, zero XSS, anchor ≥99%, table route p95 ≤5 seconds.
 ### Phase D — Typed graph and bounded PPR (P1, 8–15 days)
 
 - [ ] Define and review BHYT ontology.
-- [ ] Build release-scoped Neo4j facts with canonical provenance anchors (adapter exists; release job/attestation pending).
-- [ ] Add fact recognition/PPR only to relational and multi-hop routes.
+- [x] Build release-scoped Neo4j facts with canonical provenance anchors (validated importer; live release attestation pending).
+- [x] Add bounded fact-walk/PPR only to relational and multi-hop routes (recognizer and live parity pending).
 - [ ] Compare against dense and current document-graph baselines.
 
 Exit: significant multi-hop gain, graph-path precision ≥95%, p95 ≤15 seconds,

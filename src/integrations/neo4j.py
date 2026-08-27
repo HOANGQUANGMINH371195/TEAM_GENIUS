@@ -202,5 +202,68 @@ class Neo4jGraphStore:
             for row in rows
         ]
 
+    async def bounded_typed_ppr(
+        self,
+        subjects: Sequence[str],
+        *,
+        dataset_id: str,
+        depth: int = 2,
+        fanout: int = 3,
+    ) -> list[Relation]:
+        """Perform a deterministic bounded-PPR-style typed fact walk.
+
+        Neo4j deployments without the optional GDS plugin use this bounded
+        path walk as the portable fallback: only accepted edges in one release
+        are traversed, depth is capped at two, and fanout is capped at three.
+        It is a navigation signal, never a citation without PostgreSQL
+        hydration.
+        """
+        if not subjects or not dataset_id:
+            return []
+        bounded_depth = max(1, min(int(depth), 2))
+        bounded_fanout = max(1, min(int(fanout), 3))
+        query = f"""
+        MATCH p=(subject:FactSubject)-[edges:LEGAL_FACT*1..{bounded_depth}]->(value:FactValue)
+        WHERE subject.dataset_id = $dataset_id
+          AND subject.name IN $subjects
+          AND ALL(edge IN edges
+              WHERE edge.dataset_id = $dataset_id
+                AND edge.review_status = 'accepted')
+        WITH subject, value, edges, length(p) AS hops
+        RETURN subject.name AS subject,
+               value.name AS value,
+               last(edges).predicate AS predicate,
+               last(edges).fact_id AS fact_id,
+               last(edges).document_id AS document_id,
+               last(edges).unit_id AS unit_id,
+               hops
+        ORDER BY hops ASC, fact_id
+        LIMIT $limit
+        """
+        async with self.driver.session(database=self.database) as session:
+            result = await session.run(
+                query,
+                dataset_id=dataset_id,
+                subjects=list(dict.fromkeys(str(item) for item in subjects))[:bounded_fanout],
+                limit=bounded_fanout * bounded_depth,
+            )
+            rows = await result.data()
+        return [
+            Relation(
+                source=str(row.get("subject") or ""),
+                target=str(row.get("value") or ""),
+                source_id=str(row.get("document_id") or ""),
+                target_id=str(row.get("unit_id") or ""),
+                relation_type=str(row.get("predicate") or "LEGAL_FACT"),
+                description=(
+                    f"{row.get('predicate') or 'LEGAL_FACT'}: "
+                    f"{row.get('value') or ''}"
+                ).strip(),
+                relationship_id=str(row.get("fact_id") or ""),
+                direction="outbound",
+            )
+            for row in rows
+        ]
+
     async def close(self) -> None:
         await self.driver.close()
