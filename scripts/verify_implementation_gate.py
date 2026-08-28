@@ -23,6 +23,7 @@ def main() -> int:
         "legal_timeline": ROOT / "src/services/legal_timeline.py",
         "eligibility_checklist": ROOT / "src/services/eligibility_checklist.py",
         "conversation_facts_migration": ROOT / "database/postgres/migrations/20260834_conversation_facts.sql",
+        "migration_runner": ROOT / "database/postgres/migrations/runner.py",
         "timeline_page": ROOT / "web/app/timeline/page.tsx",
         "eligibility_page": ROOT / "web/app/eligibility/page.tsx",
         "suite_compiler": ROOT / "eval/prepare_plan_suite.py",

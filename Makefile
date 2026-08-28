@@ -9,7 +9,7 @@ LOCAL_PROFILE ?= local-full
 RELEASE_ROOT ?= .
 
 .DEFAULT_GOAL := help
-.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation verify-release-artifacts typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker collect-production-evidence \
+.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation verify-release-artifacts typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker collect-production-evidence migrate \
 	build up dev down restart logs health deploy-contract render-validate \
 	build-worker deploy-render deploy-vercel clean
 
@@ -37,6 +37,7 @@ help:
 	@echo "  make deploy-render      Trigger an existing Render service deploy"
 	@echo "  make deploy-vercel      Deploy web/ through Vercel CLI (requires VERCEL_TOKEN)"
 	@echo "  make typed-facts-export Export reviewed legal_facts for Neo4j (FACTS_FILE/RELEASE_ID)"
+	@echo "  make migrate           Apply ordered PostgreSQL migrations with advisory lock (ENV_FILE)"
 	@echo "  make clean              Remove only reproducible caches/build output"
 
 env-check:
@@ -141,6 +142,9 @@ collect-production-evidence: implementation-gate
 typed-facts-export:
 	@test -n "$(FACTS_FILE)" -a -n "$(RELEASE_ID)" || { echo "Set FACTS_FILE and RELEASE_ID"; exit 2; }
 	PYTHONPATH=. $(PYTHON) database/neo4j/scripts/export_typed_facts.py --env-file "$(ENV_FILE)" --release-id "$(RELEASE_ID)" --output "$(FACTS_FILE)"
+
+migrate:
+	$(PYTHON) database/postgres/migrations/runner.py --env-file "$(ENV_FILE)"
 
 render-validate:
 	@if command -v render >/dev/null 2>&1 && render whoami --output json >/dev/null 2>&1; then \

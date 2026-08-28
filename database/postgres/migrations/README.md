@@ -14,6 +14,11 @@ For a protected one-shot job, build `Dockerfile.migrate` and provide only
 `MIGRATION_DATABASE_URL` to that container. The API image and Render web
 service do not run this command at startup.
 
+From a developer checkout, `make migrate ENV_FILE=/absolute/path/.env` invokes
+the same runner and reads the database URL without printing it. The runner
+holds the migration advisory lock and verifies every previously applied
+checksum before applying a new file.
+
 Before a production migration:
 
 1. take a PostgreSQL and Neo4j backup and record the active release;

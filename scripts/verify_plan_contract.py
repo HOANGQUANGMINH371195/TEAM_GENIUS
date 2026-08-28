@@ -51,6 +51,7 @@ def main() -> int:
         "timeline_module": ROOT / "src/services/legal_timeline.py",
         "eligibility_module": ROOT / "src/services/eligibility_checklist.py",
         "conversation_facts_migration": ROOT / "database/postgres/migrations/20260834_conversation_facts.sql",
+        "migration_runner": ROOT / "database/postgres/migrations/runner.py",
         "cache_module": ROOT / "src/services/conversation_cache.py",
         "typed_fact_module": ROOT / "src/domain/facts.py",
         "typed_fact_migration": ROOT / "database/postgres/migrations/20260827_typed_legal_facts.sql",
