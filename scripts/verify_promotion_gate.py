@@ -57,6 +57,8 @@ def main() -> int:
         "production_promotion_allowed": report["production_promotion_allowed"],
         "implementation_blocker_count": len(implementation_blockers),
         "production_blocker_count": len(production_blockers),
+        "implementation_blockers": [row["area"] for row in implementation_blockers],
+        "production_blockers": [row["area"] for row in production_blockers],
     }))
     return 0 if not implementation_blockers else 1
 
