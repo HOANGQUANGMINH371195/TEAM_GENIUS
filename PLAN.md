@@ -484,7 +484,8 @@ Current file-level delivery evidence (2026-08-27): route, calculator, viewer,
 ontology, batch, cache, release/rollback, provider-outage, Supabase-retention
 contracts, deterministic Auditor/typed-graph/planning/reranker ablation
 harnesses, reviewed-trajectory safeguards, answer-review packet/validator,
-reviewer-enforced plan-suite compiler, hash-bound ablation/latency attestation,
+reviewer-enforced plan-suite compiler, hash-bound ablation/latency/operations
+attestation,
 and implementation/promotion gates now exist. Ablation result artifacts, the
 human-labelled calibration set, durable
 queue provisioning, and paired production benchmark are still absent; they

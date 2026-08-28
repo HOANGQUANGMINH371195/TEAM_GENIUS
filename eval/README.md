@@ -168,3 +168,7 @@ rule: each must reference its actual `reranker-ablation-v1`,
 `typed-graph-ablation-v1`, or `grounded-planning-ablation-v1` JSON result and
 the verifier recomputes its SHA-256 before accepting `reviewed` or
 `no_regression`.
+
+Outage and rollback booleans are also bound to an `operations-evidence-v1`
+JSON artifact containing the release ID and each drill result. The attestation
+verifier rejects missing or hash-mismatched operations evidence.

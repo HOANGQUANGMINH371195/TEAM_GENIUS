@@ -164,6 +164,57 @@ def _validate_ablation_artifact(
             errors.append(f"ablations.{name}.source_sha256_required")
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         errors.append(f"ablations.{name}.artifact_invalid")
+
+
+def _validate_operations_artifact(
+    attestation: dict[str, Any],
+    *,
+    release_id: str,
+    base_dir: Path | None,
+    errors: list[str],
+) -> None:
+    evidence = attestation.get("operations_evidence")
+    if not isinstance(evidence, dict):
+        errors.append("operations_evidence_required")
+        return
+    path_value = str(evidence.get("path") or "").strip()
+    expected_hash = str(evidence.get("sha256") or "").strip().casefold()
+    if not path_value:
+        errors.append("operations_evidence.path_required")
+        return
+    if len(expected_hash) != 64 or any(char not in "0123456789abcdef" for char in expected_hash):
+        errors.append("operations_evidence.sha256_required")
+        return
+    path = Path(path_value)
+    if not path.is_absolute() and base_dir is not None:
+        path = base_dir / path
+    try:
+        if artifact_sha256(path) != expected_hash:
+            errors.append("operations_evidence.hash_mismatch")
+            return
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(artifact, dict) or artifact.get("artifact") != "operations-evidence-v1":
+            errors.append("operations_evidence.type_invalid")
+            return
+        if str(artifact.get("release_id") or "") != release_id:
+            errors.append("operations_evidence.release_mismatch")
+            return
+        drills = artifact.get("outage_drills")
+        rollback = artifact.get("rollback")
+        if not isinstance(drills, dict) or any(drills.get(name) is not True for name in ("graph_degraded", "redis_degraded", "provider_degraded")):
+            errors.append("operations_evidence.outage_drills_not_passed")
+        if not isinstance(rollback, dict) or rollback.get("canary") is not True or rollback.get("tested") is not True:
+            errors.append("operations_evidence.rollback_not_passed")
+        attestation_drills = attestation.get("outage_drills") if isinstance(attestation.get("outage_drills"), dict) else {}
+        for name in ("graph_degraded", "redis_degraded", "provider_degraded"):
+            if attestation_drills.get(name) is not artifact.get("outage_drills", {}).get(name):
+                errors.append(f"operations_evidence.{name}_does_not_match")
+        attestation_rollback = attestation.get("rollback") if isinstance(attestation.get("rollback"), dict) else {}
+        for name in ("canary", "tested"):
+            if attestation_rollback.get(name) is not artifact.get("rollback", {}).get(name):
+                errors.append(f"operations_evidence.rollback_{name}_does_not_match")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        errors.append("operations_evidence.invalid")
 def validate_attestation(
     attestation: dict[str, Any], *, base_dir: Path | None = None
 ) -> dict[str, Any]:
@@ -271,6 +322,10 @@ def validate_attestation(
     rollback = attestation.get("rollback")
     if not isinstance(rollback, dict) or rollback.get("canary") is not True or rollback.get("tested") is not True:
         errors.append("rollback_canary_or_test_missing")
+
+    _validate_operations_artifact(
+        attestation, release_id=release_id, base_dir=base_dir, errors=errors
+    )
 
     return {
         "valid": not errors,

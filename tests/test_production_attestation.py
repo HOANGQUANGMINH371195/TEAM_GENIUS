@@ -67,6 +67,20 @@ def _valid(tmp_path: Path):
         }, sort_keys=True),
         encoding="utf-8",
     )
+    operations_path = tmp_path / "operations-evidence.json"
+    operations_path.write_text(
+        json.dumps({
+            "artifact": "operations-evidence-v1",
+            "release_id": "snapshot-test",
+            "outage_drills": {
+                "graph_degraded": True,
+                "redis_degraded": True,
+                "provider_degraded": True,
+            },
+            "rollback": {"canary": True, "tested": True},
+        }, sort_keys=True),
+        encoding="utf-8",
+    )
     ablation_files: dict[str, dict[str, str]] = {}
     for name in ("reranker", "typed_graph", "grounded_planning"):
         path = tmp_path / f"{name}-ablation.json"
@@ -83,6 +97,10 @@ def _valid(tmp_path: Path):
         "latency_evidence": {
             "path": latency_path.name,
             "sha256": hashlib.sha256(latency_path.read_bytes()).hexdigest(),
+        },
+        "operations_evidence": {
+            "path": operations_path.name,
+            "sha256": hashlib.sha256(operations_path.read_bytes()).hexdigest(),
         },
         "runs": [run, {**run, "kind": "warm"}, {**run, "kind": "concurrency"}],
         "human_adjudication": {

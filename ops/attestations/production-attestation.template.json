@@ -4,6 +4,10 @@
     "path": "production-evidence.json",
     "sha256": null
   },
+  "operations_evidence": {
+    "path": "operations-evidence.json",
+    "sha256": null
+  },
   "runs": [
     {
       "kind": "cold",
