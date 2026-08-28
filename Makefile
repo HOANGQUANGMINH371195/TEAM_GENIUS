@@ -33,6 +33,7 @@ help:
 	@echo "  make typed-facts-stage  Stage reviewer facts into PostgreSQL (FACTS_FILE/RELEASE_ID)"
 	@echo "  make calibrate-claims   Fit an isotonic calibrator from reviewed labels (LABELS_FILE/OUTPUT)"
 	@echo "  make research-worker    Run the durable Redis research worker (RESEARCH_QUEUE_BACKEND=redis)"
+	@echo "  make up-research-worker Start the local worker container profile"
 	@echo "  make collect-production-evidence Collect live SSE latency/TTFT evidence (ENDPOINT/FIXTURE/OUTPUT)"
 	@echo "  make render-validate    Validate render.yaml (CLI if installed, structural fallback otherwise)"
 	@echo "  make deploy-render      Trigger an existing Render service deploy"
@@ -138,6 +139,9 @@ calibrate-claims:
 
 research-worker: env-check
 	$(PYTHON) -m src.research_worker
+
+up-research-worker: env-check
+	$(COMPOSE) --profile local-full --profile research-worker up -d --build research-worker
 
 collect-production-evidence: implementation-gate
 	@test -n "$(ENDPOINT)" -a -n "$(FIXTURE)" -a -n "$(OUTPUT)" || { echo "Set ENDPOINT, FIXTURE and OUTPUT"; exit 2; }
