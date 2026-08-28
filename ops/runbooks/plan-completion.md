@@ -18,6 +18,22 @@ make verify-plan
 All three commands must pass. `implementation-gate` only proves that the code
 paths and focused contracts exist; it does not prove production readiness.
 
+For the local durable-worker preflight (no provider call is made), verify the
+image and process contract before requesting managed infrastructure:
+
+```bash
+docker compose --profile local-full --profile research-worker build research-worker
+docker image inspect medipay-research-worker:latest \
+  --format 'user={{.Config.User}} cmd={{json .Config.Cmd}} health={{json .Config.Healthcheck}}'
+docker compose --profile local-full --profile research-worker up -d research-worker
+docker compose --profile local-full --profile research-worker ps research-worker
+docker compose --profile local-full --profile research-worker stop research-worker
+```
+
+The expected image invariants are non-root user `65532:65532`, command
+`-m src.research_worker`, and a null healthcheck. This local proof does not
+close the managed worker/Redis promotion gate.
+
 ## 2. Produce the five outstanding evidence artifacts
 
 | PLAN item | Required artifact | Who/where it comes from | Closing command |
