@@ -53,6 +53,11 @@ def main() -> int:
             item.get("key") == "RESEARCH_QUEUE_BACKEND" and item.get("value") == "redis"
             for item in worker.get("envVars") or []
         ),
+        "compose_declares_research_worker_profile": "research-worker:" in compose
+        and "profiles: [research-worker]" in compose,
+        "compose_worker_uses_internal_redis": "RESEARCH_QUEUE_REDIS_URL: redis://redis:6379/1" in compose,
+        "compose_worker_depends_on_redis": compose.count("service_healthy") >= 4
+        and "research-worker" in compose,
         "render_health_check_is_liveness": api.get("healthCheckPath") == "/health",
         "managed_profile_forces_production": "APP_ENV: production" in compose,
         "render_port_is_injected": all(item.get("key") != "PORT" for item in api.get("envVars") or []),
