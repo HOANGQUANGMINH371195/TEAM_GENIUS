@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 from collections.abc import AsyncIterator
+from datetime import date
 from html import escape
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -29,13 +31,22 @@ from src.models.schemas import (
     BenefitCalculationScenariosResponse,
     ChatRequest,
     ChatResponse,
+    EligibilityChecklistRequest,
+    EligibilityChecklistResponse,
+    LegalTimelineResponse,
 )
 from src.services.calculator import CalculationInputError, calculate_bhyt_benefit
-from src.services.chat import ChatProviderError, GraphRagUnavailableError
+from src.services.chat import ChatProviderError, GraphRagUnavailableError, get_runtime
 from src.services.conversation_cache import get_conversation_cache
-from src.services.conversation_context import build_conversation_anchors, resolve_conversational_query
+from src.services.conversation_context import (
+    apply_structured_user_facts,
+    build_conversation_anchors,
+    resolve_conversational_query,
+)
 from src.services.conversations import ConversationStoreError, get_conversation_store
 from src.services.document_viewer import sanitize_document_html
+from src.services.eligibility_checklist import ChecklistInputError, build_eligibility_checklist
+from src.services.legal_timeline import assemble_public_timeline
 from src.services.research_jobs import (
     RedisResearchJobQueue,
     ResearchJobQueue,
@@ -178,6 +189,103 @@ async def compare_bhyt_scenarios(
 
 
 @router.get(
+    "/legal/timeline",
+    response_model=LegalTimelineResponse,
+    summary="Inspect a release-scoped legal document relationship timeline",
+)
+async def legal_timeline(
+    document_number: str = Query(..., min_length=1, max_length=80),
+    as_of: date | None = Query(default=None),
+    _user: dict = Depends(get_current_user),
+) -> LegalTimelineResponse:
+    """Hydrate a bounded graph walk back to public canonical metadata."""
+    if not get_settings().feature_timeline_enabled:
+        raise HTTPException(status_code=404, detail="Timeline unavailable")
+    selected_date = as_of or date.today()
+    async with session_scope() as session:
+        repository = GraphRepository(session)
+        seed = await repository.public_document_metadata(document_number)
+        if not seed:
+            raise HTTPException(status_code=404, detail="Document not found")
+    seed_id = str(seed.get("id") or "")
+    dataset_id = str(seed.get("dataset_id") or "")
+    relations = []
+    degraded = False
+    if get_settings().feature_graph_enabled:
+        try:
+            relations = await asyncio.wait_for(
+                get_runtime().document_relations(
+                    [seed_id], dataset_id=dataset_id, hops=2, limit=40
+                ),
+                timeout=min(5.0, float(get_settings().retrieval_timeout_seconds)),
+            )
+        except Exception:
+            logger.warning("Legal timeline graph degraded", exc_info=True)
+            degraded = True
+    related_ids = list(dict.fromkeys(
+        identifier
+        for relation in relations
+        for identifier in (relation.source_id, relation.target_id)
+        if identifier
+    ))
+    async with session_scope() as session:
+        repository = GraphRepository(session)
+        hydrated = await repository.public_document_metadata_by_ids(
+            [seed_id, *related_ids], dataset_id=dataset_id
+        )
+    timeline = assemble_public_timeline(
+        seed_document_id=seed_id,
+        documents=hydrated,
+        relations=relations,
+        as_of=selected_date,
+        degraded=degraded,
+    )
+    return LegalTimelineResponse(**timeline)
+
+
+@router.post(
+    "/eligibility/checklist",
+    response_model=EligibilityChecklistResponse,
+    summary="Ask only for missing user facts that can change a BHYT outcome",
+)
+async def eligibility_checklist(
+    request: EligibilityChecklistRequest,
+    user: dict = Depends(get_current_user),
+) -> EligibilityChecklistResponse:
+    """Build a deterministic checklist; current law is retrieved afterwards."""
+    if not get_settings().feature_eligibility_enabled:
+        raise HTTPException(status_code=404, detail="Eligibility checklist unavailable")
+    try:
+        result = build_eligibility_checklist(request.topic, request.facts)
+    except ChecklistInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    persisted = False
+    if request.conversation_id:
+        try:
+            release_id = await _context_release_id()
+            owner_uid = str(user.get("uid") or "")
+            persisted = await get_conversation_store().upsert_facts(
+                owner_uid=owner_uid,
+                conversation_id=request.conversation_id,
+                facts=request.facts,
+                dataset_id=release_id,
+            )
+            if persisted:
+                await get_conversation_cache().invalidate(
+                    owner_uid=owner_uid,
+                    conversation_id=request.conversation_id,
+                    release_id=release_id,
+                )
+        except ConversationStoreError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return EligibilityChecklistResponse(
+        **result,
+        conversation_id=request.conversation_id,
+        facts_persisted=persisted,
+    )
+
+
+@router.get(
     "/documents/{document_number:path}/html",
     response_class=HTMLResponse,
     summary="Render sanitized canonical legal HTML",
@@ -277,6 +385,7 @@ async def _invoke_agent(
                 owner_uid=owner_uid, conversation_id=conversation_id
             )
             resolved_message = resolve_conversational_query(message, turns)
+            resolved_message = apply_structured_user_facts(resolved_message, turns)
         except Exception:
             logger.exception("Conversation context resolution failed", extra={"request_id": request_id})
     if not tracing_enabled():
@@ -375,6 +484,7 @@ async def _stream_agent(
                 owner_uid=owner_uid, conversation_id=conversation_id
             )
             resolved_message = resolve_conversational_query(message, turns)
+            resolved_message = apply_structured_user_facts(resolved_message, turns)
         except Exception:
             logger.exception("Conversation stream context resolution failed", extra={"request_id": request_id})
     # Stable IDs are passed through to persistence; stream tracing remains a

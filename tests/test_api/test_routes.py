@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -6,7 +7,15 @@ import pytest
 from src.api.auth import get_current_user
 from src.api.routes import _public_route, _trace_stage_metrics
 from src.main import app
-from src.models.graph import RetrievalResult
+from src.models.graph import Relation, RetrievalResult
+
+
+class _TimelineSessionScope:
+    async def __aenter__(self):
+        return object()
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
 
 
 def test_langfuse_stage_export_is_allowlisted_and_secret_free():
@@ -52,6 +61,122 @@ async def test_readiness(client):
     response = await client.get("/ready")
     assert response.status_code in {200, 503}
     assert response.json()["status"] in {"ready", "degraded"}
+
+
+@pytest.mark.asyncio
+async def test_legal_timeline_hydrates_graph_without_exposing_storage_ids(client):
+    seed = {
+        "id": "private-source-id",
+        "dataset_id": "snapshot-private",
+        "document_number": "01/2025/QH15",
+        "title": "Luật A",
+        "effective_from": "2025-07-01",
+    }
+    documents = {
+        "private-source-id": seed,
+        "private-target-id": {
+            "id": "private-target-id",
+            "dataset_id": "snapshot-private",
+            "document_number": "02/2026/QH16",
+            "title": "Luật B",
+            "effective_from": "2026-01-01",
+        },
+    }
+    repository = SimpleNamespace(
+        public_document_metadata=AsyncMock(return_value=seed),
+        public_document_metadata_by_ids=AsyncMock(return_value=documents),
+    )
+    runtime = SimpleNamespace(document_relations=AsyncMock(return_value=[
+        Relation(
+            source="Luật A",
+            target="Luật B",
+            source_id="private-source-id",
+            target_id="private-target-id",
+            relation_type="REL_Thay_the",
+        )
+    ]))
+    settings = SimpleNamespace(
+        feature_timeline_enabled=True,
+        feature_graph_enabled=True,
+        retrieval_timeout_seconds=15,
+    )
+    with (
+        patch("src.api.routes.get_settings", return_value=settings),
+        patch("src.api.routes.session_scope", return_value=_TimelineSessionScope()),
+        patch("src.api.routes.GraphRepository", return_value=repository),
+        patch("src.api.routes.get_runtime", return_value=runtime),
+    ):
+        response = await client.get(
+            "/api/v1/legal/timeline",
+            params={"document_number": "01/2025/QH15", "as_of": "2025-08-01"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["events"][0]["relation"] == "Thay thế"
+    assert response.json()["query_document"]["state_at_date"] == "effective"
+    assert "private-source-id" not in response.text
+    assert "private-target-id" not in response.text
+    assert "snapshot-private" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_eligibility_checklist_returns_only_missing_user_facts(client):
+    settings = SimpleNamespace(feature_eligibility_enabled=True)
+    with patch("src.api.routes.get_settings", return_value=settings):
+        response = await client.post(
+            "/api/v1/eligibility/checklist",
+            json={
+                "topic": "five_year",
+                "facts": {
+                    "treatment_date": "2026-08-28",
+                    "beneficiary_group": "người lao động",
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    assert [item["key"] for item in response.json()["missing"]] == [
+        "continuous_participation_start",
+        "copayment_paid",
+    ]
+    assert response.json()["legal_retrieval_required"] is True
+    assert "người lao động" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_eligibility_checklist_persists_owner_scoped_facts_and_invalidates_cache(client):
+    conversation_id = "550e8400-e29b-41d4-a716-446655440000"
+    settings = SimpleNamespace(feature_eligibility_enabled=True)
+    store = SimpleNamespace(upsert_facts=AsyncMock(return_value=True))
+    cache = SimpleNamespace(invalidate=AsyncMock())
+    with (
+        patch("src.api.routes.get_settings", return_value=settings),
+        patch("src.api.routes.get_conversation_store", return_value=store),
+        patch("src.api.routes.get_conversation_cache", return_value=cache),
+        patch("src.api.routes._context_release_id", AsyncMock(return_value="snapshot-release")),
+    ):
+        response = await client.post(
+            "/api/v1/eligibility/checklist",
+            json={
+                "topic": "emergency",
+                "conversation_id": conversation_id,
+                "facts": {"emergency": True},
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["facts_persisted"] is True
+    store.upsert_facts.assert_awaited_once_with(
+        owner_uid="test-user",
+        conversation_id=conversation_id,
+        facts={"emergency": True},
+        dataset_id="snapshot-release",
+    )
+    cache.invalidate.assert_awaited_once_with(
+        owner_uid="test-user",
+        conversation_id=conversation_id,
+        release_id="snapshot-release",
+    )
 
 
 @pytest.mark.asyncio

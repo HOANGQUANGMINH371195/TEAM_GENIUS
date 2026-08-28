@@ -20,6 +20,11 @@ def main() -> int:
         "durable_worker": ROOT / "src/research_worker.py",
         "worker_dockerfile": ROOT / "Dockerfile.worker",
         "worker_blueprint": ROOT / "render-research-worker.yaml",
+        "legal_timeline": ROOT / "src/services/legal_timeline.py",
+        "eligibility_checklist": ROOT / "src/services/eligibility_checklist.py",
+        "conversation_facts_migration": ROOT / "database/postgres/migrations/20260834_conversation_facts.sql",
+        "timeline_page": ROOT / "web/app/timeline/page.tsx",
+        "eligibility_page": ROOT / "web/app/eligibility/page.tsx",
         "suite_compiler": ROOT / "eval/prepare_plan_suite.py",
         "auditor_ablation": ROOT / "eval/ablations/auditor/evaluate.py",
         "graph_ablation": ROOT / "eval/ablations/typed-graph/evaluate.py",
@@ -36,7 +41,10 @@ def main() -> int:
     config = (ROOT / "src/config.py").read_text(encoding="utf-8")
     checks["all_feature_flags"] = all(
         f"feature_{name}_enabled" in config
-        for name in ("planner", "reranker", "auditor", "calculator", "viewer", "graph", "global_search", "experience_retrieval")
+        for name in (
+            "planner", "reranker", "auditor", "calculator", "viewer", "timeline",
+            "eligibility", "graph", "global_search", "experience_retrieval",
+        )
     )
     report = {"implementation_gate_pass": all(checks.values()), "checks": checks}
     path = ROOT / "eval/results/implementation-gate-current.json"

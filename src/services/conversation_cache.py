@@ -17,6 +17,8 @@ from typing import Any
 from src.config import get_settings
 from src.services.metrics import metrics
 
+CONTEXT_SCHEMA_VERSION = "v2"
+
 
 class ConversationContextCache:
     def __init__(self, *, url: str = "", ttl_seconds: int = 120, max_turns: int = 10) -> None:
@@ -44,9 +46,17 @@ class ConversationContextCache:
         API supplies it whenever the active-release pointer is available.
         """
         digest = hashlib.sha256(
-            f"{owner_uid}\x00{conversation_id}\x00{release_id}".encode()
+            f"{CONTEXT_SCHEMA_VERSION}\x00{owner_uid}\x00{conversation_id}\x00{release_id}".encode()
         ).hexdigest()
         return f"medipay:conversation-context:{digest}"
+
+    def _bounded(self, turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        facts = next(
+            (dict(item) for item in reversed(turns) if isinstance(item.get("user_facts"), dict)),
+            None,
+        )
+        ordinary = [dict(item) for item in turns if "user_facts" not in item][-self.max_turns :]
+        return [facts, *ordinary] if facts is not None else ordinary
 
     async def get(
         self, *, owner_uid: str, conversation_id: str, release_id: str = ""
@@ -76,7 +86,7 @@ class ConversationContextCache:
         release_id: str = "",
     ) -> None:
         key = self._key(owner_uid, conversation_id, release_id)
-        bounded = [dict(item) for item in turns[-self.max_turns :]]
+        bounded = self._bounded(turns)
         if self._redis is not None:
             try:
                 await self._redis.set(key, json.dumps(bounded, ensure_ascii=False, default=str), ex=self.ttl_seconds)
@@ -113,7 +123,7 @@ class ConversationContextCache:
                 turns=turns,
                 release_id=release_id,
             )
-            return [dict(item) for item in turns[-self.max_turns :]]
+            return self._bounded(turns)
 
     async def invalidate(
         self, *, owner_uid: str, conversation_id: str, release_id: str = ""

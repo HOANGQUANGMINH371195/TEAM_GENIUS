@@ -100,6 +100,8 @@ create table if not exists public.conversations (
     owner_uid text not null references public.users(uid) on delete cascade,
     title text not null default '',
     active_dataset_id text,
+    facts jsonb not null default '{}'::jsonb
+        check (jsonb_typeof(facts) = 'object'),
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
     deleted_at timestamptz,

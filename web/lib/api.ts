@@ -79,6 +79,78 @@ export async function fetchDocumentHtml(documentNumber: string): Promise<string>
   return response.text();
 }
 
+export type LegalTimelineDocument = {
+  document_number: string;
+  title: string;
+  issued_at: string;
+  effective_from: string;
+  effective_to: string;
+  status: string;
+  source_url: string;
+  viewer_url: string;
+  state_at_date: "not_yet_effective" | "effective" | "expired" | "unknown";
+};
+
+export type LegalTimelineEvent = {
+  relation: string;
+  source_document_number: string;
+  target_document_number: string;
+  adverse: boolean;
+};
+
+export type LegalTimelineResponse = {
+  query_document: LegalTimelineDocument;
+  as_of: string;
+  documents: LegalTimelineDocument[];
+  events: LegalTimelineEvent[];
+  degraded: boolean;
+};
+
+export async function fetchLegalTimeline(
+  documentNumber: string,
+  asOf?: string,
+): Promise<LegalTimelineResponse> {
+  const query = new URLSearchParams({ document_number: documentNumber });
+  if (asOf) query.set("as_of", asOf);
+  const response = await adminRequest(`/api/v1/legal/timeline?${query.toString()}`);
+  if (!response.ok) throw new Error("Không thể tải dòng thời gian pháp lý");
+  return response.json() as Promise<LegalTimelineResponse>;
+}
+
+export type EligibilityTopic = "benefit" | "five_year" | "referral" | "emergency" | "student_contribution";
+
+export type EligibilityChecklistField = {
+  key: string;
+  label: string;
+  reason: string;
+  input_type: "text" | "date" | "number" | "boolean" | "select";
+  options: string[];
+};
+
+export type EligibilityChecklistResponse = {
+  topic: EligibilityTopic;
+  complete: boolean;
+  missing: EligibilityChecklistField[];
+  accepted_fact_keys: string[];
+  next_question: string;
+  legal_retrieval_required: boolean;
+  conversation_id: string;
+  facts_persisted: boolean;
+};
+
+export async function fetchEligibilityChecklist(
+  topic: EligibilityTopic,
+  facts: Record<string, string | boolean>,
+  conversationId = "",
+): Promise<EligibilityChecklistResponse> {
+  const response = await adminRequest("/api/v1/eligibility/checklist", {
+    method: "POST",
+    body: JSON.stringify({ topic, facts, conversation_id: conversationId }),
+  });
+  if (!response.ok) throw new Error("Không thể tạo checklist điều kiện");
+  return response.json() as Promise<EligibilityChecklistResponse>;
+}
+
 export type BenefitCalculationInput = {
   covered_cost: string;
   base_rate_percent: string;

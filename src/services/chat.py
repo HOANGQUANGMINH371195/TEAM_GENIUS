@@ -180,6 +180,35 @@ class GraphRagRuntime:
         bundle = await self.retrieve_bundle(query)
         return bundle.evidence, bundle.relations
 
+    async def document_relations(
+        self,
+        document_ids: Sequence[str],
+        *,
+        dataset_id: str,
+        hops: int = 2,
+        limit: int = 40,
+    ) -> list:
+        """Return a bounded release graph walk for public timeline hydration.
+
+        The caller must hydrate both endpoints from canonical PostgreSQL before
+        exposing anything. This method reuses the runtime's driver, semaphore
+        and circuit breaker so the product endpoint cannot create one Neo4j
+        connection pool per request.
+        """
+        ids = list(dict.fromkeys(str(value) for value in document_ids if value))[:8]
+        if not ids or not dataset_id or not get_settings().feature_graph_enabled:
+            return []
+        return await self._provider_call(
+            "neo4j_timeline",
+            self._neo4j_breaker,
+            lambda: self._get_graph_store().expand(
+                ids,
+                dataset_id=dataset_id,
+                hops=max(1, min(int(hops), 2)),
+                limit=max(1, min(int(limit), 100)),
+            ),
+        )
+
     async def retrieve_bundle_adaptive(self, query: str) -> RetrievalBundle:
         """Retrieve the original and a constrained rewrite concurrently.
 

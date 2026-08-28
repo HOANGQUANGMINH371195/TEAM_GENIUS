@@ -75,3 +75,30 @@ def test_redis_failure_falls_back_to_private_memory_without_data_loss():
         assert first == second == [{"turn_id": "1"}, {"turn_id": "2"}]
 
     asyncio.run(scenario())
+
+
+def test_structured_facts_survive_turn_bounding_and_remain_owner_scoped():
+    async def scenario():
+        cache = ConversationContextCache(ttl_seconds=60, max_turns=2)
+
+        async def loader():
+            return [
+                {"user_facts": {"emergency": False}},
+                {"turn_id": "1"},
+                {"turn_id": "2"},
+                {"turn_id": "3"},
+            ]
+
+        rows = await cache.get_or_load(
+            owner_uid="owner-a", conversation_id="conversation", release_id="release", loader=loader
+        )
+        assert rows == [
+            {"user_facts": {"emergency": False}},
+            {"turn_id": "2"},
+            {"turn_id": "3"},
+        ]
+        assert await cache.get(
+            owner_uid="owner-b", conversation_id="conversation", release_id="release"
+        ) is None
+
+    asyncio.run(scenario())

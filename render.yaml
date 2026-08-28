@@ -79,6 +79,10 @@ services:
         value: "2"
       - key: FEATURE_EXPERIENCE_RETRIEVAL_ENABLED
         value: "false"
+      - key: FEATURE_TIMELINE_ENABLED
+        value: "true"
+      - key: FEATURE_ELIGIBILITY_ENABLED
+        value: "true"
       - key: EXPERIENCE_INDEX_PATH
         value: ""
       - key: RESEARCH_QUEUE_BACKEND

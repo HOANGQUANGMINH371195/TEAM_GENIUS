@@ -376,6 +376,8 @@ and rollback evidence are collected only after that gate passes.
 | Optional graph degradation | guarded temporal/relational expansion with route-deadline-bounded Neo4j calls and lexical+dense fallback | implemented; managed outage/load proof pending |
 | Decimal calculator | `src/services/calculator.py`, two registered Decimal formulas, `/calculator/bhyt`, bounded `/calculator/bhyt/scenarios`, `web/app/calculator/page.tsx`, reviewed `table_cell_facts` retrieval, `eval/cases/calculator-golden-v1.jsonl` (100 cases), API scenario tests | exact arithmetic, 100-case golden, bounded API, and UI build acceptance implemented; live table-source parity remains external |
 | Sanitized HTML viewer | `/documents/{public-signature}/html`, `document_viewer.py`, `web/app/document/page.tsx`, `tests/test_api/test_document_viewer_endpoint.py` | hash-verified backend/UI and local XSS/anchor/path-integrity acceptance implemented; managed smoke remains external |
+| Legal evidence timeline | `/legal/timeline`, canonical PostgreSQL metadata hydration, bounded two-hop Neo4j navigation with degraded fallback, `web/app/timeline/page.tsx` | repository endpoint/UI/public-ID contract implemented; managed graph and anchor acceptance remain external |
+| Eligibility checklist | `/eligibility/checklist`, conditional user-fact dependency engine, owner-scoped `conversations.facts` migration and `web/app/eligibility/page.tsx`; responses never contain a legal decision or echo fact values | repository endpoint/UI/private-memory contract implemented; managed migration and legal retrieval remain mandatory after completion |
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight, hit/miss metrics, release-scoped keys, Redis failure fallback test | repository failover contract implemented; production Redis latency/availability proof pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
 | Sentence-level rerank seam | query-derived sentence coverage plus opt-in `src/services/reranker.py` cross-encoder backend; deterministic `eval/ablations/reranker/` harness | implemented; pinned-model result and latency are post-implementation evidence |
@@ -420,6 +422,8 @@ added p95 ≤1.5 seconds.
 - [x] Implement formula registry and 100 golden calculations.
 - [x] Expose sanitized, hash-verified HTML and citation deep links.
 - [x] Ship scenario comparison and eligibility clarification UI.
+- [x] Ship the public-ID-only legal evidence timeline with canonical hydration and graph-outage degradation.
+- [x] Ship the deterministic eligibility checklist that collects user facts without deciding the law.
 
 Exit: calculator 100%, zero XSS, anchor ≥99%, table route p95 ≤5 seconds.
 
@@ -462,6 +466,8 @@ baseline plus sentence reranker remains better.
 - `docs/architecture/route-contract.md`
 - `docs/product/calculator-contract.md`
 - `docs/product/document-viewer-security.md`
+- `docs/product/legal-timeline.md`
+- `docs/product/eligibility-checklist.md`
 - `docs/data/typed-bhyt-ontology.md`
 - `docs/data/release-lock-snapshot-c439751724ab7f10.json`
 - `eval/cases/market-leadership-v1.jsonl`

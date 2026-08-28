@@ -30,6 +30,8 @@ def main() -> int:
         "batch_contract": ROOT / "docs/architecture/batch-contract.md",
         "calculator_contract": ROOT / "docs/product/calculator-contract.md",
         "viewer_security": ROOT / "docs/product/document-viewer-security.md",
+        "timeline_contract": ROOT / "docs/product/legal-timeline.md",
+        "eligibility_contract": ROOT / "docs/product/eligibility-checklist.md",
         "viewer_acceptance_tests": ROOT / "tests/test_api/test_document_viewer_endpoint.py",
         "typed_ontology": ROOT / "docs/data/typed-bhyt-ontology.md",
         "release_lock": ROOT / "docs/data/release-lock-snapshot-c439751724ab7f10.json",
@@ -46,6 +48,9 @@ def main() -> int:
         "route_module": ROOT / "src/domain/route_plan.py",
         "calculator_module": ROOT / "src/services/calculator.py",
         "viewer_module": ROOT / "src/services/document_viewer.py",
+        "timeline_module": ROOT / "src/services/legal_timeline.py",
+        "eligibility_module": ROOT / "src/services/eligibility_checklist.py",
+        "conversation_facts_migration": ROOT / "database/postgres/migrations/20260834_conversation_facts.sql",
         "cache_module": ROOT / "src/services/conversation_cache.py",
         "typed_fact_module": ROOT / "src/domain/facts.py",
         "typed_fact_migration": ROOT / "database/postgres/migrations/20260827_typed_legal_facts.sql",
@@ -57,6 +62,8 @@ def main() -> int:
         "typed_graph_acceptance_tests": ROOT / "tests/test_integrations/test_neo4j_typed_facts.py",
         "neo4j_cleanup_guard": ROOT / "database/neo4j/scripts/cleanup_stale_release.py",
         "scenario_page": ROOT / "web/app/calculator/page.tsx",
+        "timeline_page": ROOT / "web/app/timeline/page.tsx",
+        "eligibility_page": ROOT / "web/app/eligibility/page.tsx",
         "promotion_gate": ROOT / "scripts/verify_promotion_gate.py",
         "reranker_backend": ROOT / "src/services/reranker.py",
         "reranker_ablation_harness": ROOT / "eval/ablations/reranker/evaluate.py",
@@ -84,7 +91,10 @@ def main() -> int:
     checks["independent_calibration_panel_validator"] = "validate_calibration_panel" in calibration_text
     checks["feature_flags_declared"] = all(
         f"feature_{name}_enabled" in config_text
-        for name in ("planner", "reranker", "auditor", "calculator", "viewer", "graph", "global_search", "experience_retrieval")
+        for name in (
+            "planner", "reranker", "auditor", "calculator", "viewer", "timeline",
+            "eligibility", "graph", "global_search", "experience_retrieval",
+        )
     )
     route_text = (ROOT / "src/agents/nodes/graphrag_nodes.py").read_text(encoding="utf-8")
     checks["route_plan_recorded_in_intake"] = "route_plan" in route_text

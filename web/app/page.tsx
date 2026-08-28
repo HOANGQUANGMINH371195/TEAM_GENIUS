@@ -94,6 +94,13 @@ export default function HomePage() {
   const streamAbortRef = useRef<AbortController | null>(null);
   const conversationIdRef = useRef(crypto.randomUUID());
 
+  useEffect(() => {
+    const candidate = new URLSearchParams(window.location.search).get("conversation_id") ?? "";
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate)) {
+      conversationIdRef.current = candidate;
+    }
+  }, []);
+
   const activeMessage = messages.find((message) => message.id === activeMessageId && message.role === "assistant");
   const activeEvidence = (activeMessage?.citations ?? []).map((citation, index) => ({ ...citation, evidenceId: `${activeMessage?.id ?? "active"}-${index}` }));
 
@@ -245,6 +252,8 @@ export default function HomePage() {
         <nav className="bhyt-nav" onClick={() => setMobileMenuOpen(false)}>
           <a className="bhyt-nav-item is-active" href="#main-chat"><Icon name="chat" /><span>Tra cứu BHYT</span></a>
           <Link className="bhyt-nav-item" href="/calculator"><Icon name="document" /><span>So sánh kịch bản</span></Link>
+          <Link className="bhyt-nav-item" href="/timeline"><Icon name="history" /><span>Dòng thời gian pháp lý</span></Link>
+          <Link className="bhyt-nav-item" href="/eligibility"><Icon name="check" /><span>Checklist điều kiện</span></Link>
           <button className="bhyt-nav-item" type="button" onClick={() => chooseTopic(topicCards[2].question)}><Icon name="document" /><span>Hướng dẫn thủ tục</span></button>
           <button className="bhyt-nav-item" type="button" onClick={() => inputRef.current?.focus()}><Icon name="help" /><span>Trợ giúp &amp; Hỏi đáp</span></button>
         </nav>

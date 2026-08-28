@@ -125,6 +125,8 @@ class Settings(BaseSettings):
     feature_auditor_enabled: bool = True
     feature_calculator_enabled: bool = True
     feature_viewer_enabled: bool = True
+    feature_timeline_enabled: bool = True
+    feature_eligibility_enabled: bool = True
     feature_graph_enabled: bool = True
     feature_global_search_enabled: bool = False
     feature_experience_retrieval_enabled: bool = False

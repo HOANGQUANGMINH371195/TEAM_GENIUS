@@ -104,6 +104,69 @@ class BenefitCalculationScenariosResponse(ApiModel):
     results: list[dict[str, object]]
 
 
+class LegalTimelineDocument(ApiModel):
+    document_number: str
+    title: str = ""
+    issued_at: str = ""
+    effective_from: str = ""
+    effective_to: str = ""
+    status: str = ""
+    source_url: str = ""
+    viewer_url: str = ""
+    state_at_date: Literal["not_yet_effective", "effective", "expired", "unknown"]
+
+
+class LegalTimelineEvent(ApiModel):
+    relation: str
+    source_document_number: str
+    target_document_number: str
+    adverse: bool = False
+
+
+class LegalTimelineResponse(ApiModel):
+    query_document: LegalTimelineDocument
+    as_of: str
+    documents: list[LegalTimelineDocument] = Field(default_factory=list)
+    events: list[LegalTimelineEvent] = Field(default_factory=list)
+    degraded: bool = False
+
+
+class EligibilityChecklistRequest(ApiModel):
+    topic: Literal["benefit", "five_year", "referral", "emergency", "student_contribution"]
+    facts: dict[str, str | bool | int | float | None] = Field(default_factory=dict, max_length=32)
+    conversation_id: str = Field(default="", max_length=128)
+
+    @field_validator("facts")
+    @classmethod
+    def bound_fact_values(
+        cls, value: dict[str, str | bool | int | float | None]
+    ) -> dict[str, str | bool | int | float | None]:
+        if any(len(key) > 64 for key in value):
+            raise ValueError("fact keys must be at most 64 characters")
+        if any(isinstance(item, str) and len(item) > 500 for item in value.values()):
+            raise ValueError("fact values must be at most 500 characters")
+        return value
+
+
+class EligibilityChecklistField(ApiModel):
+    key: str
+    label: str
+    reason: str
+    input_type: Literal["text", "date", "number", "boolean", "select"]
+    options: list[str] = Field(default_factory=list)
+
+
+class EligibilityChecklistResponse(ApiModel):
+    topic: str
+    complete: bool
+    missing: list[EligibilityChecklistField] = Field(default_factory=list)
+    accepted_fact_keys: list[str] = Field(default_factory=list)
+    next_question: str = ""
+    legal_retrieval_required: bool = True
+    conversation_id: str = ""
+    facts_persisted: bool = False
+
+
 class ConversationSummary(ApiModel):
     conversation_id: str
     title: str = ""

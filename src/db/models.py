@@ -102,6 +102,7 @@ class Conversation(Base):
     owner_uid: Mapped[str] = mapped_column(ForeignKey("users.uid"))
     title: Mapped[str] = mapped_column(String(240), default="")
     active_dataset_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    facts: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

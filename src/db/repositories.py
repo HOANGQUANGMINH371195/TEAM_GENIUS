@@ -138,6 +138,71 @@ class GraphRepository:
         row = result.mappings().first()
         return dict(row) if row else None
 
+    async def public_document_metadata(
+        self, document_number: str, *, dataset_id: str | None = None
+    ) -> dict[str, object] | None:
+        """Resolve a public signature to canonical release metadata."""
+        normalized = normalize_identifier(document_number)
+        result = await self.session.execute(
+            text(
+                """
+                SELECT d.id, d.title,
+                       COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_ban_hanh', d.payload ->> 'ngay_ban_hanh', '') AS issued_at,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', d.payload ->> 'ngay_co_hieu_luc', '') AS effective_from,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_het_hieu_luc', d.payload ->> 'ngay_het_hieu_luc', '') AS effective_to,
+                       COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', d.payload ->> 'tinh_trang_hieu_luc', '') AS status,
+                       COALESCE(d.payload -> 'metadata' ->> 'official_status_url', d.payload ->> 'official_status_url', '') AS source_url,
+                       d.dataset_id
+                FROM documents d
+                JOIN datasets ds ON ds.dataset_id = d.dataset_id
+                WHERE d.dataset_id = COALESCE(:dataset_id, (
+                    SELECT COALESCE(pointer.active_dataset_id, state.active_dataset_id)
+                    FROM dataset_state state
+                    LEFT JOIN ops.active_release pointer ON pointer.singleton = TRUE
+                    WHERE state.singleton = TRUE
+                ))
+                  AND ds.status = 'active'
+                  AND upper(replace(replace(COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', ''), 'Ð', 'Đ'), 'ð', 'đ')) = :document_number
+                  AND NOT d.is_external
+                LIMIT 1
+                """
+            ),
+            {"dataset_id": dataset_id, "document_number": normalized},
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None
+
+    async def public_document_metadata_by_ids(
+        self, document_ids: Sequence[str], *, dataset_id: str
+    ) -> dict[str, dict[str, object]]:
+        """Hydrate graph document IDs in one canonical PostgreSQL read."""
+        ids = list(dict.fromkeys(str(value) for value in document_ids if value))[:100]
+        if not ids:
+            return {}
+        result = await self.session.execute(
+            text(
+                """
+                SELECT d.id, d.title,
+                       COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_ban_hanh', d.payload ->> 'ngay_ban_hanh', '') AS issued_at,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', d.payload ->> 'ngay_co_hieu_luc', '') AS effective_from,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_het_hieu_luc', d.payload ->> 'ngay_het_hieu_luc', '') AS effective_to,
+                       COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', d.payload ->> 'tinh_trang_hieu_luc', '') AS status,
+                       COALESCE(d.payload -> 'metadata' ->> 'official_status_url', d.payload ->> 'official_status_url', '') AS source_url,
+                       d.dataset_id
+                FROM documents d
+                JOIN datasets ds ON ds.dataset_id = d.dataset_id
+                WHERE d.dataset_id = :dataset_id
+                  AND d.id = ANY(CAST(:document_ids AS text[]))
+                  AND ds.status = 'active'
+                  AND NOT d.is_external
+                """
+            ),
+            {"dataset_id": dataset_id, "document_ids": ids},
+        )
+        return {str(row["id"]): dict(row) for row in result.mappings()}
+
     async def search_title_documents(
         self, query: str, *, dataset_id: str, limit: int = 4
     ) -> list[str]:
