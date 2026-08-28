@@ -81,6 +81,17 @@ def _valid(tmp_path: Path):
         }, sort_keys=True),
         encoding="utf-8",
     )
+    cost_path = tmp_path / "cost-ledger.json"
+    cost_path.write_text(
+        json.dumps({
+            "artifact": "cost-ledger-v1",
+            "release_id": "snapshot-test",
+            "baseline_cost_usd": 100,
+            "candidate_cost_usd": 60,
+            "provider_receipts": [{"receipt_sha256": "a" * 64}],
+        }, sort_keys=True),
+        encoding="utf-8",
+    )
     ablation_files: dict[str, dict[str, str]] = {}
     for name in ("reranker", "typed_graph", "grounded_planning"):
         path = tmp_path / f"{name}-ablation.json"
@@ -102,6 +113,10 @@ def _valid(tmp_path: Path):
             "path": operations_path.name,
             "sha256": hashlib.sha256(operations_path.read_bytes()).hexdigest(),
         },
+        "cost_evidence": {
+            "path": cost_path.name,
+            "sha256": hashlib.sha256(cost_path.read_bytes()).hexdigest(),
+        },
         "runs": [run, {**run, "kind": "warm"}, {**run, "kind": "concurrency"}],
         "human_adjudication": {
             "review_artifact": review_path.name,
@@ -109,7 +124,7 @@ def _valid(tmp_path: Path):
             "critical_accuracy": 0.97,
             "high_risk_citation_support": 1,
             "calculator_exactness": 1,
-            "cost_reduction": 0.35,
+            "cost_reduction": 0.40,
             "cases": 300,
             "reviewers": 2,
             "catastrophic_errors": 0,
@@ -158,3 +173,9 @@ def test_production_attestation_fails_closed_on_missing_or_bad_metrics(tmp_path:
     value["ablations"]["reranker"]["artifact_sha256"] = "b" * 64
     report = validate_attestation(value, base_dir=tmp_path)
     assert "ablations.reranker.artifact_hash_mismatch" in report["errors"]
+    value["ablations"]["reranker"]["artifact_sha256"] = hashlib.sha256(
+        (tmp_path / "reranker-ablation.json").read_bytes()
+    ).hexdigest()
+    value["cost_evidence"]["sha256"] = "b" * 64
+    report = validate_attestation(value, base_dir=tmp_path)
+    assert "cost_evidence.hash_mismatch" in report["errors"]

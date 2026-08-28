@@ -172,3 +172,7 @@ the verifier recomputes its SHA-256 before accepting `reviewed` or
 Outage and rollback booleans are also bound to an `operations-evidence-v1`
 JSON artifact containing the release ID and each drill result. The attestation
 verifier rejects missing or hash-mismatched operations evidence.
+
+The cost-reduction claim follows the same rule through a `cost-ledger-v1`
+artifact. It must contain provider receipts and baseline/candidate costs; the
+verifier recomputes the reduction and compares it with the attestation.

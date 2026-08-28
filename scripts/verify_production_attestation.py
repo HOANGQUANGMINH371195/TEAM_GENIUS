@@ -215,6 +215,63 @@ def _validate_operations_artifact(
                 errors.append(f"operations_evidence.rollback_{name}_does_not_match")
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         errors.append("operations_evidence.invalid")
+
+
+def _validate_cost_artifact(
+    attestation: dict[str, Any],
+    *,
+    release_id: str,
+    base_dir: Path | None,
+    human: dict[str, Any],
+    errors: list[str],
+) -> None:
+    evidence = attestation.get("cost_evidence")
+    if not isinstance(evidence, dict):
+        errors.append("cost_evidence_required")
+        return
+    path_value = str(evidence.get("path") or "").strip()
+    expected_hash = str(evidence.get("sha256") or "").strip().casefold()
+    if not path_value:
+        errors.append("cost_evidence.path_required")
+        return
+    if len(expected_hash) != 64 or any(char not in "0123456789abcdef" for char in expected_hash):
+        errors.append("cost_evidence.sha256_required")
+        return
+    path = Path(path_value)
+    if not path.is_absolute() and base_dir is not None:
+        path = base_dir / path
+    try:
+        if artifact_sha256(path) != expected_hash:
+            errors.append("cost_evidence.hash_mismatch")
+            return
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(artifact, dict) or artifact.get("artifact") != "cost-ledger-v1":
+            errors.append("cost_evidence.type_invalid")
+            return
+        if str(artifact.get("release_id") or "") != release_id:
+            errors.append("cost_evidence.release_mismatch")
+            return
+        baseline = float(artifact.get("baseline_cost_usd"))
+        candidate = float(artifact.get("candidate_cost_usd"))
+        if not math.isfinite(baseline) or not math.isfinite(candidate) or baseline <= 0 or candidate < 0:
+            errors.append("cost_evidence.cost_values_invalid")
+            return
+        receipts = artifact.get("provider_receipts")
+        if not isinstance(receipts, list) or not receipts:
+            errors.append("cost_evidence.provider_receipts_required")
+            return
+        reduction = (baseline - candidate) / baseline
+        if reduction < 0.30:
+            errors.append("cost_evidence.reduction_below_gate")
+        try:
+            supplied = float(human.get("cost_reduction"))
+        except (TypeError, ValueError):
+            errors.append("human_adjudication.cost_reduction_must_match_cost_artifact")
+            return
+        if not math.isclose(supplied, reduction, rel_tol=0.0, abs_tol=1e-9):
+            errors.append("human_adjudication.cost_reduction_does_not_match_cost_artifact")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        errors.append("cost_evidence.invalid")
 def validate_attestation(
     attestation: dict[str, Any], *, base_dir: Path | None = None
 ) -> dict[str, Any]:
@@ -299,6 +356,10 @@ def validate_attestation(
                 continue
             if not math.isclose(supplied, value, rel_tol=0.0, abs_tol=1e-9):
                 errors.append(f"human_adjudication.{field}_does_not_match_review_artifact")
+
+    _validate_cost_artifact(
+        attestation, release_id=release_id, base_dir=base_dir, human=human, errors=errors
+    )
 
     drills = attestation.get("outage_drills")
     if not isinstance(drills, dict):

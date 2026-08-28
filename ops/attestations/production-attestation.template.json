@@ -8,6 +8,10 @@
     "path": "operations-evidence.json",
     "sha256": null
   },
+  "cost_evidence": {
+    "path": "cost-ledger.json",
+    "sha256": null
+  },
   "runs": [
     {
       "kind": "cold",
