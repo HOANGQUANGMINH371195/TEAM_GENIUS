@@ -9,7 +9,7 @@ LOCAL_PROFILE ?= local-full
 RELEASE_ROOT ?= .
 
 .DEFAULT_GOAL := help
-.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation verify-release-artifacts typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker collect-production-evidence migrate \
+.PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation verify-release-artifacts typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker collect-production-evidence migrate plan-completion \
 	build up dev down restart logs health deploy-contract render-validate \
 	build-worker deploy-render deploy-vercel clean
 
@@ -26,6 +26,7 @@ help:
 	@echo "  make verify-plan        Verify forward-plan delivery contracts"
 	@echo "  make implementation-gate Verify all PLAN capabilities exist before benchmark"
 	@echo "  make promotion-gate     Report benchmark readiness vs production promotion blockers"
+	@echo "  make plan-completion    Print the external-evidence closing runbook"
 	@echo "  make verify-attestation Validate the external production gate artifact (ATTESTATION_FILE)"
 	@echo "  make verify-release-artifacts Validate mounted release hashes (RELEASE_ROOT/REQUIRE_RELEASE_ARTIFACTS)"
 	@echo "  make typed-facts-check  Validate an accepted release fact JSONL (FACTS_FILE/RELEASE_ID)"
@@ -112,6 +113,9 @@ implementation-gate:
 
 promotion-gate:
 	$(PYTHON) scripts/verify_promotion_gate.py
+
+plan-completion:
+	@sed -n '1,240p' ops/runbooks/plan-completion.md
 
 verify-attestation:
 	@test -n "$(ATTESTATION_FILE)" || { echo "Set ATTESTATION_FILE"; exit 2; }
