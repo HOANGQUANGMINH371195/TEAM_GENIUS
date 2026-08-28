@@ -40,6 +40,7 @@ def main() -> int:
         "retention_runbook": ROOT / "ops/runbooks/supabase-retention.md",
         "research_worker_runbook": ROOT / "ops/runbooks/research-worker.md",
         "research_worker_blueprint": ROOT / "render-research-worker.yaml",
+        "research_worker_dockerfile": ROOT / "Dockerfile.worker",
         "plan_suite_compiler": ROOT / "eval/prepare_plan_suite.py",
         "implementation_gate": ROOT / "scripts/verify_implementation_gate.py",
         "route_module": ROOT / "src/domain/route_plan.py",
@@ -98,6 +99,17 @@ def main() -> int:
     checks["async_research_api"] = all(
         marker in routes_text for marker in ("/research/jobs", "ResearchQueueFullError", "close_research_queue")
     )
+    worker_dockerfile = required["research_worker_dockerfile"].read_text(encoding="utf-8")
+    worker_blueprint = required["research_worker_blueprint"].read_text(encoding="utf-8")
+    checks["dedicated_worker_container_contract"] = all(
+        marker in worker_dockerfile
+        for marker in (
+            "distroless/python3-debian12:nonroot",
+            'ENTRYPOINT ["/usr/bin/python3.11"]',
+            'CMD ["-m", "src.research_worker"]',
+            "USER 65532:65532",
+        )
+    ) and "HEALTHCHECK" not in worker_dockerfile and "dockerfilePath: ./Dockerfile.worker" in worker_blueprint
 
     report = {
         "repository_contract_pass": all(checks.values()),
