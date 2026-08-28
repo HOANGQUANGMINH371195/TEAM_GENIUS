@@ -11,7 +11,7 @@ RELEASE_ROOT ?= .
 .DEFAULT_GOAL := help
 .PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation verify-release-artifacts typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker collect-production-evidence \
 	build up dev down restart logs health deploy-contract render-validate \
-	deploy-render deploy-vercel clean
+	build-worker deploy-render deploy-vercel clean
 
 help:
 	@echo "MediPay developer commands"
@@ -21,6 +21,7 @@ help:
 	@echo "  make up / down / logs   Manage local services"
 	@echo "  make check              Run backend, database, frontend and contract gates"
 	@echo "  make build              Build all deployable images and frontend"
+	@echo "  make build-worker       Build the dedicated Redis research worker image"
 	@echo "  make deploy-contract    Verify Render/Vercel/Docker contracts locally"
 	@echo "  make verify-plan        Verify forward-plan delivery contracts"
 	@echo "  make implementation-gate Verify all PLAN capabilities exist before benchmark"
@@ -71,7 +72,11 @@ check: env-check lint typecheck test
 
 build:
 	$(COMPOSE) --profile $(LOCAL_PROFILE) build
+	$(MAKE) build-worker
 	$(WEB_NPM) run build
+
+build-worker:
+	docker build --pull --file Dockerfile.worker --tag medipay-research-worker:latest .
 
 up: env-check
 	$(COMPOSE) --profile $(LOCAL_PROFILE) up -d --build
@@ -138,10 +143,10 @@ typed-facts-export:
 	PYTHONPATH=. $(PYTHON) database/neo4j/scripts/export_typed_facts.py --env-file "$(ENV_FILE)" --release-id "$(RELEASE_ID)" --output "$(FACTS_FILE)"
 
 render-validate:
-	@if command -v render >/dev/null 2>&1; then \
-		render blueprints validate render.yaml; \
+	@if command -v render >/dev/null 2>&1 && render whoami --output json >/dev/null 2>&1; then \
+		render blueprints validate render.yaml && render blueprints validate render-research-worker.yaml; \
 	else \
-		echo "Render CLI not installed; running repository structural contract"; \
+		echo "Render CLI unavailable or unauthenticated; running repository structural contract"; \
 		$(PYTHON) scripts/verify_platform_contract.py; \
 	fi
 
