@@ -162,3 +162,9 @@ rejects duplicate, incomplete or disagreeing labels and requires at least 300
 cases. The production attestation stores the artifact path and SHA-256; the
 verifier recomputes both before accepting human metrics. Model-generated
 judgments are never treated as legal review.
+
+The three ablation entries in the production attestation follow the same
+rule: each must reference its actual `reranker-ablation-v1`,
+`typed-graph-ablation-v1`, or `grounded-planning-ablation-v1` JSON result and
+the verifier recomputes its SHA-256 before accepting `reviewed` or
+`no_regression`.

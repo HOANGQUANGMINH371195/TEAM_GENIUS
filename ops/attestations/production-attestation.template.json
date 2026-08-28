@@ -60,9 +60,9 @@
     "provider_degraded": false
   },
   "ablations": {
-    "reranker": {"reviewed": false, "no_regression": false},
-    "typed_graph": {"reviewed": false, "no_regression": false},
-    "grounded_planning": {"reviewed": false, "no_regression": false}
+    "reranker": {"artifact_path": "reranker-ablation.json", "artifact_sha256": null, "reviewed": false, "no_regression": false},
+    "typed_graph": {"artifact_path": "typed-graph-ablation.json", "artifact_sha256": null, "reviewed": false, "no_regression": false},
+    "grounded_planning": {"artifact_path": "grounded-planning-ablation.json", "artifact_sha256": null, "reviewed": false, "no_regression": false}
   },
   "rollback": {"canary": false, "tested": false}
 }

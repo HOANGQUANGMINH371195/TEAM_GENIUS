@@ -131,6 +131,39 @@ def _validate_latency_artifact(
                     errors.append(f"latency_evidence.{kind}.{metric}_does_not_match")
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         errors.append("latency_evidence.invalid")
+
+
+def _validate_ablation_artifact(
+    item: dict[str, Any],
+    *,
+    name: str,
+    base_dir: Path | None,
+    errors: list[str],
+) -> None:
+    path_value = str(item.get("artifact_path") or "").strip()
+    expected_hash = str(item.get("artifact_sha256") or "").strip().casefold()
+    if not path_value:
+        errors.append(f"ablations.{name}.artifact_path_required")
+        return
+    if len(expected_hash) != 64 or any(char not in "0123456789abcdef" for char in expected_hash):
+        errors.append(f"ablations.{name}.artifact_sha256_required")
+        return
+    path = Path(path_value)
+    if not path.is_absolute() and base_dir is not None:
+        path = base_dir / path
+    try:
+        if artifact_sha256(path) != expected_hash:
+            errors.append(f"ablations.{name}.artifact_hash_mismatch")
+            return
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+        expected_type = f"{name.replace('_', '-')}-ablation-v1"
+        if not isinstance(artifact, dict) or artifact.get("artifact") != expected_type:
+            errors.append(f"ablations.{name}.artifact_type_invalid")
+            return
+        if not str(artifact.get("source_sha256") or "").strip():
+            errors.append(f"ablations.{name}.source_sha256_required")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        errors.append(f"ablations.{name}.artifact_invalid")
 def validate_attestation(
     attestation: dict[str, Any], *, base_dir: Path | None = None
 ) -> dict[str, Any]:
@@ -232,6 +265,8 @@ def validate_attestation(
         item = ablations.get(name)
         if not isinstance(item, dict) or item.get("reviewed") is not True or item.get("no_regression") is not True:
             errors.append(f"ablations.{name}_not_approved")
+        if isinstance(item, dict):
+            _validate_ablation_artifact(item, name=name, base_dir=base_dir, errors=errors)
 
     rollback = attestation.get("rollback")
     if not isinstance(rollback, dict) or rollback.get("canary") is not True or rollback.get("tested") is not True:

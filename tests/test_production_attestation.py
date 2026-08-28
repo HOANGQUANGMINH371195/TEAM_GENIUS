@@ -67,6 +67,17 @@ def _valid(tmp_path: Path):
         }, sort_keys=True),
         encoding="utf-8",
     )
+    ablation_files: dict[str, dict[str, str]] = {}
+    for name in ("reranker", "typed_graph", "grounded_planning"):
+        path = tmp_path / f"{name}-ablation.json"
+        path.write_text(
+            json.dumps({"artifact": f"{name.replace('_', '-')}-ablation-v1", "source_sha256": "a" * 64}),
+            encoding="utf-8",
+        )
+        ablation_files[name] = {
+            "artifact_path": path.name,
+            "artifact_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
     return {
         "release_id": "snapshot-test",
         "latency_evidence": {
@@ -88,9 +99,8 @@ def _valid(tmp_path: Path):
         },
         "outage_drills": {"graph_degraded": True, "redis_degraded": True, "provider_degraded": True},
         "ablations": {
-            "reranker": {"reviewed": True, "no_regression": True},
-            "typed_graph": {"reviewed": True, "no_regression": True},
-            "grounded_planning": {"reviewed": True, "no_regression": True},
+            name: {**ablation_files[name], "reviewed": True, "no_regression": True}
+            for name in ("reranker", "typed_graph", "grounded_planning")
         },
         "rollback": {"canary": True, "tested": True},
     }
@@ -124,3 +134,9 @@ def test_production_attestation_fails_closed_on_missing_or_bad_metrics(tmp_path:
     value["latency_evidence"]["sha256"] = "b" * 64
     report = validate_attestation(value, base_dir=tmp_path)
     assert "latency_evidence.hash_mismatch" in report["errors"]
+    value["latency_evidence"]["sha256"] = hashlib.sha256(
+        (tmp_path / "production-evidence.json").read_bytes()
+    ).hexdigest()
+    value["ablations"]["reranker"]["artifact_sha256"] = "b" * 64
+    report = validate_attestation(value, base_dir=tmp_path)
+    assert "ablations.reranker.artifact_hash_mismatch" in report["errors"]
