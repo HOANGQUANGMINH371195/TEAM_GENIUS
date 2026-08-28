@@ -33,6 +33,8 @@ def main() -> int:
     )
     env_vars = {str(item.get("key")): item for item in api.get("envVars") or []}
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    worker_dockerfile_path = ROOT / str(worker.get("dockerfilePath") or "")
+    worker_dockerfile = worker_dockerfile_path.read_text(encoding="utf-8") if worker_dockerfile_path.is_file() else ""
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     web_dockerfile = (ROOT / "web/Dockerfile").read_text(encoding="utf-8")
     vercel = json.loads((ROOT / "web/vercel.json").read_text(encoding="utf-8"))
@@ -42,7 +44,11 @@ def main() -> int:
         "render_service_is_docker": api.get("runtime") == "docker",
         "render_branch_is_main": api.get("branch") == "main",
         "research_worker_blueprint_is_main": worker.get("branch") == "main",
-        "research_worker_uses_python_entrypoint_args": str(worker.get("dockerCommand") or "").strip().startswith("-m "),
+        "research_worker_dockerfile_exists": worker_dockerfile_path.is_file(),
+        "research_worker_has_no_http_healthcheck": "HEALTHCHECK" not in worker_dockerfile,
+        "research_worker_cmd_is_module": 'CMD ["-m", "src.research_worker"]' in worker_dockerfile,
+        "research_worker_is_non_root": "distroless/python3-debian12:nonroot" in worker_dockerfile
+        and "USER 65532:65532" in worker_dockerfile,
         "research_worker_requires_redis": any(
             item.get("key") == "RESEARCH_QUEUE_BACKEND" and item.get("value") == "redis"
             for item in worker.get("envVars") or []

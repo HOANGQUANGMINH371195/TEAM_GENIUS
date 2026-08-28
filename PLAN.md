@@ -439,7 +439,7 @@ and Neo4j-outage degraded mode passes.
 - [x] Grounded-planning PoC with fan-out ≤3 and depth ≤2.
 - [x] Add deterministic release-scoped community summary builder and bounded DRIFT-style selector (`src/services/global_retrieval.py`, `database/corpus/build_community_index.py`); summaries remain navigation hints and must be hydrated from PostgreSQL.
 - [x] Add a bounded owner-isolated async research worker contract (`src/services/research_jobs.py`) with timeout, cancellation and shutdown handling.
-- [x] Implement the Redis durable worker, optional Render blueprint, owner isolation, restart/cancellation contract, and runbook.
+- [x] Implement the Redis durable worker, dedicated non-root `Dockerfile.worker` (no HTTP healthcheck), optional Render blueprint, owner isolation, restart/cancellation contract, and runbook.
 - [ ] Provision/deploy the worker on a durable queue, wire curated index jobs to it, and compare against the fast hybrid baseline.
 - [x] Implement reviewed/de-identified experience retrieval as navigation-only hints.
 

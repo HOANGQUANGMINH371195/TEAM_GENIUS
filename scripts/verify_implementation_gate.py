@@ -18,6 +18,7 @@ def main() -> int:
         "experience": ROOT / "src/services/experience_retrieval.py",
         "memory_queue": ROOT / "src/services/research_jobs.py",
         "durable_worker": ROOT / "src/research_worker.py",
+        "worker_dockerfile": ROOT / "Dockerfile.worker",
         "worker_blueprint": ROOT / "render-research-worker.yaml",
         "suite_compiler": ROOT / "eval/prepare_plan_suite.py",
         "auditor_ablation": ROOT / "eval/ablations/auditor/evaluate.py",

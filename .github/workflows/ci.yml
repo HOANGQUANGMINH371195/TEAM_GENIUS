@@ -74,3 +74,13 @@ jobs:
           test -n "$migrator_user"
           test "$migrator_user" != "0"
           test "$migrator_user" != "root"
+
+      - name: Build research worker image
+        run: |
+          docker build --pull --file Dockerfile.worker --tag medipay-research-worker:ci .
+          worker_user="$(docker image inspect medipay-research-worker:ci --format '{{.Config.User}}')"
+          test -n "$worker_user"
+          test "$worker_user" != "0"
+          test "$worker_user" != "root"
+          test "$(docker image inspect medipay-research-worker:ci --format '{{json .Config.Cmd}}')" = '["-m","src.research_worker"]'
+          test "$(docker image inspect medipay-research-worker:ci --format '{{json .Config.Healthcheck}}')" = "null"
