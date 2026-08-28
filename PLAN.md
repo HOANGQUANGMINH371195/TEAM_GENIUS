@@ -119,7 +119,7 @@ Non-negotiable invariants:
 
 ## 4. Accuracy engine
 
-### 4.1 Typed BHYT ontology and Auditor
+### 4.1 Typed BHYT ontology and Auditor (optional future projection)
 
 Use a small, reviewed, versioned ontology:
 
@@ -142,6 +142,11 @@ review_status, release_id
 The Auditor validates each claim for evidence, beneficiary, conditions,
 effective date, jurisdiction, exclusions, current authority, numeric trace, and
 canonical citation. Unsupported claims are removed or downgraded.
+
+The current release does not require a newly extracted typed-fact corpus;
+canonical PostgreSQL text/HTML and existing table cells remain the legal
+source of truth. The ontology and projection path stay available for a future
+reviewed release.
 
 ### 4.2 Retrieval and reranking
 
@@ -195,8 +200,8 @@ sanitized raw HTML
 
 Requirements:
 
-- `table_cells` remains canonical; derived facts can live in PostgreSQL and a
-  release-scoped Neo4j projection.
+- `table_cells` remains canonical. A derived typed-fact projection is optional
+  and deferred; it must not block the current release or trigger new extraction.
 - Use Decimal/rational arithmetic, never float, for money and percentages.
 - Inputs include beneficiary, salary base, facility level, referral/emergency,
   participation duration, treatment date, and covered cost.
@@ -381,7 +386,7 @@ and rollback evidence are collected only after that gate passes.
 | Private conversation cache | `conversation_cache.py`, Redis/in-memory fallback, single-flight, hit/miss metrics, release-scoped keys, Redis failure fallback test | repository failover contract implemented; production Redis latency/availability proof pending |
 | Feature flags | `FEATURE_*` settings and rollout switches | implemented |
 | Sentence-level rerank seam | query-derived sentence coverage plus opt-in `src/services/reranker.py` cross-encoder backend; deterministic `eval/ablations/reranker/` harness | implemented; pinned-model result and latency are post-implementation evidence |
-| Typed BHYT fact contract | `docs/data/typed-bhyt-ontology.json`, `src/domain/ontology.py`, `src/domain/facts.py`, `src/services/fact_recognizer.py`, `legal_facts` migration/schema, release-validated importer/exporter, `database/corpus/stage_reviewed_facts.py` review boundary, `Neo4jGraphStore.upsert_legal_facts`/`bounded_typed_ppr`, accepted-subject relational route, canonical unit hydration, bounded-query acceptance tests. Staging now requires an immutable release, known predicate, reviewer identity/note for accepted rows, and a SHA-256 match against canonical document/unit text; conflicting replays fail closed and only accepted rows can be exported to Neo4j. Migration `20260827_typed_legal_facts` is applied on managed PostgreSQL with RLS; a read-only primary probe and an independent subagent cross-check on 2026-08-28 both report `legal_facts_total=0`, `accepted=0`, no review queue/audit events, and no typed-fact artifact. The persisted report is `eval/results/typed-facts-crosscheck-current.json`. Managed Neo4j is `5.27-aura`, enterprise edition; active release remains 1,901 nodes/5,816 relationships and has no `LEGAL_FACT`, `FactSubject`, or `FactValue` labels. The stale second release projection was removed with a JSON backup. The local Docker graph is Community 5.26.29 with local/release snapshots. | ontology/schema/loader/safety contract implemented; human-reviewed fact corpus and typed projection load remain pending; independent cross-check confirms the blocker is real |
+| Typed BHYT fact contract | Ontology/schema/loader/importer remain available as an optional future projection. The current release deliberately uses canonical PostgreSQL text/HTML and existing `table_cells`; no new fact extraction or accepted-fact corpus is required. A read-only primary probe and independent subagent cross-check on 2026-08-28 report `legal_facts_total=0`, and managed Neo4j has no typed-fact labels. | deferred by product decision; not a current-release gate and must not block benchmark or deployment |
 | Source/release parity | The default current builder correctly fails closed because it rebuilds a different fingerprint (`snapshot-037cca…`, `38,316`/`14,968`) than the active release. Re-running with the exact builder recorded in `docs/data/release-lock-snapshot-c439751724ab7f10.json` (`source_commit=1b98f44`) passes fingerprint, canonical counts, PostgreSQL/Qdrant counts and hashes, and Neo4j identity/edge parity. The stale `snapshot-c94d7b75195a67fa` projection was backed up and deleted on 2026-08-27; the prior `live_parity.json` remains stale evidence. | exact-builder parity and stale-projection cleanup verified; immutable artifact retention and deployment attestation remain required before production promotion |
 | Grounded planning/uncertainty calibration | bounded grounded planner, direct-vs-planned ablation harness, `eval/calibration.py` independent-panel validation and dependency-free pool-adjacent-violators fitting, `eval/calibrate_claims.py` hashed review artifact | implemented; human-labelled calibration and approval are post-implementation evidence |
 | Batch extraction/eval manifests | offline embedding/Qdrant batching, immutable `eval/batch_manifest.py`, provider JSONL, authenticated adapter/reconciliation in `eval/openai_batch.py`, hash-bound `cost-ledger-v1` attestation artifact | repository submission/reconciliation contract implemented; live provider cost proof pending |
@@ -427,12 +432,13 @@ added p95 ≤1.5 seconds.
 
 Exit: calculator 100%, zero XSS, anchor ≥99%, table route p95 ≤5 seconds.
 
-### Phase D — Typed graph and bounded PPR (P1, 8–15 days)
+### Phase D — Bounded document graph (typed-fact projection deferred)
 
-- [x] Define and machine-validate the versioned BHYT ontology; human adjudication of extracted facts remains a release gate.
-- [x] Build release-scoped Neo4j facts with canonical provenance anchors (validated importer; live release attestation pending).
-- [x] Add bounded fact-walk/PPR only to relational and multi-hop routes (recognizer and live parity pending).
-- [x] Add deterministic typed-graph vs document-graph comparison harness with outage fallback checks.
+- [x] Keep the existing release-scoped document/reference graph and bounded
+      expansion with canonical hydration and outage fallback.
+- [x] Defer typed BHYT fact extraction/projection; no new corpus is required
+      for this release. The ontology/importer remain isolated for a future,
+      independently reviewed opt-in release.
 - [ ] Compare reviewed live traces against dense and current document-graph baselines.
 
 Exit: significant multi-hop gain, graph-path precision ≥95%, p95 ≤15 seconds,
