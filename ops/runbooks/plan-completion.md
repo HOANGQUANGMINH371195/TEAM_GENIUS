@@ -72,13 +72,19 @@ been executed. A green deterministic test suite alone is insufficient.
 
 ## 4. Current known external prerequisites
 
-The repository cannot create these without explicit operator authorization:
+The repository cannot create these without explicit operator authorization;
+they are **deferred and non-blocking** for the current accuracy × latency ×
+feature release:
 
 - a non-suspended durable Redis instance and a Render research-worker service;
-- authenticated Render/Vercel cold, warm, concurrency, outage and rollback runs;
-- two independent legal reviewers and their signed labels;
 - accepted, provenance-hashed typed BHYT facts for the active release;
 - provider batch receipts reconciled to the cost ledger.
+
+The following remain blocking because they directly measure the chosen release
+axes:
+
+- authenticated Render/Vercel cold, warm, concurrency, outage and rollback runs;
+- independent legal review of accuracy and citation support.
 
 Until those artifacts exist, `PLAN.md` must retain unchecked boxes and the
 system must not be described as production-ready or SOTA.

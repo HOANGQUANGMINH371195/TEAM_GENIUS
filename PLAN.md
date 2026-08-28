@@ -38,7 +38,14 @@ North-star gates:
 | Temporal/multi-hop latency | p95 ≤15 s or async job |
 | First useful SSE event | p95 ≤1 s |
 | Availability | ≥99.5% |
-| Cost | ≥30% reduction from the locked baseline without accuracy loss |
+| Cost | Secondary/non-blocking for the current release |
+
+### Release focus (current decision)
+
+The current release is judged only on three axes: **legal accuracy**,
+**latency**, and the committed product features. Batch-cost optimization,
+durable research-worker provisioning, and the optional typed-fact projection
+are deferred and must not block this release or its benchmark.
 
 ## 2. Current state and gaps
 
@@ -350,6 +357,18 @@ Minimum dataset:
 Each run records route, stage latency, candidates before/after rerank, graph
 paths, tokens, claims, citations, confidence, cost, and failure reason.
 
+For the current release, the benchmark must report these feature contracts
+alongside accuracy and latency:
+
+| Committed feature | Required acceptance evidence |
+|---|---|
+| BHYT calculator | 100% deterministic golden calculations; Decimal arithmetic; missing-input clarification |
+| Original HTML viewer | hash-verified sanitized HTML; zero XSS; citation anchor resolution |
+| Legal evidence timeline | public identifiers only; canonical hydration; graph-outage fallback |
+| Eligibility checklist | conditional questions; owner isolation; no legal decision or guessed facts |
+| Private conversation context | owner/conversation isolation; bounded cache; release invalidation |
+| Hybrid retrieval and reranking | route correctness, citation support, no raw-chunk output |
+
 A change is promoted only when:
 
 - Exact/policy/calculator gates do not regress.
@@ -389,7 +408,7 @@ and rollback evidence are collected only after that gate passes.
 | Typed BHYT fact contract | Ontology/schema/loader/importer remain available as an optional future projection. The current release deliberately uses canonical PostgreSQL text/HTML and existing `table_cells`; no new fact extraction or accepted-fact corpus is required. A read-only primary probe and independent subagent cross-check on 2026-08-28 report `legal_facts_total=0`, and managed Neo4j has no typed-fact labels. | deferred by product decision; not a current-release gate and must not block benchmark or deployment |
 | Source/release parity | The default current builder correctly fails closed because it rebuilds a different fingerprint (`snapshot-037cca…`, `38,316`/`14,968`) than the active release. Re-running with the exact builder recorded in `docs/data/release-lock-snapshot-c439751724ab7f10.json` (`source_commit=1b98f44`) passes fingerprint, canonical counts, PostgreSQL/Qdrant counts and hashes, and Neo4j identity/edge parity. The stale `snapshot-c94d7b75195a67fa` projection was backed up and deleted on 2026-08-27; the prior `live_parity.json` remains stale evidence. | exact-builder parity and stale-projection cleanup verified; immutable artifact retention and deployment attestation remain required before production promotion |
 | Grounded planning/uncertainty calibration | bounded grounded planner, direct-vs-planned ablation harness, `eval/calibration.py` independent-panel validation and dependency-free pool-adjacent-violators fitting, `eval/calibrate_claims.py` hashed review artifact | implemented; human-labelled calibration and approval are post-implementation evidence |
-| Batch extraction/eval manifests | offline embedding/Qdrant batching, immutable `eval/batch_manifest.py`, provider JSONL, authenticated adapter/reconciliation in `eval/openai_batch.py`, hash-bound `cost-ledger-v1` attestation artifact | repository submission/reconciliation contract implemented; live provider cost proof pending |
+| Batch extraction/eval manifests | offline embedding/Qdrant batching and immutable manifest tooling remain available | deferred/non-blocking for the current accuracy × latency × feature release |
 | Release-locked data artifacts | Active release benchmark files mounted from the external `data/clean/medical_active_v31_fully_reviewed` artifact store; SHA-256/hash and coverage suite now passes (`eval/test_release_locked_suite.py`: 2 passed). `scripts/verify_release_artifacts.py` now reports `available=false, verified=false` for source-only checkouts and fails closed on missing/mismatched files when required; the nightly workflow records the contract and runs Qdrant evaluation only when artifacts are mounted. Artifacts remain ignored and are never committed to the source checkout. | local provenance gate passed; a release job still must mount and attest the immutable artifact |
 | Production gates | no paired cold/warm/concurrency + human adjudication release | not passed |
 
