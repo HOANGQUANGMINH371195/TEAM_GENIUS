@@ -43,6 +43,7 @@ def _validate_review_artifact(
     if not artifact_value:
         errors.append("human_adjudication.review_artifact_required")
         return None
+
     if len(expected_hash) != 64 or any(char not in "0123456789abcdef" for char in expected_hash):
         errors.append("human_adjudication.review_artifact_sha256_required")
         return None
@@ -63,6 +64,73 @@ def _validate_review_artifact(
         return None
 
 
+def _validate_latency_artifact(
+    attestation: dict[str, Any],
+    *,
+    release_id: str,
+    base_dir: Path | None,
+    errors: list[str],
+) -> None:
+    evidence = attestation.get("latency_evidence")
+    if not isinstance(evidence, dict):
+        errors.append("latency_evidence_required")
+        return
+    path_value = str(evidence.get("path") or "").strip()
+    expected_hash = str(evidence.get("sha256") or "").strip().casefold()
+    if not path_value:
+        errors.append("latency_evidence.path_required")
+        return
+    if len(expected_hash) != 64 or any(char not in "0123456789abcdef" for char in expected_hash):
+        errors.append("latency_evidence.sha256_required")
+        return
+    path = Path(path_value)
+    if not path.is_absolute() and base_dir is not None:
+        path = base_dir / path
+    try:
+        if artifact_sha256(path) != expected_hash:
+            errors.append("latency_evidence.hash_mismatch")
+            return
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(artifact, dict) or artifact.get("evidence_type") != "live_latency_ttft_collection":
+            errors.append("latency_evidence.type_invalid")
+            return
+        if str(artifact.get("dataset_id") or "") != release_id:
+            errors.append("latency_evidence.release_mismatch")
+            return
+        runs = artifact.get("runs")
+        if not isinstance(runs, list):
+            errors.append("latency_evidence.runs_required")
+            return
+        by_kind = {str(run.get("kind")): run for run in runs if isinstance(run, dict)}
+        if set(by_kind) != {"cold", "warm", "concurrency"}:
+            errors.append("latency_evidence.runs_must_include_cold_warm_concurrency")
+            return
+        attestation_runs = {
+            str(run.get("kind")): run for run in attestation.get("runs", []) if isinstance(run, dict)
+        }
+        route_metrics = (
+            "simple_p95_seconds", "exact_p95_seconds", "table_p95_seconds",
+            "topical_p95_seconds", "temporal_p95_seconds", "relational_p95_seconds",
+            "ttft_p95_seconds", "stream_error_rate", "availability",
+        )
+        for kind, artifact_run in by_kind.items():
+            if kind not in attestation_runs:
+                errors.append(f"latency_evidence.attestation_run_missing:{kind}")
+                continue
+            for metric in route_metrics:
+                value = artifact_run.get(metric)
+                if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                    errors.append(f"latency_evidence.{kind}.{metric}_invalid")
+                    continue
+                try:
+                    supplied = float(attestation_runs[kind].get(metric))
+                except (TypeError, ValueError):
+                    errors.append(f"latency_evidence.{kind}.{metric}_attestation_invalid")
+                    continue
+                if not math.isclose(supplied, float(value), rel_tol=0.0, abs_tol=1e-9):
+                    errors.append(f"latency_evidence.{kind}.{metric}_does_not_match")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        errors.append("latency_evidence.invalid")
 def validate_attestation(
     attestation: dict[str, Any], *, base_dir: Path | None = None
 ) -> dict[str, Any]:
@@ -100,6 +168,10 @@ def validate_attestation(
         availability = _number(run, "availability", errors)
         if availability is not None and availability < 0.995:
             errors.append(f"{prefix}.availability_below_gate")
+
+    _validate_latency_artifact(
+        attestation, release_id=release_id, base_dir=base_dir, errors=errors
+    )
 
     human = attestation.get("human_adjudication")
     if not isinstance(human, dict):

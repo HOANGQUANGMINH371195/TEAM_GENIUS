@@ -1,5 +1,9 @@
 {
   "release_id": "snapshot-<immutable-release>",
+  "latency_evidence": {
+    "path": "production-evidence.json",
+    "sha256": null
+  },
   "runs": [
     {
       "kind": "cold",

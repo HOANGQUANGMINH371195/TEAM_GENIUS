@@ -46,8 +46,33 @@ def _valid(tmp_path: Path):
         "\n".join(json.dumps(row, sort_keys=True) for row in review_lines) + "\n",
         encoding="utf-8",
     )
+    latency_path = tmp_path / "production-evidence.json"
+    latency_run = {
+        "kind": "cold",
+        "simple_p95_seconds": 2,
+        "exact_p95_seconds": 2,
+        "table_p95_seconds": 2,
+        "topical_p95_seconds": 4,
+        "temporal_p95_seconds": 10,
+        "relational_p95_seconds": 10,
+        "ttft_p95_seconds": 0.8,
+        "stream_error_rate": 0,
+        "availability": 1,
+    }
+    latency_path.write_text(
+        json.dumps({
+            "evidence_type": "live_latency_ttft_collection",
+            "dataset_id": "snapshot-test",
+            "runs": [latency_run, {**latency_run, "kind": "warm"}, {**latency_run, "kind": "concurrency"}],
+        }, sort_keys=True),
+        encoding="utf-8",
+    )
     return {
         "release_id": "snapshot-test",
+        "latency_evidence": {
+            "path": latency_path.name,
+            "sha256": hashlib.sha256(latency_path.read_bytes()).hexdigest(),
+        },
         "runs": [run, {**run, "kind": "warm"}, {**run, "kind": "concurrency"}],
         "human_adjudication": {
             "review_artifact": review_path.name,
@@ -96,3 +121,6 @@ def test_production_attestation_fails_closed_on_missing_or_bad_metrics(tmp_path:
     assert report["valid"] is False
     assert "runs[1].ttft_p95_seconds_exceeds_gate" in report["errors"]
     assert "human_adjudication.catastrophic_errors_not_zero" in report["errors"]
+    value["latency_evidence"]["sha256"] = "b" * 64
+    report = validate_attestation(value, base_dir=tmp_path)
+    assert "latency_evidence.hash_mismatch" in report["errors"]
