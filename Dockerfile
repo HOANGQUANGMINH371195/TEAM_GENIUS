@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # ---- Stage 1: Build ----
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.11-slim-trixie AS builder
 
 WORKDIR /app
 ENV VIRTUAL_ENV=/opt/venv
@@ -19,7 +19,7 @@ RUN python -m venv "${VIRTUAL_ENV}" \
 # Keep the runtime on the same CPython minor as the locked wheels, but refresh
 # Debian security metadata during the image build.  Build tools are removed
 # from the final layer and the process runs as the dedicated non-root user.
-FROM python:3.11-slim-bookworm
+FROM python:3.11-slim-trixie
 
 RUN apt-get update \
     && apt-get dist-upgrade -y \
