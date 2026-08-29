@@ -84,7 +84,7 @@ def deploy_vercel(path: Path) -> int:
         )
     if not token:
         probe = subprocess.run(
-            ["npx", "--yes", "vercel", "whoami", "--cwd", "web"],
+            ["npx", "--yes", "vercel", "whoami"],
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -92,7 +92,10 @@ def deploy_vercel(path: Path) -> int:
         )
         if probe.returncode != 0:
             raise SystemExit("No Vercel CLI session found; run `vercel login` or set VERCEL_TOKEN.")
-    command = ["npx", "--yes", "vercel", "deploy", "--prod", "--cwd", "web", "--yes"]
+    # The existing Vercel project owns `web/` as its configured rootDirectory.
+    # Run from the repository root; passing `--cwd web` makes the CLI resolve
+    # that project root as `web/web` and fail before a deployment is created.
+    command = ["npx", "--yes", "vercel", "deploy", "--prod", "--yes"]
     if project:
         command.extend(["--project", project])
     print("Starting Vercel production deploy for web/...")
