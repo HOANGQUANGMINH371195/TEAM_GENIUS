@@ -80,12 +80,13 @@ không tắt readiness, xóa mù hoặc fallback thành dữ liệu không có c
 Smoke 7 câu và suite độc lập 100 câu đã chạy read-only bằng `gpt-5.6-luna`,
 PostgreSQL/Qdrant/Neo4j managed thật, release
 `snapshot-c439751724ab7f10`, collection vật lý theo release. Smoke đạt 6/7;
-100 câu đạt 75/100 deterministic pass, P50 11,93 giây và P95 20,59 giây. Usage
-thực của 100 câu là 350.460 input và 26.885 output tokens; cost generation
-ledger là $0,102354 theo rate model, chưa gồm embedding/cache/discount. Đây là
-đo usage tái lập được chứ không phải hóa đơn billing. Hai patch authority
-scoping/anchor cải thiện 73/100 lên 75/100 nhưng vẫn còn 25 lỗi cơ học và tail
-latency cao. Kiến trúc vì vậy **chưa production-ready**; blocker nằm ở
+hai lượt 100 câu đạt 74--75/100 deterministic pass, P50 11,33--11,93 giây và
+P95 20,59--20,98 giây. Usage thực mỗi lượt khoảng 341--350 nghìn input và
+26,9--27,7 nghìn output tokens; cost generation ledger $0,101424--$0,102354
+theo rate model, chưa gồm embedding/cache/discount. Đây là đo usage tái lập được
+chứ không phải hóa đơn billing. Các patch authority scoping/anchor và chống DB
+stampede cải thiện recall nhưng vẫn còn 25--26 lỗi cơ học và tail latency cao.
+Kiến trúc vì vậy **chưa production-ready**; blocker nằm ở
 release-scoped recall/rerank, SQL hydration, projection bảng trống, Neo4j parity,
 observability và recovery, không phải ở việc thiếu thêm graph framework.
 

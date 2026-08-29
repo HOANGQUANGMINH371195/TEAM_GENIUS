@@ -159,6 +159,12 @@ class GraphRagRuntime:
         self._community_index_cache: tuple[str, int, str, tuple[CommunitySummary, ...]] | None = None
         self._experience_index_cache: tuple[str, int, str, ExperienceIndex] | None = None
         self._authority_document_cache: dict[str, tuple[list[str], float]] = {}
+        # Concurrent high-risk requests should share the release-scoped
+        # authority seed instead of stampeding managed PostgreSQL with the
+        # same metadata scan.  The lock is intentionally narrow and only
+        # protects this bounded candidate lookup; passage retrieval remains
+        # concurrent.
+        self._authority_document_lock = asyncio.Lock()
 
     def _get_embeddings(self) -> EmbeddingModel:
         if self._embeddings is None:
@@ -517,6 +523,23 @@ class GraphRagRuntime:
             raise GraphRagUnavailableError("No active dataset is available")
         self._active_release = (release[0], release[1], now)
         return release
+
+    async def _current_authority_ids(
+        self, repository: GraphRepository, *, query: str, dataset_id: str, limit: int
+    ) -> list[str]:
+        """Return a cached current-authority seed without a DB stampede."""
+        cached = self._authority_document_cache.get(dataset_id)
+        if cached and time.monotonic() - cached[1] < 300:
+            return list(cached[0])
+        async with self._authority_document_lock:
+            cached = self._authority_document_cache.get(dataset_id)
+            if cached and time.monotonic() - cached[1] < 300:
+                return list(cached[0])
+            ids = await repository.current_authority_document_ids(
+                query, dataset_id=dataset_id, limit=limit
+            )
+            self._authority_document_cache[dataset_id] = (list(ids), time.monotonic())
+            return list(ids)
 
     async def _resolve_qdrant_release(
         self,
@@ -981,21 +1004,15 @@ class GraphRagRuntime:
                     # passage matcher/reranker decide relevance. This is not
                     # a question-to-document answer mapping and is still
                     # bounded to the current release.
-                    cached_authority = self._authority_document_cache.get(dataset_id)
-                    if cached_authority and time.monotonic() - cached_authority[1] < 300:
-                        current_authority_ids = list(cached_authority[0])
-                    else:
-                        try:
-                            current_authority_ids = await repository.current_authority_document_ids(
-                                query,
-                                dataset_id=dataset_id,
-                                limit=min(8, settings.retrieval_candidate_k),
-                            )
-                            self._authority_document_cache[dataset_id] = (
-                                list(current_authority_ids), time.monotonic()
-                            )
-                        except Exception:
-                            current_authority_ids = []
+                    try:
+                        current_authority_ids = await self._current_authority_ids(
+                            repository,
+                            query=query,
+                            dataset_id=dataset_id,
+                            limit=min(8, settings.retrieval_candidate_k),
+                        )
+                    except Exception:
+                        current_authority_ids = []
                     authority_document_ids = list(current_authority_ids)
                     document_recall_ids = list(
                         dict.fromkeys([*current_authority_ids, *document_recall_ids])

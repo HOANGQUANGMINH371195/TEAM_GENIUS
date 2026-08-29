@@ -156,18 +156,21 @@ retrieval thường ở khoảng 8--12 giây; generation live làm toàn request
 `snapshot-c439751724ab7f10` và collection vật lý
 `medical_legal_hybrid_snapshot-c439751724ab7f10`. Smoke 7 câu sau patch đạt
 **6/7** deterministic gate; ca còn lại thiếu đúng văn bản trong danh sách
-authority chấp nhận của fixture, không phải lỗi lộ ID hay raw chunk. Suite độc
-lập 100 câu đạt **75/100** deterministic pass, **P50 11,93 giây / P95 20,59
-giây**. Provider usage thực của 100 câu là **350.460 input + 26.885 output
-tokens**; chi phí generation tính theo bảng giá model là **$0,102354** (chưa
+authority chấp nhận của fixture, không phải lỗi lộ ID hay raw chunk. Hai lượt
+suite độc lập 100 câu đạt **74--75/100** deterministic pass, **P50 11,33--11,93
+giây / P95 20,59--20,98 giây**. Provider usage thực mỗi lượt khoảng
+**341--350 nghìn input + 26,9--27,7 nghìn output tokens**; chi phí generation
+tính theo bảng giá model là **$0,101424--$0,102354** (chưa
 bao gồm embedding, cache hoặc chiết khấu billing). Các con số này là usage/rate
 ledger tái lập được, không phải hóa đơn billing.
 
 Patch `2619ba6` giới hạn high-risk lexical/dense recall vào tập current-authority
 được truy vấn động; patch `4064177` giữ một canonical authority anchor cho mỗi
-candidate. Hai patch cải thiện live suite từ 73/100 lên 75/100 và giảm P95 từ
-21,72 xuống 20,59 giây, nhưng chưa đạt SLO hoặc chứng minh độ đúng pháp lý ổn
-định. Report gốc được lưu ở `/tmp/p151-live-market-100-20260829-r3.json` và
+candidate; patch hiện tại còn chống DB stampede bằng lock/cache authority theo
+release. Điểm live dao động 74--75/100 và tail chưa đạt SLO, nên chưa chứng minh
+độ đúng pháp lý ổn định. Report được lưu ở
+`/tmp/p151-live-market-100-20260829-r3.json`,
+`/tmp/p151-live-market-100-20260829-r4.json` và
 `/tmp/p151-live-critical-7-20260829-r3.json`; mọi citation/fact vẫn cần reviewer
 pháp lý độc lập.
 
@@ -222,7 +225,7 @@ bản trôi chảy.
 | Qdrant/Neo4j connectivity | Qdrant readiness đã pass nhờ resolver; Neo4j parity chưa đạt | Ghi physical locator chuẩn và reconcile Neo4j theo manifest; chạy parity report |
 | Langfuse prompt/trace | Adapter fail-open + OTel exporter đã có | Tạo/pin prompt thật, kiểm tra collector, redaction và lineage |
 | Prometheus/Grafana/Nginx/Valkey/Ansible | Artifact đã có, chưa có evidence host | Bootstrap EC2, TLS, readiness, dashboard và restart drill |
-| Accuracy/latency/cost | **Đang fail live gate**: suite 100 câu thật đạt 75/100, P50 11,93s, P95 20,59s; còn 25 lỗi cơ học và chưa có cold/warm/concurrency ổn định | Ổn định recall/citation, reviewer fact, đạt SLO qua lặp cold/warm/concurrency và lưu cost ledger |
+| Accuracy/latency/cost | **Đang fail live gate**: hai lượt suite 100 câu thật đạt 74--75/100, P50 11,33--11,93s, P95 20,59--20,98s; còn 25--26 lỗi cơ học | Ổn định recall/citation, reviewer fact, đạt SLO qua lặp cold/warm/concurrency và lưu cost ledger |
 | Security/rollback/restore | Gitleaks/Trivy/SBOM local pass (0 HIGH/CRITICAL, 4 SBOM: API/web/migrate/research-worker); rollback/restore drill thật chưa có | Giữ scan artifact theo digest, chạy restore và rollback evidence trên host |
 
 Không blocker nào trong bảng này được giải quyết bằng cách xóa dữ liệu đang phục
