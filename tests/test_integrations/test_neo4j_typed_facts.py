@@ -11,6 +11,9 @@ class _Result:
     async def data(self):
         return self.rows
 
+    async def single(self):
+        return self.rows[0] if self.rows else None
+
 
 class _Session:
     def __init__(self, rows):
@@ -120,3 +123,15 @@ async def test_typed_fact_projection_rejects_unreviewed_or_unanchored_facts():
     )
     with pytest.raises(ValueError, match="source span"):
         await store.upsert_legal_facts([unanchored])
+
+
+@pytest.mark.asyncio
+async def test_readiness_accepts_additive_audit_nodes_and_edges():
+    store, session = _store([{"node_count": 1917, "relationship_count": 213}])
+
+    assert await store.readiness(
+        dataset_id="snapshot-1",
+        expected_nodes=1901,
+        expected_approved_edges=187,
+    ) is True
+    assert session.params["dataset_id"] == "snapshot-1"

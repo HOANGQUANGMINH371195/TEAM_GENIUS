@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 from src.config import get_settings
 from src.domain.facts import LegalFact
 from src.models.graph import Relation
+
+logger = logging.getLogger(__name__)
 
 
 class Neo4jGraphStore:
@@ -18,7 +21,15 @@ class Neo4jGraphStore:
             raise RuntimeError("NEO4J_URI and NEO4J_PASSWORD are required")
         self.database = settings.neo4j_database
         self.driver = AsyncGraphDatabase.driver(
-            settings.neo4j_uri, auth=(settings.neo4j_username, settings.neo4j_password)
+            settings.neo4j_uri,
+            auth=(settings.neo4j_username, settings.neo4j_password),
+            # Keep Aura connection management deliberately small.  The graph
+            # is an optional navigation projection, not a request-sized pool.
+            max_connection_pool_size=10,
+            connection_timeout=5.0,
+            connection_acquisition_timeout=5.0,
+            max_transaction_retry_time=5.0,
+            keep_alive=True,
         )
 
     async def verify_connectivity(self) -> None:
@@ -50,9 +61,28 @@ class Neo4jGraphStore:
             return False
         node_count = int(row["node_count"])
         relationship_count = int(row["relationship_count"])
-        if expected_nodes is not None and node_count != expected_nodes:
+        # A release projection can be safely additive: a reconciler may have
+        # retained audit-only nodes/edges from the same immutable release.
+        # Requiring exact equality made harmless graph drift turn `/ready`
+        # red and blocked the whole API, even though the approved evidence
+        # subgraph was queryable.  Lower bounds still catch a partial or empty
+        # projection while allowing the graph to serve during reconciliation.
+        if expected_nodes is not None and node_count < expected_nodes:
+            logger.warning(
+                "Neo4j release has fewer nodes than its contract (dataset=%s actual=%s expected_min=%s)",
+                dataset_id,
+                node_count,
+                expected_nodes,
+            )
             return False
-        if expected_approved_edges is not None and relationship_count != expected_approved_edges:
+        if expected_approved_edges is not None and relationship_count < expected_approved_edges:
+            logger.warning(
+                "Neo4j release has fewer approved edges than its contract "
+                "(dataset=%s actual=%s expected_min=%s)",
+                dataset_id,
+                relationship_count,
+                expected_approved_edges,
+            )
             return False
         return node_count > 0 and relationship_count > 0
 
