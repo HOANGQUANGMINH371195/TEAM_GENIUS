@@ -269,6 +269,129 @@ class ReviewDecisionRequest(ApiModel):
     note: str = Field(default="", max_length=2000)
 
 
+class VbplDiscoveryItem(ApiModel):
+    """Một VBPL từ danh sách phát hiện mới nhất."""
+    model_config = ConfigDict(extra="allow")
+
+    doc_id: str
+    title: str = ""
+    so_ky_hieu: str = ""
+    issue_date: str = ""
+    issuing_body: str = ""
+    doc_type: str = ""
+    legal_status: str = ""
+    summary: str = ""
+    is_health_related: bool = False
+    ingestion_status: Literal["not_imported", "queued", "running", "succeeded", "partial", "failed"] = "not_imported"
+
+
+class VbplDiscoveryResponse(ApiModel):
+    items: list[VbplDiscoveryItem] = Field(default_factory=list)
+    last_synced_at: datetime | None = None
+    stale: bool = True
+    refresh_status: Literal["idle", "queued", "running", "succeeded", "failed"] = "idle"
+
+
+class VbplRefreshResponse(ApiModel):
+    refresh_id: str
+    status: Literal["queued", "running", "succeeded", "failed"]
+    poll_url: str = ""
+
+
+class VbplStage(ApiModel):
+    stage: Literal["database", "embedding", "relationships"]
+    status: Literal["pending", "running", "succeeded", "failed", "skipped"]
+    attempt: int = 0
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    error_code: str = ""
+    error: str = ""
+    retryable: bool = False
+
+
+class VbplIngestItem(ApiModel):
+    doc_id: str
+    status: Literal["queued", "running", "succeeded", "partial", "failed"]
+    current_stage: Literal["database", "embedding", "relationships"]
+    chunks_count: int = 0
+    error: str = ""
+    stages: list[VbplStage] = Field(default_factory=list)
+
+
+class VbplIngestJob(ApiModel):
+    job_id: str
+    dataset_id: str
+    status: Literal["queued", "running", "succeeded", "partial", "failed"]
+    requested_by: str = ""
+    trigger: Literal["manual", "daily", "retry"] = "manual"
+    total_items: int = 0
+    succeeded_items: int = 0
+    failed_items: int = 0
+    error: str = ""
+    poll_url: str = ""
+    created_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    items: list[VbplIngestItem] = Field(default_factory=list)
+
+
+class VbplIngestAccepted(ApiModel):
+    job_id: str
+    dataset_id: str
+    status: Literal["queued", "running", "succeeded", "partial", "failed"]
+    poll_url: str = ""
+
+
+class VbplSyncStatus(ApiModel):
+    refresh_id: str
+    status: Literal["queued", "running", "succeeded", "failed"]
+    poll_url: str = ""
+    error: str = ""
+    items_count: int = 0
+    last_synced_at: datetime | None = None
+
+
+class VbplRetryRequest(ApiModel):
+    from_stage: Literal["database", "embedding", "relationships"] | None = None
+
+
+class VbplDocumentDetail(ApiModel):
+    """Chi tiết VBPL từ MOJ Gateway."""
+    model_config = ConfigDict(extra="allow")
+
+    doc_id: str
+    title: str = ""
+    so_ky_hieu: str = ""
+    content_html: str = ""
+    relationships: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class VbplIngestRequest(ApiModel):
+    """Request body để ingest VBPL vào kho tri thức."""
+    doc_ids: list[str] = Field(..., min_length=1, max_length=10)
+
+
+class VbplIngestResult(ApiModel):
+    """Kết quả ingest từng VBPL."""
+    doc_id: str
+    status: Literal["success", "partial", "failed"]
+    supabase: Literal["success", "skipped", "failed"] = "skipped"
+    qdrant: Literal["success", "skipped", "failed"] = "skipped"
+    neo4j: Literal["success", "skipped", "failed"] = "skipped"
+    error: str = ""
+    chunks_count: int = 0
+
+
+class VbplIngestResponse(ApiModel):
+    """Response cho batch ingest."""
+    results: list[VbplIngestResult] = Field(default_factory=list)
+    total: int = 0
+    success: int = 0
+    failed: int = 0
+
+
 class AgentStatusResponse(ApiModel):
     status: str = Field(..., description="Trạng thái agent.")
     agent: str = Field(..., description="Tên và phiên bản agent.")

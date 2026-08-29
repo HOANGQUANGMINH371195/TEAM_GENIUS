@@ -22,6 +22,7 @@ from src.api.limits import (
     RedisRateLimiter,
 )
 from src.api.routes import close_research_queue, router
+from src.api.vbpl_routes import router as vbpl_router
 from src.config import get_settings
 from src.db.session import dispose_database
 from src.integrations.langfuse import configure_langfuse, flush_langfuse, tracing_enabled
@@ -261,6 +262,7 @@ async def unexpected_error_handler(request: Request, error: Exception):
 
 app.include_router(router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(vbpl_router, prefix="/api/v1")
 
 
 @app.get(

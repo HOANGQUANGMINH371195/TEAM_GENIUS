@@ -9,10 +9,11 @@ import { useReviewQueue } from "./review-context";
 type AdminIconName = "archive" | "chevron" | "graph" | "logout" | "queue" | "settings" | "shield" | "user";
 
 const unavailableModules: { label: string; description: string; icon: AdminIconName }[] = [
-  { label: "Kho văn bản nguồn", description: "Đang phát triển", icon: "archive" },
   { label: "Đồ thị tri thức", description: "Đang phát triển", icon: "graph" },
   { label: "Cài đặt hệ thống", description: "Đang phát triển", icon: "settings" },
 ];
+
+const vbplPath = "/admin/vbpl";
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -44,6 +45,10 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             <span><strong>Hàng đợi duyệt</strong><small>Review Queue</small></span>
             <em aria-label={`${pendingCount} bản chờ duyệt`}>{pendingCount}</em>
           </Link>
+          <Link className={`admin-shell-nav-item${pathname.startsWith(vbplPath) ? " is-active" : ""}`} href={vbplPath}>
+            <AdminIcon name="archive" />
+            <span><strong>Kho văn bản nguồn</strong><small>VBPL Discovery</small></span>
+          </Link>
           {unavailableModules.map((module) => (
             <button className="admin-shell-nav-item" key={module.label} type="button" disabled aria-disabled="true" title={`${module.label}: ${module.description}`}>
               <AdminIcon name={module.icon} />
@@ -61,7 +66,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       <div className="admin-shell-main">
         <header className="admin-shell-header">
           <nav className="admin-shell-breadcrumb" aria-label="Breadcrumb">
-            <span>Admin</span><AdminIcon name="chevron" /><span>Duyệt tri thức</span><AdminIcon name="chevron" /><strong>{recordLabel}</strong>
+            <span>Admin</span><AdminIcon name="chevron" /><span>{pathname.startsWith(vbplPath) ? "Kho văn bản nguồn" : "Duyệt tri thức"}</span><AdminIcon name="chevron" /><strong>{pathname.startsWith(vbplPath) ? "VBPL Discovery" : recordLabel}</strong>
           </nav>
           <div className="admin-shell-header-actions">
             <span className="admin-dataset-tag">Local Dataset v0.1</span>

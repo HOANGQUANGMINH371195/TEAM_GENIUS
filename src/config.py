@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     rate_limit_redis_url: str = ""
     conversation_cache_ttl_seconds: int = Field(default=120, ge=10, le=3600)
     conversation_cache_max_turns: int = Field(default=10, ge=1, le=20)
+    vbpl_discovery_ttl_seconds: int = Field(default=172800, ge=300, le=604800)
+    vbpl_session_ttl_seconds: int = Field(default=86400, ge=300, le=604800)
+    vbpl_sync_ttl_seconds: int = Field(default=86400, ge=300, le=604800)
     cost_quota_units: int = Field(default=100_000, ge=1_000, le=10_000_000)
     cost_quota_window_seconds: int = Field(default=86_400, ge=60, le=31_536_000)
     metrics_token: str = ""
@@ -65,6 +68,9 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(default=10, ge=0)
     db_pool_timeout: int = Field(default=30, ge=1)
     db_connect_timeout: int = Field(default=10, ge=1)
+    db_connect_retries: int = Field(default=3, ge=1, le=5)
+    db_retry_base_seconds: float = Field(default=0.25, ge=0, le=5)
+    db_ssl_mode: Literal["auto", "require", "prefer", "disable"] = "auto"
     db_pool_recycle: int = Field(default=1800, ge=60)
 
     neo4j_uri: str = ""

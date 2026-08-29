@@ -2,14 +2,27 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Sequence
+from contextlib import asynccontextmanager
+from typing import Any
 
 from src.config import get_settings
 from src.domain.facts import LegalFact
 from src.models.graph import Relation
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _session_context(driver: Any, **kwargs: Any):
+    """Normalize Neo4j session factories before entering context."""
+    session = driver.session(**kwargs)
+    if inspect.isawaitable(session):
+        session = await session
+    async with session:
+        yield session
 
 
 class Neo4jGraphStore:
@@ -35,6 +48,10 @@ class Neo4jGraphStore:
     async def verify_connectivity(self) -> None:
         await self.driver.verify_connectivity()
 
+    def session_context(self, **kwargs: Any):
+        """Return normalized session context for callers that need a session."""
+        return _session_context(self.driver, **kwargs)
+
     async def readiness(
         self,
         *,
@@ -43,7 +60,7 @@ class Neo4jGraphStore:
         expected_approved_edges: int | None = None,
     ) -> bool:
         """Check release-scoped node/edge counts, not connectivity alone."""
-        async with self.driver.session(database=self.database) as session:
+        async with _session_context(self.driver, database=self.database) as session:
             result = await session.run(
                 """
                 MATCH (n)
@@ -107,7 +124,7 @@ class Neo4jGraphStore:
         UNWIND path AS rel
         RETURN startNode(rel).id AS source_id,
                startNode(rel).name AS source_name,
-               type(rel) AS relation_type,
+               coalesce(rel.relationship_type, type(rel)) AS relation_type,
                endNode(rel).id AS target_id,
                endNode(rel).name AS target_name,
                coalesce(rel.relationship_type, '') AS description,
@@ -116,7 +133,7 @@ class Neo4jGraphStore:
                CASE WHEN startNode(rel).id IN $ids THEN 'outbound' ELSE 'inbound' END AS direction
         LIMIT $limit
         """
-        async with self.driver.session(database=self.database) as session:
+        async with _session_context(self.driver, database=self.database) as session:
             result = await session.run(
                 query,
                 ids=list(entity_names),
@@ -301,3 +318,6 @@ class Neo4jGraphStore:
 
     async def close(self) -> None:
         await self.driver.close()
+
+
+__all__ = ["Neo4jGraphStore"]

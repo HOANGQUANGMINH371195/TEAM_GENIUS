@@ -62,17 +62,31 @@ function idempotencyKey(context: ChatTurnContext): string {
 type ApiError = {
   code?: string;
   message?: string;
+  request_id?: string;
 };
+
+export class AdminApiError extends Error {
+  readonly code: string;
+  readonly requestId: string;
+
+  constructor(message: string, code = "", requestId = "") {
+    super(message);
+    this.name = "AdminApiError";
+    this.code = code;
+    this.requestId = requestId;
+  }
+}
 
 async function adminRequest(path: string, init: RequestInit = {}): Promise<Response> {
   const authHeaders = await authorizationHeaders();
-  let response = await fetch(`${apiUrl}${path}`, {
+  const url = /^https?:\/\//i.test(path) ? path : `${apiUrl}${path}`;
+  let response = await fetch(url, {
     ...init,
     headers: { "Content-Type": "application/json", ...authHeaders, ...(init.headers ?? {}) },
   });
   if (response.status === 401) {
     const refreshedHeaders = await authorizationHeaders(true);
-    response = await fetch(`${apiUrl}${path}`, {
+    response = await fetch(url, {
       ...init,
       headers: { "Content-Type": "application/json", ...refreshedHeaders, ...(init.headers ?? {}) },
     });
@@ -312,10 +326,7 @@ export async function sendChatMessageStream(
   }
   if (!response.ok || !response.body) {
     const error = (await response.json().catch(() => null)) as ApiError | null;
-    if (response.status === 401) {
-      throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại rồi thử lại.");
-    }
-    throw new Error(error?.message ?? `MediPay Agent không khả dụng (HTTP ${response.status})`);
+    throw new Error(error?.message ?? "Không thể kết nối MediPay Agent");
   }
 
   const reader = response.body.getReader();
@@ -360,13 +371,7 @@ export async function sendChatMessageStream(
         turn_id: payload.turn_id,
       };
     }
-    if (payload.type === "error") {
-      throw new Error(
-        payload.code === "retrieval_timeout"
-          ? "Kho dữ liệu đang phản hồi chậm. Vui lòng thử lại sau ít giây."
-          : payload.message,
-      );
-    }
+    if (payload.type === "error") throw new Error(payload.message);
   };
   while (true) {
     const chunk = await reader.read();
@@ -398,3 +403,180 @@ function isChatResponse(payload: unknown): payload is ChatResponse {
     Array.isArray(candidate.citations)
   );
 }
+
+// VBPL discovery and asynchronous ingestion contracts.
+export type VbplDocumentDetail = {
+  doc_id: string;
+  title: string;
+  so_ky_hieu: string;
+  content_html: string;
+  relationships: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+};
+
+export type VbplDiscoveryItem = {
+  doc_id: string;
+  title: string;
+  so_ky_hieu: string;
+  issue_date: string;
+  issuing_body: string;
+  doc_type: string;
+  legal_status: string;
+  summary: string;
+  is_health_related?: boolean;
+  ingestion_status?: "not_imported" | "queued" | "running" | "succeeded" | "partial" | "failed";
+};
+
+export type VbplRefreshStatus = "idle" | "queued" | "running" | "succeeded" | "failed";
+
+export type VbplDiscoveryEnvelope = {
+  items: VbplDiscoveryItem[];
+  last_synced_at: string | null;
+  stale: boolean;
+  refresh_status: VbplRefreshStatus;
+};
+
+export type VbplSyncResponse = {
+  refresh_id: string;
+  status: Exclude<VbplRefreshStatus, "idle">;
+  poll_url: string;
+};
+
+export type VbplStageName = "database" | "embedding" | "relationships";
+export type VbplStageStatus = "pending" | "running" | "succeeded" | "failed" | "skipped";
+
+export type VbplStage = {
+  stage: VbplStageName;
+  status: VbplStageStatus;
+  attempt: number;
+  metrics: Record<string, unknown>;
+  error: string;
+  retryable: boolean;
+  started_at?: string | null;
+  finished_at?: string | null;
+};
+
+export type VbplIngestItem = {
+  doc_id: string;
+  status: "queued" | "running" | "succeeded" | "partial" | "failed";
+  current_stage?: VbplStageName;
+  chunks_count?: number;
+  error?: string;
+  stages: VbplStage[] | Record<VbplStageName, VbplStage>;
+};
+
+export type VbplIngestJob = {
+  job_id: string;
+  dataset_id: string;
+  status: "queued" | "running" | "succeeded" | "partial" | "failed";
+  requested_by?: string;
+  trigger?: "manual" | "daily" | "retry";
+  total_items?: number;
+  succeeded_items?: number;
+  failed_items?: number;
+  error?: string;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  poll_url?: string;
+  items: VbplIngestItem[];
+};
+
+export type VbplIngestAccepted = {
+  job_id: string;
+  dataset_id: string;
+  status: "queued" | "running" | "succeeded" | "partial" | "failed";
+  poll_url: string;
+};
+
+export type VbplRetryRequest = { from_stage?: VbplStageName };
+export type VbplJobReference = VbplIngestAccepted & { items?: VbplIngestItem[] };
+
+async function readAdminError(response: Response, fallback: string): Promise<AdminApiError> {
+  const error = (await response.json().catch(() => null)) as (ApiError & { detail?: string }) | null;
+  const message = error?.message ?? error?.detail ?? `${fallback} (HTTP ${response.status})`;
+  return new AdminApiError(message, error?.code ?? "", error?.request_id ?? "");
+}
+
+async function adminJson<T>(pathOrUrl: string, init: RequestInit, fallback: string): Promise<T> {
+  const response = await adminRequest(pathOrUrl, init);
+  if (!response.ok) throw await readAdminError(response, fallback);
+  return (await response.json()) as T;
+}
+
+// VBPL API functions.
+export async function fetchVbplDiscover(): Promise<VbplDiscoveryEnvelope> {
+  return adminJson<VbplDiscoveryEnvelope>(
+    "/api/v1/auth/admin/vbpl/discover",
+    {},
+    "Không thể tải danh sách văn bản mới",
+  );
+}
+
+export async function startVbplSync(): Promise<VbplSyncResponse> {
+  return adminJson<VbplSyncResponse>(
+    "/api/v1/auth/admin/vbpl/sync",
+    { method: "POST" },
+    "Không thể bắt đầu đồng bộ VBPL",
+  );
+}
+
+function resolveApiPath(value: string, build: (id: string) => string): string {
+  // Backend may return a full URL, an API path, or a bare ID. Only the bare
+  // ID needs the API prefix; path values are used verbatim.
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("/api/")) return value;
+  return build(value);
+}
+
+export async function fetchVbplSyncStatus(refreshIdOrUrl: string): Promise<VbplSyncResponse> {
+  return adminJson<VbplSyncResponse>(
+    resolveApiPath(refreshIdOrUrl, (id) => `/api/v1/auth/admin/vbpl/sync/${encodeURIComponent(id)}`),
+    {},
+    "Không thể kiểm tra tiến trình đồng bộ",
+  );
+}
+
+export async function fetchVbplDetail(docId: string): Promise<VbplDocumentDetail> {
+  return adminJson<VbplDocumentDetail>(
+    `/api/v1/auth/admin/vbpl/detail/${encodeURIComponent(docId)}`,
+    {},
+    "Không thể tải chi tiết văn bản",
+  );
+}
+
+export async function ingestVbplDocuments(docIds: string[]): Promise<VbplIngestAccepted> {
+  return adminJson<VbplIngestAccepted>(
+    "/api/v1/auth/admin/vbpl/ingest",
+    { method: "POST", body: JSON.stringify({ doc_ids: docIds }) },
+    "Không thể thêm văn bản vào kho tri thức",
+  );
+}
+
+export async function fetchVbplJob(jobIdOrUrl: string): Promise<VbplIngestJob> {
+  return adminJson<VbplIngestJob>(
+    resolveApiPath(jobIdOrUrl, (id) => `/api/v1/auth/admin/vbpl/jobs/${encodeURIComponent(id)}`),
+    {},
+    "Không thể kiểm tra tiến trình nạp dữ liệu",
+  );
+}
+
+export async function retryVbplJob(
+  jobId: string,
+  fromStage?: VbplStageName,
+  docId?: string,
+): Promise<VbplJobReference> {
+  const path = docId
+    ? `/api/v1/auth/admin/vbpl/jobs/${encodeURIComponent(jobId)}/items/${encodeURIComponent(docId)}/retry`
+    : `/api/v1/auth/admin/vbpl/jobs/${encodeURIComponent(jobId)}/retry`;
+  return adminJson<VbplJobReference>(
+    path,
+    { method: "POST", body: JSON.stringify(fromStage ? { from_stage: fromStage } satisfies VbplRetryRequest : {}) },
+    "Không thể thử lại giai đoạn nạp dữ liệu",
+  );
+}
+
+export const syncVbpl = startVbplSync;
+export const getVbplSyncStatus = fetchVbplSyncStatus;
+export const getVbplJob = fetchVbplJob;
+export const retryVbplIngest = retryVbplJob;
