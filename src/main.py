@@ -21,10 +21,11 @@ from src.api.limits import (
     RedisCostQuota,
     RedisRateLimiter,
 )
-from src.api.routes import router
+from src.api.routes import close_research_queue, router
 from src.config import get_settings
 from src.db.session import dispose_database
 from src.integrations.langfuse import configure_langfuse, flush_langfuse, tracing_enabled
+from src.integrations.otel import configure_otel, otel_span, shutdown_otel
 from src.models.schemas import ErrorResponse, ReadinessResponse
 from src.services.chat import get_runtime
 from src.services.llm import close_llm
@@ -48,8 +49,12 @@ async def lifespan(app: FastAPI):
     _rate_limiter = _build_rate_limiter(settings)
     _cost_quota = _build_cost_quota(settings)
     configure_langfuse()
+    otel_configured = configure_otel()
     tracing = "enabled" if tracing_enabled() else "disabled"
-    print(f"Starting {settings.app_name} in {settings.app_env} mode (langfuse {tracing})")
+    print(
+        f"Starting {settings.app_name} in {settings.app_env} mode "
+        f"(langfuse {tracing}, otel {'enabled' if otel_configured else 'disabled'})"
+    )
     if settings.app_env != "test":
         await get_runtime().prewarm()
         # Populate the coalesced readiness cache before the first orchestrator
@@ -59,6 +64,8 @@ async def lifespan(app: FastAPI):
         await get_runtime().readiness()
     yield
     flush_langfuse()
+    shutdown_otel()
+    await close_research_queue()
     await get_runtime().close()
     if _rate_limiter is not None:
         await _rate_limiter.close()
@@ -89,7 +96,8 @@ app.add_middleware(
     allow_origins=[origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Request-ID", "Authorization"],
+    allow_headers=["Content-Type", "X-Request-ID", "Authorization", "Idempotency-Key"],
+    expose_headers=["X-Request-ID", "Idempotency-Key"],
 )
 
 
@@ -156,7 +164,16 @@ async def request_id_middleware(request: Request, call_next):
                 response.headers["Retry-After"] = str(settings.cost_quota_window_seconds)
                 response.headers["X-Request-ID"] = request_id
                 return response
-        response = await call_next(request)
+        with otel_span(
+            "http.server",
+            metadata={
+                "http_method": request.method,
+                "feature": "api",
+            },
+        ) as request_span:
+            response = await call_next(request)
+            if request_span is not None:
+                request_span.set_attribute("medipay.http_status_code", response.status_code)
     except _BodyLimitExceededError:
         response = _error_response(request, 413, "request_too_large", "Request body is too large")
         response.headers["X-Request-ID"] = request_id
@@ -177,6 +194,9 @@ async def request_id_middleware(request: Request, call_next):
         path=request.url.path,
     )
     response.headers["X-Request-ID"] = request_id
+    supplied_idempotency = getattr(request.state, "idempotency_key", "")
+    if supplied_idempotency:
+        response.headers["Idempotency-Key"] = supplied_idempotency
     return response
 
 
@@ -185,6 +205,7 @@ def _error_response(request: Request, status_code: int, code: str, message: str)
         code=code,
         message=message,
         request_id=getattr(request.state, "request_id", "unknown"),
+        retryable=status_code in {409, 429, 502, 503, 504},
     )
     return JSONResponse(status_code=status_code, content=body.model_dump(mode="json"))
 
@@ -224,6 +245,8 @@ async def validation_error_handler(request: Request, error: RequestValidationErr
 @app.exception_handler(HTTPException)
 async def http_error_handler(request: Request, error: HTTPException):
     code = {
+        400: "invalid_request",
+        409: "idempotency_conflict",
         502: "provider_unavailable",
         503: "dependency_unavailable",
     }.get(error.status_code, "internal_error")

@@ -23,7 +23,7 @@ def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--image", default="medipay-corpus-worker:latest")
+    parser.add_argument("--image", default="medipay-migrate:latest")
     args = parser.parse_args()
     suffix = uuid.uuid4().hex[:10]
     volume = f"medipay_migration_rehearsal_{suffix}"

@@ -17,4 +17,7 @@ COPY --from=builder --chown=65532:65532 \
     /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --chown=65532:65532 database/pipeline ./database/pipeline
 COPY --chown=65532:65532 database/corpus ./database/corpus
+# Distroless Python keeps its interpreter at /usr/bin; this image is the
+# offline corpus pipeline and is intentionally separate from the Slim runtime
+# images used by the API/migrator/worker.
 ENTRYPOINT ["/usr/bin/python3.11", "-m", "uvicorn", "data_pipeline.api:app", "--host", "0.0.0.0", "--port", "8000"]

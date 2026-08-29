@@ -28,6 +28,9 @@ def build_legal_claim(
     citation: Citation | None,
     verification: str,
     reason: str,
+    faithfulness: float = 0.0,
+    factuality: float = 0.0,
+    completeness: float = 0.0,
 ) -> LegalClaim:
     evidence_ids = (citation.chunk_id,) if citation and citation.chunk_id else ()
     source_spans = (
@@ -49,6 +52,9 @@ def build_legal_claim(
         source_hashes=source_hashes,
         verification=verification,
         reason=reason,
+        faithfulness=max(0.0, min(1.0, faithfulness)),
+        factuality=max(0.0, min(1.0, factuality)),
+        completeness=max(0.0, min(1.0, completeness)),
     )
 
 
@@ -69,4 +75,9 @@ def claim_dict(claim: LegalClaim) -> dict[str, object]:
         "source_hashes": list(claim.source_hashes),
         "verification": claim.verification,
         "reason": claim.reason,
+        "uncertainty": {
+            "faithfulness": claim.faithfulness,
+            "factuality": claim.factuality,
+            "completeness": claim.completeness,
+        },
     }

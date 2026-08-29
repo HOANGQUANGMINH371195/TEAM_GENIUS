@@ -1,0 +1,161 @@
+---
+- name: Bootstrap the MediPay single-host runtime
+  hosts: medipay
+  become: true
+  vars:
+    medipay_root: /opt/medipay
+    medipay_domain: example.com
+    medipay_api_image: ""
+    medipay_web_image: ""
+    medipay_migrate_image: ""
+    medipay_env_file: ""
+    medipay_metrics_token: ""
+    medipay_grafana_admin_password: ""
+  pre_tasks:
+    - name: Require immutable image digests and an external domain
+      ansible.builtin.assert:
+        that:
+          - medipay_api_image | length > 0
+          - medipay_web_image | length > 0
+          - medipay_migrate_image | length > 0
+          - "medipay_api_image is search('@sha256:')"
+          - "medipay_web_image is search('@sha256:')"
+          - "medipay_migrate_image is search('@sha256:')"
+          - medipay_domain != 'example.com'
+          - medipay_env_file | length > 0
+          - medipay_metrics_token | length >= 32
+          - medipay_grafana_admin_password | length >= 20
+        fail_msg: "Pass real domain, GHCR digests and secrets with --extra-vars/@vars-file."
+      tags: [deploy]
+    - name: Check that the ACME certificate is installed before starting TLS
+      ansible.builtin.stat:
+        path: "/opt/medipay/letsencrypt/live/{{ medipay_domain }}/{{ item }}"
+      loop:
+        - fullchain.pem
+        - privkey.pem
+      register: medipay_tls_files
+      tags: [deploy]
+    - name: Refuse a deployment with a missing certificate
+      ansible.builtin.assert:
+        that: "medipay_tls_files.results | selectattr('stat.exists', 'equalto', true) | list | length == 2"
+        fail_msg: "Issue the ACME certificate under /opt/medipay/letsencrypt before enabling the Compose service."
+      tags: [deploy]
+  tasks:
+    - name: Install host prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - docker.io
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+      tags: [host]
+
+    - name: Enable Docker
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+      tags: [host]
+
+    - name: Create runtime directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+      loop:
+        - "{{ medipay_root }}"
+        - "{{ medipay_root }}/compose"
+        - "{{ medipay_root }}/nginx"
+        - "{{ medipay_root }}/monitoring"
+        - "{{ medipay_root }}/letsencrypt"
+      tags: [host]
+
+    - name: Install immutable Compose definition
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../compose/production.yml"
+        dest: "{{ medipay_root }}/compose/production.yml"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install Nginx base configuration
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../nginx/nginx.conf"
+        dest: "{{ medipay_root }}/nginx/nginx.conf"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Render Nginx virtual host
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/nginx/medipay.conf.j2"
+        dest: "{{ medipay_root }}/nginx/medipay.conf"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install Prometheus configuration and alerts
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ medipay_root }}/monitoring/{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - {src: "{{ playbook_dir }}/../monitoring/prometheus.yml", dest: "prometheus.yml"}
+        - {src: "{{ playbook_dir }}/../monitoring/prometheus-alerts.yml", dest: "prometheus-alerts.yml"}
+
+    - name: Install production environment (secret values never logged)
+      ansible.builtin.copy:
+        content: "{{ medipay_env_file }}\nAPI_IMAGE={{ medipay_api_image }}\nWEB_IMAGE={{ medipay_web_image }}\nMIGRATION_IMAGE={{ medipay_migrate_image }}\nMEDIPAY_DOMAIN={{ medipay_domain }}\n"
+        dest: "{{ medipay_root }}/compose/.env"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Install monitoring secrets
+      ansible.builtin.copy:
+        content: "{{ item.value }}\n"
+        dest: "{{ medipay_root }}/{{ item.path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      loop:
+        - {path: "metrics-token", value: "{{ medipay_metrics_token }}"}
+        - {path: "grafana-admin-password", value: "{{ medipay_grafana_admin_password }}"}
+
+    - name: Install systemd unit
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/medipay.service.j2"
+        dest: /etc/systemd/system/medipay.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart MediPay
+
+    - name: Apply forward-only migrations once before enabling traffic
+      ansible.builtin.command:
+        cmd: docker compose --profile migration -f production.yml run --rm migrate
+        chdir: "{{ medipay_root }}/compose"
+      changed_when: true
+      no_log: true
+
+    - name: Enable MediPay service
+      ansible.builtin.systemd:
+        name: medipay
+        enabled: true
+        state: started
+        daemon_reload: true
+
+  handlers:
+    - name: Restart MediPay
+      ansible.builtin.systemd:
+        name: medipay
+        state: restarted
+        daemon_reload: true

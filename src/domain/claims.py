@@ -32,3 +32,6 @@ class LegalClaim:
     source_hashes: tuple[str, ...] = field(default_factory=tuple)
     verification: str = "unsupported"
     reason: str = ""
+    faithfulness: float = 0.0
+    factuality: float = 0.0
+    completeness: float = 0.0

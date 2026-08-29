@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from uuid import UUID
 
 from sqlalchemy import text
@@ -180,6 +180,23 @@ class ConversationStore:
         conversation_key = _uuid(conversation_id, "conversation_id")
         bounded_limit = max(1, min(int(limit), MAX_HISTORY_TURNS))
         async with session_scope() as session:
+            try:
+                conversation = await session.execute(
+                    text(
+                        "SELECT facts FROM conversations "
+                        "WHERE owner_uid = :owner_uid AND conversation_id = :conversation_id "
+                        "AND deleted_at IS NULL"
+                    ),
+                    {"owner_uid": owner_uid, "conversation_id": conversation_key},
+                )
+                facts = conversation.scalar_one_or_none()
+            except ProgrammingError as exc:
+                if "facts" not in str(exc).casefold():
+                    raise
+                # Rolling deploy safety: preserve ordinary turn context while
+                # the additive facts migration is still being applied.
+                await session.rollback()
+                facts = None
             result = await session.execute(
                 text(
                     """
@@ -195,7 +212,80 @@ class ConversationStore:
             )
             rows = list(result.mappings())
         rows.reverse()
-        return [dict(row) for row in rows]
+        context = [dict(row) for row in rows]
+        if isinstance(facts, dict) and facts:
+            context.insert(0, {"user_facts": dict(facts)})
+        return context
+
+    async def upsert_facts(
+        self,
+        *,
+        owner_uid: str,
+        conversation_id: str,
+        facts: Mapping[str, object],
+        title: str = "Checklist điều kiện BHYT",
+        dataset_id: str = "",
+    ) -> bool:
+        """Replace the bounded structured-fact snapshot for one owner."""
+        if not owner_uid or not conversation_id:
+            return False
+        conversation_key = _uuid(conversation_id, "conversation_id")
+        if len(facts) > 32:
+            raise ConversationStoreError("too many structured facts")
+        payload = json.dumps(dict(facts), ensure_ascii=False, separators=(",", ":"))
+        if len(payload.encode("utf-8")) > 8_000:
+            raise ConversationStoreError("structured facts exceed the storage budget")
+        try:
+            async with session_scope() as session:
+                await session.execute(
+                    text(
+                        "INSERT INTO users(uid, email, display_name, photo_url, role) "
+                        "VALUES (:uid, '', '', '', 'user') ON CONFLICT (uid) DO NOTHING"
+                    ),
+                    {"uid": owner_uid},
+                )
+                existing = await session.execute(
+                    text("SELECT owner_uid FROM conversations WHERE conversation_id = :conversation_id"),
+                    {"conversation_id": conversation_key},
+                )
+                owner = existing.scalar_one_or_none()
+                if owner is None:
+                    await session.execute(
+                        text(
+                            "INSERT INTO conversations(conversation_id, owner_uid, title, active_dataset_id, facts) "
+                            "VALUES (:conversation_id, :owner_uid, :title, NULLIF(:dataset_id, ''), CAST(:facts AS jsonb))"
+                        ),
+                        {
+                            "conversation_id": conversation_key,
+                            "owner_uid": owner_uid,
+                            "title": title[:240],
+                            "dataset_id": dataset_id,
+                            "facts": payload,
+                        },
+                    )
+                elif str(owner) != owner_uid:
+                    raise ConversationStoreError("conversation does not belong to the authenticated user")
+                else:
+                    await session.execute(
+                        text(
+                            "UPDATE conversations SET facts = CAST(:facts AS jsonb), "
+                            "active_dataset_id = COALESCE(NULLIF(:dataset_id, ''), active_dataset_id) "
+                            "WHERE conversation_id = :conversation_id AND owner_uid = :owner_uid"
+                        ),
+                        {
+                            "conversation_id": conversation_key,
+                            "owner_uid": owner_uid,
+                            "dataset_id": dataset_id,
+                            "facts": payload,
+                        },
+                    )
+                await session.commit()
+                return True
+        except ProgrammingError as exc:
+            if "facts" in str(exc).casefold() or "conversation" in str(exc).casefold():
+                logger.warning("Conversation facts migration is unavailable; checklist remains stateless")
+                return False
+            raise
 
     async def list_conversations(self, *, owner_uid: str, limit: int = 50) -> list[dict]:
         bounded_limit = max(1, min(int(limit), 50))

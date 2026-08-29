@@ -4,10 +4,10 @@ import json
 from pathlib import Path
 
 from eval.golden_eval import (
+    _triggered_forbidden_claims,
     build_dataset,
     evaluate_answers,
     generate_actual_answers,
-    _triggered_forbidden_claims,
     validate_dataset,
 )
 

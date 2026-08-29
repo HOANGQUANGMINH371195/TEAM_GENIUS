@@ -20,6 +20,9 @@ export type ChatCitation = {
 export type ChatResponse = {
   response: string;
   citations: ChatCitation[];
+  request_id?: string;
+  conversation_id?: string;
+  turn_id?: string;
 };
 
 export type ReviewQueueItem = {
@@ -42,7 +45,7 @@ export type ReviewQueueItem = {
 
 export type ChatStreamEvent =
   | { type: "status"; stage: string }
-  | { type: "final"; response: string; citations: ChatCitation[] }
+  | { type: "final"; response: string; citations: ChatCitation[]; request_id?: string; conversation_id?: string; turn_id?: string }
   | { type: "done"; ok: boolean }
   | { type: "error"; code: string; message: string };
 
@@ -50,6 +53,11 @@ export type ChatTurnContext = {
   conversationId?: string;
   turnId?: string;
 };
+
+function idempotencyKey(context: ChatTurnContext): string {
+  if (context.turnId && context.turnId.length >= 8) return `turn-${context.turnId}`;
+  return globalThis.crypto?.randomUUID?.() ?? `turn-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 type ApiError = {
   code?: string;
@@ -70,6 +78,146 @@ async function adminRequest(path: string, init: RequestInit = {}): Promise<Respo
     });
   }
   return response;
+}
+
+export async function fetchDocumentHtml(documentNumber: string): Promise<string> {
+  const path = `/api/v1/documents/${documentNumber.split("/").map(encodeURIComponent).join("/")}/html`;
+  const response = await adminRequest(path, { headers: { Accept: "text/html" } });
+  if (!response.ok) throw new Error("Không thể tải văn bản nguồn");
+  return response.text();
+}
+
+export type LegalTimelineDocument = {
+  document_number: string;
+  title: string;
+  issued_at: string;
+  effective_from: string;
+  effective_to: string;
+  status: string;
+  source_url: string;
+  viewer_url: string;
+  state_at_date: "not_yet_effective" | "effective" | "expired" | "unknown";
+};
+
+export type LegalTimelineEvent = {
+  relation: string;
+  source_document_number: string;
+  target_document_number: string;
+  adverse: boolean;
+};
+
+export type LegalTimelineResponse = {
+  query_document: LegalTimelineDocument;
+  as_of: string;
+  documents: LegalTimelineDocument[];
+  events: LegalTimelineEvent[];
+  degraded: boolean;
+};
+
+export async function fetchLegalTimeline(
+  documentNumber: string,
+  asOf?: string,
+): Promise<LegalTimelineResponse> {
+  const query = new URLSearchParams({ document_number: documentNumber });
+  if (asOf) query.set("as_of", asOf);
+  const response = await adminRequest(`/api/v1/legal/timeline?${query.toString()}`);
+  if (!response.ok) throw new Error("Không thể tải dòng thời gian pháp lý");
+  return response.json() as Promise<LegalTimelineResponse>;
+}
+
+export type EligibilityTopic = "benefit" | "five_year" | "referral" | "emergency" | "student_contribution";
+
+export type EligibilityChecklistField = {
+  key: string;
+  label: string;
+  reason: string;
+  input_type: "text" | "date" | "number" | "boolean" | "select";
+  options: string[];
+};
+
+export type EligibilityChecklistResponse = {
+  topic: EligibilityTopic;
+  complete: boolean;
+  missing: EligibilityChecklistField[];
+  accepted_fact_keys: string[];
+  next_question: string;
+  legal_retrieval_required: boolean;
+  conversation_id: string;
+  facts_persisted: boolean;
+};
+
+export async function fetchEligibilityChecklist(
+  topic: EligibilityTopic,
+  facts: Record<string, string | boolean>,
+  conversationId = "",
+): Promise<EligibilityChecklistResponse> {
+  const response = await adminRequest("/api/v1/eligibility/checklist", {
+    method: "POST",
+    body: JSON.stringify({ topic, facts, conversation_id: conversationId }),
+  });
+  if (!response.ok) throw new Error("Không thể tạo checklist điều kiện");
+  return response.json() as Promise<EligibilityChecklistResponse>;
+}
+
+export type BenefitCalculationInput = {
+  covered_cost: string;
+  base_rate_percent: string;
+  copayment_spend?: string;
+  copayment_threshold?: string | null;
+  continuous_years?: string | null;
+  required_years?: string;
+  threshold_rate_percent?: string;
+  rule_provenance?: string[];
+};
+
+export type BenefitCalculationResult = {
+  covered_cost: string;
+  applied_rate_percent: string;
+  insurer_pays: string;
+  patient_pays: string;
+  threshold_met: boolean;
+  formula_id: string;
+  provenance: string[];
+};
+
+export async function compareBenefitScenarios(
+  scenarios: Array<{ label: string; calculation: BenefitCalculationInput }>,
+): Promise<{ results: Array<{ label: string; calculation: BenefitCalculationResult }> }> {
+  const response = await adminRequest("/api/v1/calculator/bhyt/scenarios", {
+    method: "POST",
+    body: JSON.stringify({ scenarios }),
+  });
+  if (!response.ok) throw new Error("Không thể tính các kịch bản BHYT");
+  return response.json() as Promise<{ results: Array<{ label: string; calculation: BenefitCalculationResult }> }>;
+}
+
+export type CalculatorDraftEvidence = {
+  title: string;
+  section_title: string;
+  quote: string;
+  source_url: string;
+};
+
+export type CalculatorDraftValue = {
+  value: string;
+  unit: "percent" | "vnd";
+  evidence_index: number;
+};
+
+export type CalculatorDraftResponse = {
+  question: string;
+  evidence: CalculatorDraftEvidence[];
+  values: CalculatorDraftValue[];
+  message: string;
+};
+
+export async function draftBenefitCalculation(question: string): Promise<CalculatorDraftResponse> {
+  const response = await adminRequest("/api/v1/calculator/bhyt/draft", {
+    method: "POST",
+    body: JSON.stringify({ question }),
+  });
+  if (!response.ok) throw new Error("Không thể lấy dữ liệu nguồn cho phép tính");
+  return response.json() as Promise<CalculatorDraftResponse>;
 }
 
 export async function fetchAdminReviews(status = "pending", domain = "all"): Promise<ReviewQueueItem[]> {
@@ -99,9 +247,10 @@ export async function sendChatMessage(
   signal?: AbortSignal,
 ): Promise<ChatResponse> {
   const authHeaders = await authorizationHeaders();
+  const requestIdempotencyKey = idempotencyKey(context);
   let response = await fetch(`${apiUrl}/api/v1/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders },
+    headers: { "Content-Type": "application/json", "Idempotency-Key": requestIdempotencyKey, ...authHeaders },
     body: JSON.stringify({ message, conversation_id: context.conversationId ?? "", turn_id: context.turnId ?? "" }),
     signal,
   });
@@ -109,7 +258,7 @@ export async function sendChatMessage(
     const refreshedHeaders = await authorizationHeaders(true);
     response = await fetch(`${apiUrl}/api/v1/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...refreshedHeaders },
+      headers: { "Content-Type": "application/json", "Idempotency-Key": requestIdempotencyKey, ...refreshedHeaders },
       body: JSON.stringify({ message, conversation_id: context.conversationId ?? "", turn_id: context.turnId ?? "" }),
       signal,
     });
@@ -135,9 +284,15 @@ export async function sendChatMessageStream(
   signal?: AbortSignal,
 ): Promise<ChatResponse> {
   const authHeaders = await authorizationHeaders();
+  const requestIdempotencyKey = idempotencyKey(context);
   let response = await fetch(`${apiUrl}/api/v1/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...authHeaders },
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      "Idempotency-Key": requestIdempotencyKey,
+      ...authHeaders,
+    },
     body: JSON.stringify({ message, conversation_id: context.conversationId ?? "", turn_id: context.turnId ?? "" }),
     signal,
   });
@@ -145,20 +300,30 @@ export async function sendChatMessageStream(
     const refreshedHeaders = await authorizationHeaders(true);
     response = await fetch(`${apiUrl}/api/v1/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...refreshedHeaders },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+        "Idempotency-Key": requestIdempotencyKey,
+        ...refreshedHeaders,
+      },
       body: JSON.stringify({ message, conversation_id: context.conversationId ?? "", turn_id: context.turnId ?? "" }),
       signal,
     });
   }
   if (!response.ok || !response.body) {
     const error = (await response.json().catch(() => null)) as ApiError | null;
-    throw new Error(error?.message ?? "Không thể kết nối MediPay Agent");
+    if (response.status === 401) {
+      throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại rồi thử lại.");
+    }
+    throw new Error(error?.message ?? `MediPay Agent không khả dụng (HTTP ${response.status})`);
   }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let final: ChatResponse | null = null;
+  const streamStartedAt = typeof performance === "undefined" ? 0 : performance.now();
+  let ttftRecorded = false;
   const consumeFrame = (frame: string) => {
     const eventLine = frame.split("\n").find((line) => line.startsWith("event:"));
     const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
@@ -171,11 +336,37 @@ export async function sendChatMessageStream(
     // event body in `data:`.  Reconstruct the discriminated client event here
     // instead of incorrectly expecting a duplicate `type` field in JSON.
     const payload = { type: eventType, ...JSON.parse(dataLine.slice(5).trimStart()) } as ChatStreamEvent;
+    if (!ttftRecorded) {
+      ttftRecorded = true;
+      const durationMs = streamStartedAt
+        ? Math.max(0, Math.round(performance.now() - streamStartedAt))
+        : 0;
+      // Local browser instrumentation only.  The event carries no prompt,
+      // answer, user identity, or credential; an app shell may consume it for
+      // a TTFT histogram without adding another network request to chat.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("medipay:stream-ttft", { detail: { durationMs } }),
+        );
+      }
+    }
     onEvent(payload);
     if (payload.type === "final") {
-      final = { response: payload.response, citations: payload.citations };
+      final = {
+        response: payload.response,
+        citations: payload.citations,
+        request_id: payload.request_id,
+        conversation_id: payload.conversation_id,
+        turn_id: payload.turn_id,
+      };
     }
-    if (payload.type === "error") throw new Error(payload.message);
+    if (payload.type === "error") {
+      throw new Error(
+        payload.code === "retrieval_timeout"
+          ? "Kho dữ liệu đang phản hồi chậm. Vui lòng thử lại sau ít giây."
+          : payload.message,
+      );
+    }
   };
   while (true) {
     const chunk = await reader.read();

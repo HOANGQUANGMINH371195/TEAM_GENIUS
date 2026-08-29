@@ -5,5 +5,6 @@ procedures. `ops/monitoring/` contains Prometheus alert rules. Use `make
 env-check`, `make deploy-contract` and the documented one-shot migration flow
 before changing a deployment contract.
 
-Render/Vercel operator credentials belong in an ignored `.env` or a platform
-secret manager; never put them in `.env.example` or logs.
+Vercel operator credentials belong in the local credential store; AWS runtime
+secrets belong in Ansible Vault or the ignored host `.env`. Never put them in
+`.env.example` or logs.

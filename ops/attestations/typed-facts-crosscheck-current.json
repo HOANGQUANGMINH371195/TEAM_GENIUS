@@ -1,0 +1,29 @@
+{
+  "artifact": "typed-facts-crosscheck-v1",
+  "checked_at": "2026-08-28",
+  "release_id": "snapshot-c439751724ab7f10",
+  "mutation": false,
+  "sources": [
+    "managed PostgreSQL via .env (read-only)",
+    "managed Neo4j via .env (read-only)",
+    "independent subagent inspection"
+  ],
+  "postgresql": {
+    "legal_facts_total": 0,
+    "accepted": 0,
+    "pending": 0,
+    "rejected": 0,
+    "review_queue_items": 0,
+    "review_audit_events": 0
+  },
+  "neo4j": {
+    "version": "5.27-aura",
+    "nodes": 1901,
+    "relationships": 5816,
+    "legal_fact_relationships": 0,
+    "fact_subject_labels": 0,
+    "fact_value_labels": 0,
+    "labels": {"Document": 1901}
+  },
+  "conclusion": "Ontology, schema, validator and importer exist, but no accepted typed BHYT facts are currently staged in PostgreSQL or projected into Neo4j."
+}

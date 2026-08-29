@@ -814,6 +814,18 @@ def _run_id() -> str:
 
 
 def generate_actual_answers(dataset_path: Path, output_path: Path, run_id: str) -> dict[str, Any]:
+    # Live evaluation must not depend on an external telemetry DNS endpoint.
+    # Keep a local, redacted trace instead; remote Langfuse can be explicitly
+    # opted into for a separate observability check.
+    if os.getenv("P151_EVAL_ALLOW_REMOTE_TRACING", "").casefold() not in {"1", "true", "yes"}:
+        os.environ["P151_EVAL_DISABLE_REMOTE_TRACING"] = "1"
+        for _name in (
+            "LANGFUSE_PUBLIC_KEY",
+            "LANGFUSE_SECRET_KEY",
+            "LANGFUSE_BASE_URL",
+            "LANGFUSE_HOST",
+        ):
+            os.environ.pop(_name, None)
     cases = _load_jsonl(dataset_path)
     mode = os.getenv("EVAL_AGENT_MODE", "").casefold()
     isolated = mode in {"isolated", "read_only"}
@@ -829,6 +841,23 @@ def generate_actual_answers(dataset_path: Path, output_path: Path, run_id: str) 
             if model_configured:
                 break
     records: list[dict[str, Any]] = []
+    local_trace_path = output_path.with_name(output_path.stem + ".trace.jsonl")
+
+    def write_local_trace(record: dict[str, Any]) -> None:
+        trace = {
+            "trace_id": record.get("trace_id"),
+            "case_id": record.get("case_id"),
+            "status": record.get("status"),
+            "latency_ms": record.get("latency_ms"),
+            "retrieved_count": len(record.get("retrieved_contexts") or []),
+            "citation_count": len((record.get("structured_output") or {}).get("citations") or []),
+            "error_type": str(record.get("error") or "").split(":", 1)[0] or None,
+        }
+        with local_trace_path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(_canonical_json(trace) + "\n")
+
+    local_trace_path.parent.mkdir(parents=True, exist_ok=True)
+    local_trace_path.write_text("", encoding="utf-8")
     if not isolated or not model_configured:
         reason = "isolated/read_only agent mode is not enabled"
         if not model_configured:
@@ -998,6 +1027,8 @@ def generate_actual_answers(dataset_path: Path, output_path: Path, run_id: str) 
                 )
 
         asyncio.run(run_all())
+    for record in records:
+        write_local_trace(record)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="\n") as handle:
         for record in records:

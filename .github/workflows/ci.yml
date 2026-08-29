@@ -8,10 +8,12 @@ on:
 
 jobs:
   lint-and-test:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -57,14 +59,57 @@ jobs:
           NEXT_PUBLIC_FIREBASE_APP_ID: 1:000000000000:web:test
 
       - name: Build production container
-        run: docker build --pull --tag medipay-api:ci .
+        # The runtime image performs a Debian security upgrade.  Do not reuse
+        # a cached RUN layer, otherwise a newly disclosed fixed package can
+        # remain in the image while Trivy correctly fails the gate.
+        run: docker build --pull --no-cache --tag medipay-api:ci .
 
       - name: Verify container runs as non-root
         run: |
-          test "$(docker image inspect medipay-api:ci --format '{{.Config.User}}')" = "appuser"
+          container_user="$(docker image inspect medipay-api:ci --format '{{.Config.User}}')"
+          test -n "$container_user"
+          test "$container_user" != "0"
+          test "$container_user" != "root"
           test "$(docker image inspect medipay-api:ci --format '{{json .Config.Cmd}}')" != "null"
+
+      - name: Scan repository for leaked secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scan production image for high/critical CVEs
+        # v0.28.0/v0.33.1 bundled an obsolete Trivy binary (v0.65.0). Pin the
+        # verified v0.36.0 commit, whose setup action downloads v0.70.0.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: medipay-api:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: medipay-api:ci
+          artifact-name: medipay-api-ci-sbom.spdx.json
+          output-file: eval/results/medipay-api-ci-sbom.spdx.json
 
       - name: Build migration job image
         run: |
           docker build --pull --file Dockerfile.migrate --tag medipay-migrate:ci .
-          test "$(docker image inspect medipay-migrate:ci --format '{{.Config.User}}')" = "migrator"
+          migrator_user="$(docker image inspect medipay-migrate:ci --format '{{.Config.User}}')"
+          test -n "$migrator_user"
+          test "$migrator_user" != "0"
+          test "$migrator_user" != "root"
+
+      - name: Build research worker image
+        run: |
+          docker build --pull --file Dockerfile.worker --tag medipay-research-worker:ci .
+          worker_user="$(docker image inspect medipay-research-worker:ci --format '{{.Config.User}}')"
+          test -n "$worker_user"
+          test "$worker_user" != "0"
+          test "$worker_user" != "root"
+          test "$(docker image inspect medipay-research-worker:ci --format '{{json .Config.Cmd}}')" = '["-m","src.research_worker"]'
+          test "$(docker image inspect medipay-research-worker:ci --format '{{json .Config.Healthcheck}}')" = "null"

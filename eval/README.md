@@ -1,5 +1,20 @@
 # Live RAGAS evaluation
 
+## Production latency/TTFT collection
+
+`collect_production_evidence.py` measures first-request (cold), warm, and
+bounded-concurrency SSE runs. It stores only response hashes and public
+citation numbers and marks the output `HUMAN_REVIEW_REQUIRED`; it never judges
+legal correctness or fills an attestation with inferred values.
+
+```bash
+BENCHMARK_AUTH_TOKEN='<short-lived Firebase ID token>' \
+PYTHONPATH=. uv run python eval/collect_production_evidence.py \
+  --endpoint https://<api-origin> \
+  --fixture eval/cases/critical-bhyt-7.jsonl \
+  --output eval/results/production-evidence-<timestamp>.json
+```
+
 Evaluation chuẩn nằm duy nhất tại `eval/results/canonical-live-ragas/`.
 
 ## Đọc kết quả
@@ -7,6 +22,24 @@ Evaluation chuẩn nằm duy nhất tại `eval/results/canonical-live-ragas/`.
 1. `report.md`: kết luận, điểm trung bình và phần dự án đang yếu.
 2. `failures.md`: từng failure thật, điểm thấp, lý do, actual answer và nơi nên kiểm tra.
 3. `summary.json`: thống kê máy đọc được theo metric, nguồn và loại câu hỏi.
+
+## Human claim calibration
+
+Confidence calibration is a separate release artifact. Prepare JSONL rows with
+`claim_id`, `confidence`, `outcome` (`0`/`1`) and an explicit `reviewer` from
+at least two independent reviewers. The fitting command rejects incomplete or
+duplicate labels and writes an isotonic (monotone) calibrator plus ECE/Brier
+metrics:
+
+```bash
+make calibrate-claims \
+  LABELS_FILE=/absolute/path/reviewed-claims.jsonl \
+  OUTPUT=eval/results/calibration-<release>.json
+```
+
+The artifact is not a legal-quality pass by itself; it becomes eligible for a
+promotion decision only after the panel and its minimum case count are
+approved.
 4. `case_scores.jsonl`: release gate đầy đủ cho toàn bộ denominator.
 5. `ragas_scores.jsonl`: năm metric official RAGAS cho từng source case.
 6. `actual_answers.jsonl`: output và retrieved context thật của agent.
@@ -87,3 +120,59 @@ python -m venv .eval-ragas-venv
 
 Lệnh `live` gọi agent/DB/Neo4j ở chế độ read-only. Không sửa production chỉ để làm
 đẹp điểm eval; sửa retrieval/prompt/guardrail rồi chạy lại cùng nguồn và threshold.
+
+### Human calibration artifact
+
+Calibration chỉ nhận JSONL có đủ `claim_id`, `confidence`, `outcome` (0/1) và
+`reviewer`. Dùng loader để từ chối dòng thiếu nhãn; không dùng output do model
+tự chấm làm gold:
+
+```bash
+PYTHONPATH=. uv run python - <<'PY'
+from pathlib import Path
+from eval.calibration import calibration_report, load_calibration_records
+rows = load_calibration_records(Path("/path/to/reviewed-calibration.jsonl"))
+print(calibration_report(rows))
+PY
+```
+
+Trước khi fit ngưỡng abstention/uncertainty, gọi thêm
+`validate_calibration_panel(rows, min_cases=30, min_reviewers=2)`. Mỗi claim
+phải có nhãn độc lập từ ít nhất hai reviewer; duplicate hoặc claim thiếu một
+reviewer bị từ chối. Raw agreement chỉ là kiểm tra quy trình, không thay thế
+legal adjudication.
+
+### Human answer-review artifact
+
+Production attestation must reference a redacted, answer-hash-bound JSONL
+artifact; entering accuracy numbers without that artifact is rejected. Build a
+review packet from the immutable fixture and the live answer export:
+
+```bash
+PYTHONPATH=. uv run python eval/build_review_packet.py \
+  --fixture eval/cases/market-leadership-v1.jsonl \
+  --answers /absolute/path/answers.jsonl \
+  --release-id snapshot-<immutable-release> \
+  --output /absolute/path/human-review-packet.jsonl
+```
+
+Two independent reviewers must fill one label row per case in a separate
+`human-legal-review-v1` artifact. `eval.human_review.validate_review_panel`
+rejects duplicate, incomplete or disagreeing labels and requires at least 300
+cases. The production attestation stores the artifact path and SHA-256; the
+verifier recomputes both before accepting human metrics. Model-generated
+judgments are never treated as legal review.
+
+The three ablation entries in the production attestation follow the same
+rule: each must reference its actual `reranker-ablation-v1`,
+`typed-graph-ablation-v1`, or `grounded-planning-ablation-v1` JSON result and
+the verifier recomputes its SHA-256 before accepting `reviewed` or
+`no_regression`.
+
+Outage and rollback booleans are also bound to an `operations-evidence-v1`
+JSON artifact containing the release ID and each drill result. The attestation
+verifier rejects missing or hash-mismatched operations evidence.
+
+The cost-reduction claim follows the same rule through a `cost-ledger-v1`
+artifact. It must contain provider receipts and baseline/candidate costs; the
+verifier recomputes the reduction and compares it with the attestation.

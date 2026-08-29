@@ -1,0 +1,15 @@
+[Unit]
+Description=MediPay production Compose stack
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/medipay/compose
+ExecStart=/usr/bin/docker compose --profile monitoring -f production.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose --profile monitoring -f production.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
