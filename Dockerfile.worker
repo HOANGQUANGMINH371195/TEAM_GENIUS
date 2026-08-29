@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Dedicated durable research worker image.  It has no HTTP healthcheck because
-# a Render worker consumes Redis jobs rather than serving the API port.
+# a dedicated worker consumes Redis jobs rather than serving the API port.
 FROM python:3.11-slim-bookworm AS builder
 
 WORKDIR /app

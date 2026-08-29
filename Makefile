@@ -13,7 +13,7 @@ RELEASE_ROOT ?= .
 
 .DEFAULT_GOAL := help
 .PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation verify-release-artifacts typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker collect-production-evidence migrate plan-completion \
-	build up dev down restart logs health deploy-contract render-validate \
+	build up dev down restart logs health deploy-contract \
 	build-worker deploy-vercel aws-config aws-up aws-migrate ansible-bootstrap promptfoo clean
 
 PROD_COMPOSE ?= ops/compose/production.yml
