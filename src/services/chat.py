@@ -1076,7 +1076,20 @@ class GraphRagRuntime:
             # set as a soft lexical scope as well: it keeps lexical ranking
             # focused on the governing instruments instead of returning the
             # first UUID-ordered chunks from the whole corpus.
-            search_document_ids = exact_document_ids or global_document_ids or document_recall_ids or None
+            # For high-risk entitlement questions, the current-authority seed
+            # is the safer lexical/dense boundary than the broad document
+            # recall union.  The latter intentionally contains many
+            # query-matching administrative documents and can swamp the
+            # operative statute when the managed SQL query reaches the route
+            # fallback.  The seed is query-derived from release metadata and
+            # still must produce a matching canonical passage; it is not an
+            # answer/document map.
+            scoped_authority_ids = (
+                authority_document_ids
+                if route_plan.risk == "high" and authority_document_ids
+                else document_recall_ids
+            )
+            search_document_ids = exact_document_ids or global_document_ids or scoped_authority_ids or None
             # The final context is at most a dozen passages. Fetching 60
             # candidates makes the subsequent hydrate/scope CTE dominate
             # latency on managed Postgres without improving the top-ranked
