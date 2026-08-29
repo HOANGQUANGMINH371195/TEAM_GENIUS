@@ -51,7 +51,8 @@ _CLAIM_STOPWORDS = {
 }
 _HIGH_RISK_MARKERS = (
     "hiệu lực", "bãi bỏ", "thay thế", "mức hưởng", "mức chi trả", "được chi trả",
-    "bao nhiêu tiền", "thanh toán",
+    "bao nhiêu tiền", "thanh toán", "quyền lợi", "thủ tục", "điều kiện",
+    "chuyển tuyến", "liên tục",
 )
 _OFFICIAL_STATUS_MARKERS = ("hiệu lực", "còn hiệu lực", "hết hiệu lực", "bãi bỏ", "thay thế")
 

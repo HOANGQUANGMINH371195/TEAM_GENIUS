@@ -125,7 +125,9 @@ cạnh; table khi cần con số, tỷ lệ, mức đóng/hỗ trợ, bảng ho�
 thể (ví dụ hỏi học sinh đóng bao nhiêu tiền; không dùng table chỉ vì có từ
 "tính" trong câu hỏi); topical cho câu hỏi BHYT chung, quyền lợi liên tục,
 checklist, hồ sơ hoặc điều kiện còn lại.
-needs_graph chỉ bật cho temporal/relational. needs_calculator chỉ bật khi cần
+Mọi câu hỏi yêu cầu quyền lợi, thủ tục, điều kiện, chuyển tuyến hoặc cách tính
+thời gian tham gia phải đánh dấu risk=high để buộc kiểm chứng nguồn hiện hành;
+không được hạ xuống low chỉ vì route là topical. needs_graph chỉ bật cho temporal/relational. needs_calculator chỉ bật khi cần
 phép tính từ giá trị người dùng hoặc giá trị đã truy hồi. Với greeting, cảm ơn
 hoặc câu hỏi ngoài phạm vi BHYT, route=policy và điền direct_response là một câu
 tiếng Việt lịch sự, tối đa 25 từ; các route khác phải để direct_response=null."""

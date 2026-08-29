@@ -460,7 +460,8 @@ def requires_evidence_verification(query: str) -> bool:
         "mức hưởng", "mức chi trả", "mức đóng", "tỷ lệ", "hỗ trợ",
         "được chi trả", "được hưởng",
         "có được", "mất quyền lợi", "bao nhiêu tiền", "thanh toán",
-        "hiện nay", "hiện hành",
+        "hiện nay", "hiện hành", "quyền lợi", "thủ tục", "điều kiện",
+        "chuyển tuyến", "liên tục",
     ))
 
 
