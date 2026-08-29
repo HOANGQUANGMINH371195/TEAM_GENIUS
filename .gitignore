@@ -89,3 +89,4 @@ out/
 # Local project guidance and status
 /DESIGN_SKILL.md
 /local_project_status.md
+.vercel/
