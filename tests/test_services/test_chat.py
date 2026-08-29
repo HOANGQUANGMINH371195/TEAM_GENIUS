@@ -225,6 +225,29 @@ async def test_social_fast_path_makes_zero_retrieval_provider_calls():
 
 
 @pytest.mark.asyncio
+async def test_current_authority_seed_is_coalesced_per_release():
+    runtime = GraphRagRuntime()
+    repository = SimpleNamespace(
+        current_authority_document_ids=AsyncMock(return_value=["doc-current"])
+    )
+
+    results = await asyncio.gather(
+        *(
+            runtime._current_authority_ids(
+                repository,
+                query=f"question-{index}",
+                dataset_id="release-1",
+                limit=8,
+            )
+            for index in range(4)
+        )
+    )
+
+    assert results == [["doc-current"]] * 4
+    repository.current_authority_document_ids.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_generate_uses_configured_llm():
     runtime = GraphRagRuntime()
     result = type("Message", (), {"content": "Grounded answer"})()
