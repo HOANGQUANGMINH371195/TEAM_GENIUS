@@ -1,7 +1,7 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
-import { compareBenefitScenarios, type BenefitCalculationInput, type BenefitCalculationResult } from "../../lib/api";
+import { type FormEvent, useEffect, useState } from "react";
+import { compareBenefitScenarios, draftBenefitCalculation, type BenefitCalculationInput, type BenefitCalculationResult, type CalculatorDraftResponse } from "../../lib/api";
 import { FeatureShell } from "../../components/feature-shell";
 
 type ScenarioForm = { label: string; coveredCost: string; rate: string; spend: string; threshold: string; years: string };
@@ -17,9 +17,36 @@ export default function CalculatorPage() {
   const [results, setResults] = useState<Array<{ label: string; calculation: BenefitCalculationResult }>>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [question, setQuestion] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("question") ?? "");
+  const [draft, setDraft] = useState<CalculatorDraftResponse | null>(null);
+  const [draftLoading, setDraftLoading] = useState(false);
 
   function update(index: number, field: keyof ScenarioForm, value: string) {
     setScenarios((current) => current.map((scenario, itemIndex) => itemIndex === index ? { ...scenario, [field]: value } : scenario));
+  }
+
+  async function loadDraft(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const value = question.trim();
+    if (!value || draftLoading) return;
+    setDraftLoading(true);
+    setError("");
+    try {
+      setDraft(await draftBenefitCalculation(value));
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : "Không thể lấy dữ liệu nguồn");
+    } finally {
+      setDraftLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const initialQuestion = new URLSearchParams(window.location.search).get("question") ?? "";
+    if (initialQuestion) void draftBenefitCalculation(initialQuestion).then(setDraft).catch(() => undefined);
+  }, []);
+
+  function applyDraftValue(value: string, unit: "percent" | "vnd", scenarioIndex: number) {
+    update(scenarioIndex, unit === "percent" ? "rate" : "coveredCost", value);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -49,6 +76,14 @@ export default function CalculatorPage() {
   return (
     <FeatureShell active="calculator" eyebrow="Công cụ tính toán" title="So sánh kịch bản BHYT" description="Đặt các phương án cạnh nhau bằng cùng một công thức, với mức hưởng do bạn xác nhận từ văn bản hiện hành.">
       <div className="bhyt-feature-grid">
+        <section className="bhyt-feature-card bhyt-calculator-draft">
+          <div className="bhyt-feature-card-heading"><span className="bhyt-feature-step">00</span><div><h2>Bắt đầu từ câu hỏi</h2><p>Dán câu hỏi từ chat để tìm các đoạn luật và con số được nêu rõ trong nguồn.</p></div></div>
+          <form className="bhyt-draft-form" onSubmit={loadDraft}>
+            <label htmlFor="calculator-question">Câu hỏi cần so sánh</label>
+            <div className="bhyt-draft-row"><input id="calculator-question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ví dụ: So sánh mức hưởng khi đúng tuyến và trái tuyến" /><button className="bhyt-feature-secondary" type="submit" disabled={draftLoading || !question.trim()}>{draftLoading ? "Đang tìm…" : "Lấy dữ liệu nguồn"}</button></div>
+          </form>
+          {draft ? <div className="bhyt-draft-result"><p className="bhyt-feature-muted">{draft.message}</p>{draft.values.length ? <div className="bhyt-draft-values" aria-label="Giá trị được nêu trong nguồn">{draft.values.map((item, index) => <div className="bhyt-draft-value" key={`${item.value}-${item.unit}-${index}`}><strong>{item.value}{item.unit === "percent" ? "%" : " ₫"}</strong><span>từ nguồn {item.evidence_index + 1}</span><div><button type="button" onClick={() => applyDraftValue(item.value, item.unit, 0)}>Kịch bản 1</button><button type="button" onClick={() => applyDraftValue(item.value, item.unit, 1)}>Kịch bản 2</button></div></div>)}</div> : null}{draft.evidence.length ? <details className="bhyt-draft-evidence"><summary>Xem {draft.evidence.length} đoạn nguồn đã tìm thấy</summary>{draft.evidence.map((item, index) => <blockquote key={`${item.quote}-${index}`}><strong>{item.title || "Nguồn pháp lý"}</strong>{item.section_title ? <span>{item.section_title}</span> : null}<p>{item.quote}</p>{item.source_url ? <a href={item.source_url} target="_blank" rel="noreferrer">Mở nguồn chính thức ↗</a> : null}</blockquote>)}</details> : null}</div> : null}
+        </section>
         <form className="bhyt-feature-card bhyt-calculator-form" onSubmit={submit}>
           <div className="bhyt-feature-card-heading"><span className="bhyt-feature-step">01</span><div><h2>Thông số kịch bản</h2><p>Nhập số liệu đã được xác minh. Đơn vị tiền là VNĐ.</p></div></div>
           {scenarios.map((scenario, index) => (

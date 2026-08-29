@@ -426,6 +426,35 @@ async def test_calculator_scenarios_reject_more_than_eight_cases(client):
 
 
 @pytest.mark.asyncio
+async def test_calculator_draft_returns_source_values_without_assigning_rates(client):
+    runtime = SimpleNamespace(
+        retrieve_bundle=AsyncMock(return_value=SimpleNamespace(evidence=[
+            RetrievalResult(
+                chunk_id="private-chunk",
+                document_id="private-document",
+                dataset_id="private-dataset",
+                title="Văn bản BHYT",
+                section_title="Mức hưởng",
+                content="Người tham gia được hưởng 80% chi phí trong phạm vi.",
+                source_url="https://example.test/source",
+            )
+        ]))
+    )
+    with patch("src.api.routes.get_runtime", return_value=runtime):
+        response = await client.post(
+            "/api/v1/calculator/bhyt/draft",
+            json={"question": "So sánh hai kịch bản mức hưởng BHYT"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["evidence"][0]["quote"].startswith("Người tham gia")
+    assert payload["values"] == [{"value": "80", "unit": "percent", "evidence_index": 0}]
+    assert "private-document" not in response.text
+    assert "private-dataset" not in response.text
+
+
+@pytest.mark.asyncio
 async def test_agent_status(client):
     response = await client.get("/api/v1/status")
     assert response.status_code == 200

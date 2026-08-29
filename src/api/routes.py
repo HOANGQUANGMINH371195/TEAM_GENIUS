@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncIterator
 from datetime import date
@@ -31,6 +32,10 @@ from src.models.schemas import (
     BenefitCalculationResponse,
     BenefitCalculationScenariosRequest,
     BenefitCalculationScenariosResponse,
+    CalculatorDraftEvidence,
+    CalculatorDraftRequest,
+    CalculatorDraftResponse,
+    CalculatorDraftValue,
     ChatRequest,
     ChatResponse,
     EligibilityChecklistRequest,
@@ -258,6 +263,93 @@ async def compare_bhyt_scenarios(
             raise HTTPException(status_code=422, detail=f"scenario {index + 1}: {exc}") from exc
         results.append({"label": scenario.label, "calculation": result.as_dict()})
     return BenefitCalculationScenariosResponse(results=results)
+
+
+def _draft_number_values(text_value: str) -> list[tuple[str, str]]:
+    """Extract explicit numeric literals from retrieved source text.
+
+    This is an assistive projection only: it never assigns a legal rate to a
+    scenario.  A user must choose which source-backed value applies before the
+    exact Decimal calculator runs.
+    """
+    values: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for match in re.finditer(r"(?<![\d.,])(\d{1,3}(?:[.,]\d+)?)\s*%", text_value):
+        number = match.group(1).replace(",", ".")
+        key = (number, "percent")
+        if key not in seen:
+            seen.add(key)
+            values.append(key)
+    for match in re.finditer(
+        r"(?<![\d.,])(\d[\d.,]*)\s*(tỷ|triệu|nghìn|đồng|vnđ|đ)\b",
+        text_value.casefold(),
+    ):
+        raw, suffix = match.groups()
+        compact = raw.replace(".", "").replace(",", ".")
+        try:
+            from decimal import Decimal
+
+            amount = Decimal(compact)
+            multiplier = {"tỷ": Decimal("1000000000"), "triệu": Decimal("1000000"), "nghìn": Decimal("1000")}.get(suffix, Decimal("1"))
+            number = str((amount * multiplier).quantize(Decimal("0.01"))).rstrip("0").rstrip(".")
+        except Exception:
+            continue
+        key = (number, "vnd")
+        if key not in seen:
+            seen.add(key)
+            values.append(key)
+    return values[:24]
+
+
+@router.post(
+    "/calculator/bhyt/draft",
+    response_model=CalculatorDraftResponse,
+    summary="Prepare calculator inputs from source-backed evidence",
+)
+async def draft_bhyt_calculation(
+    request: CalculatorDraftRequest,
+    _user: dict = Depends(get_current_user),
+) -> CalculatorDraftResponse:
+    """Retrieve evidence and explicit values for the calculator UI.
+
+    The endpoint deliberately returns suggestions, not an answer: legal
+    applicability remains a user/reviewer choice and the Decimal endpoint is
+    still the only place that computes money.
+    """
+    try:
+        bundle = await get_runtime().retrieve_bundle(request.question)
+    except Exception:
+        logger.warning("Calculator draft retrieval failed", exc_info=True)
+        return CalculatorDraftResponse(
+            question=request.question,
+            message="Chưa lấy được nguồn pháp lý. Bạn có thể thử lại hoặc nhập số liệu đã xác minh.",
+        )
+    evidence: list[CalculatorDraftEvidence] = []
+    values: list[CalculatorDraftValue] = []
+    for index, item in enumerate(bundle.evidence[:8]):
+        quote = " ".join(str(item.content or "").split())[:1200]
+        if not quote:
+            continue
+        evidence.append(
+            CalculatorDraftEvidence(
+                title=str(item.title or ""),
+                section_title=str(item.section_title or ""),
+                quote=quote,
+                source_url=str(item.source_url or ""),
+            )
+        )
+        for value, unit in _draft_number_values(quote):
+            values.append(CalculatorDraftValue(value=value, unit=unit, evidence_index=len(evidence) - 1))
+    return CalculatorDraftResponse(
+        question=request.question,
+        evidence=evidence,
+        values=values,
+        message=(
+            "Đã tìm thấy giá trị được nêu rõ trong nguồn. Hãy chọn giá trị phù hợp cho từng kịch bản; hệ thống không tự đoán mức hưởng."
+            if evidence
+            else "Chưa tìm thấy đoạn nguồn phù hợp để gợi ý số liệu."
+        ),
+    )
 
 
 @router.get(

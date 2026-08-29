@@ -135,6 +135,40 @@ class BenefitCalculationScenariosResponse(ApiModel):
     results: list[dict[str, object]]
 
 
+class CalculatorDraftRequest(ApiModel):
+    """Natural-language comparison request used to prepare, not decide, inputs."""
+
+    question: str = Field(..., min_length=3, max_length=5000)
+
+    @field_validator("question")
+    @classmethod
+    def normalize_question(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("question must not be blank")
+        return normalized
+
+
+class CalculatorDraftEvidence(ApiModel):
+    title: str = ""
+    section_title: str = ""
+    quote: str = ""
+    source_url: str = ""
+
+
+class CalculatorDraftValue(ApiModel):
+    value: str
+    unit: Literal["percent", "vnd"]
+    evidence_index: int
+
+
+class CalculatorDraftResponse(ApiModel):
+    question: str
+    evidence: list[CalculatorDraftEvidence] = Field(default_factory=list)
+    values: list[CalculatorDraftValue] = Field(default_factory=list)
+    message: str = ""
+
+
 class LegalTimelineDocument(ApiModel):
     document_number: str
     title: str = ""

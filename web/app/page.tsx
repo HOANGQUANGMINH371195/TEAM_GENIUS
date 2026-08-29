@@ -73,6 +73,10 @@ function formatInlineMarkdown(value: string) {
   return value.split(/(\*\*[^*]+\*\*)/g).map((part, index) => part.startsWith("**") && part.endsWith("**") ? <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong> : part);
 }
 
+function isComparisonQuestion(value: string) {
+  return /\b(?:so sánh|đối chiếu|khác nhau|phương án|kịch bản)\b|\bvs\.?\b/i.test(value);
+}
+
 export default function HomePage() {
   const { user, signOut } = useAuth();
   const [question, setQuestion] = useState("");
@@ -292,13 +296,13 @@ export default function HomePage() {
             <WelcomeScreen ref={welcomeRef} onChooseTopic={chooseTopic} onFocusComposer={() => inputRef.current?.focus()} />
           ) : (
             <div className="bhyt-message-stream">
-              {messages.map((message) => message.role === "user" ? (
+              {messages.map((message, index) => message.role === "user" ? (
                 <div className="bhyt-message-row is-user" key={message.id}>
                   <div className="bhyt-message-meta">Bạn <span>vừa hỏi</span></div>
                   <div className="bhyt-user-bubble">{message.content}</div>
                 </div>
               ) : (
-                <AssistantMessage key={message.id} message={message} evidenceDrawerOpen={evidenceOpen && activeMessageId === message.id} onEvidenceToggle={toggleEvidenceDrawer} />
+                <AssistantMessage key={message.id} message={message} comparisonQuestion={messages[index - 1]?.role === "user" && isComparisonQuestion(messages[index - 1].content) ? messages[index - 1].content : ""} evidenceDrawerOpen={evidenceOpen && activeMessageId === message.id} onEvidenceToggle={toggleEvidenceDrawer} />
               ))}
               {loading ? <LoadingMessage stage={streamStage} onCancel={cancelRequest} /> : null}
               {error ? <div className="bhyt-error" role="alert">{error}</div> : null}
@@ -386,7 +390,7 @@ const WelcomeScreen = forwardRef<HTMLDivElement, { onChooseTopic: (question: str
   );
 });
 
-function AssistantMessage({ message, evidenceDrawerOpen, onEvidenceToggle }: { message: ChatMessage; evidenceDrawerOpen: boolean; onEvidenceToggle: (message: ChatMessage) => void }) {
+function AssistantMessage({ message, comparisonQuestion, evidenceDrawerOpen, onEvidenceToggle }: { message: ChatMessage; comparisonQuestion: string; evidenceDrawerOpen: boolean; onEvidenceToggle: (message: ChatMessage) => void }) {
   const parsed = splitAnswer(message.content);
   const messageRef = useRef<HTMLDivElement>(null);
 
@@ -418,6 +422,7 @@ function AssistantMessage({ message, evidenceDrawerOpen, onEvidenceToggle }: { m
             <div className="bhyt-tier-heading"><span><Icon name="document" /></span><p>Căn cứ pháp lý</p></div>
             <button className="bhyt-evidence-summary-button" type="button" aria-expanded={evidenceDrawerOpen} aria-controls="evidence-drawer" onClick={() => onEvidenceToggle(message)}><Icon name="book" /><span><strong>{message.citations.length}</strong> căn cứ pháp lý trích dẫn</span><Icon name="chevron" /></button>
           </section> : null}
+          {comparisonQuestion ? <Link className="bhyt-comparison-cta" href={`/calculator?question=${encodeURIComponent(comparisonQuestion)}`}>Mở bảng so sánh từ câu hỏi này <span aria-hidden="true">→</span></Link> : null}
         </div>
       </div>
     </div>

@@ -191,6 +191,35 @@ export async function compareBenefitScenarios(
   return response.json() as Promise<{ results: Array<{ label: string; calculation: BenefitCalculationResult }> }>;
 }
 
+export type CalculatorDraftEvidence = {
+  title: string;
+  section_title: string;
+  quote: string;
+  source_url: string;
+};
+
+export type CalculatorDraftValue = {
+  value: string;
+  unit: "percent" | "vnd";
+  evidence_index: number;
+};
+
+export type CalculatorDraftResponse = {
+  question: string;
+  evidence: CalculatorDraftEvidence[];
+  values: CalculatorDraftValue[];
+  message: string;
+};
+
+export async function draftBenefitCalculation(question: string): Promise<CalculatorDraftResponse> {
+  const response = await adminRequest("/api/v1/calculator/bhyt/draft", {
+    method: "POST",
+    body: JSON.stringify({ question }),
+  });
+  if (!response.ok) throw new Error("Không thể lấy dữ liệu nguồn cho phép tính");
+  return response.json() as Promise<CalculatorDraftResponse>;
+}
+
 export async function fetchAdminReviews(status = "pending", domain = "all"): Promise<ReviewQueueItem[]> {
   const response = await adminRequest(`/api/v1/auth/admin/reviews?status=${encodeURIComponent(status)}&domain=${encodeURIComponent(domain)}`);
   if (!response.ok) {
