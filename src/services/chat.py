@@ -953,6 +953,11 @@ class GraphRagRuntime:
                 # title hits, lexical document hits and ANN hits still have to
                 # produce a grounded passage and pass the shared reranker.
                 document_recall_ids: list[str] = []
+                # Keep the query-derived authority seed separate from the
+                # broader lexical recall set.  It is used only as a bounded
+                # source-diversity signal after canonical passage hydration;
+                # the IDs themselves never cross the public boundary.
+                authority_document_ids: list[str] = []
                 if document_recall_enabled and hasattr(repository, "search_lexical_document_ids"):
                     try:
                         # Optional document-level rescue is bounded so a slow
@@ -991,6 +996,10 @@ class GraphRagRuntime:
                             )
                         except Exception:
                             current_authority_ids = []
+                    authority_document_ids = list(current_authority_ids)
+                    document_recall_ids = list(
+                        dict.fromkeys([*current_authority_ids, *document_recall_ids])
+                    )[: settings.retrieval_candidate_k]
                 if current_title_query and hasattr(repository, "search_lexical_document_ids"):
                     try:
                         current_recall_ids = await asyncio.wait_for(
@@ -1770,6 +1779,50 @@ class GraphRagRuntime:
                 document_recall_operatives = rerank_legal_candidates(
                     query, document_recall_operatives
                 )
+                # A current primary instrument can be semantically relevant
+                # yet lose the final RRF slots to verbose administrative
+                # passages. Preserve at most one canonical passage per
+                # query-derived authority candidate as a diversity channel.
+                # This is metadata/relevance driven (never a document-number
+                # map) and still requires source span + canonical hydration.
+                authority_anchor_results: list[RetrievalResult] = []
+                authority_ids = set(authority_document_ids)
+                authority_pool = [
+                    *document_recall_operatives,
+                    *document_recall_semantic_results,
+                    *lexical_results,
+                    *semantic_results,
+                ]
+                seen_authority_documents: set[str] = set()
+                for item in sorted(
+                    authority_pool,
+                    key=lambda value: (
+                        -float(value.rank_details.get("semantic_rerank_score", value.score)),
+                        value.document_id,
+                        value.chunk_id,
+                    ),
+                ):
+                    if not item.document_id or item.document_id in seen_authority_documents:
+                        continue
+                    metadata = ranking_metadata.get(item.document_id, {})
+                    authority_type = str(
+                        metadata.get("document_type") or item.document_type or ""
+                    ).casefold()
+                    is_primary_type = any(
+                        marker in authority_type
+                        for marker in ("luật", "nghị định", "văn bản hợp nhất")
+                    )
+                    query_coverage = float(item.rank_details.get("query_token_coverage", 0.0))
+                    if item.document_id not in authority_ids and (
+                        not is_primary_type or query_coverage < 0.12
+                    ):
+                        continue
+                    if item.source_start is None or item.source_end is None:
+                        continue
+                    seen_authority_documents.add(item.document_id)
+                    authority_anchor_results.append(item)
+                    if len(authority_anchor_results) >= min(8, settings.max_llm_evidence):
+                        break
                 # Prefer a contiguous three-token phrase when the query has
                 # one. Two-token phrases are a fallback only for short
                 # questions; otherwise generic pairs such as “quy định hiện
@@ -1936,6 +1989,8 @@ class GraphRagRuntime:
                 channels["legal_reference"] = legal_reference_results
             if document_anchor_results:
                 channels["document_anchor"] = document_anchor_results
+            if authority_anchor_results:
+                channels["authority_anchor"] = authority_anchor_results
             if document_recall_operatives:
                 channels["document_recall_operatives"] = document_recall_operatives
             if document_recall_semantic_results:

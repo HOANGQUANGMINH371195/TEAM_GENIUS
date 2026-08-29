@@ -763,6 +763,10 @@ def weighted_rrf(
         "document_recall_operatives": 5.0,
         "document_recall_semantic": 1.7,
         "document_anchor": 3.5,
+        # One canonical passage from each query-derived primary authority is
+        # retained as a diversity signal. It cannot become a citation unless
+        # it also survives the shared source/hash verifier.
+        "authority_anchor": 4.0,
         "legal_graph": 0.7,
         "page_index": 1.35,
     }
