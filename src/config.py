@@ -124,6 +124,9 @@ class Settings(BaseSettings):
     prompt_registry_name: str = "medipay-system"
     prompt_registry_label: str = "production"
     prompt_registry_cache_ttl_seconds: int = Field(default=300, ge=30, le=86_400)
+    # Prompt lookup is control-plane I/O and must not consume the chat
+    # generation budget when a production label is missing or unavailable.
+    langfuse_timeout_seconds: int = Field(default=2, ge=1, le=30)
 
     # Optional OTLP/HTTP exporter. Empty endpoint deliberately keeps local
     # development dependency-free while production can point at Langfuse or a

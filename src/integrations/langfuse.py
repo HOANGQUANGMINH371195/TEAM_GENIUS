@@ -55,6 +55,11 @@ def configure_langfuse() -> None:
     os.environ["LANGFUSE_SECRET_KEY"] = secret_key
     os.environ["LANGFUSE_BASE_URL"] = host
     os.environ["LANGFUSE_HOST"] = host
+    # Langfuse's synchronous SDK reads this setting when constructing the
+    # client. Keep prompt/trace control-plane calls bounded so a missing
+    # registry label cannot stall the async chat path; resolve_prompt remains
+    # fail-open and caches the local fallback after the bounded attempt.
+    os.environ["LANGFUSE_TIMEOUT"] = str(settings.langfuse_timeout_seconds)
     os.environ.setdefault("LANGFUSE_TRACING_ENVIRONMENT", settings.app_env)
     _configured = True
 
