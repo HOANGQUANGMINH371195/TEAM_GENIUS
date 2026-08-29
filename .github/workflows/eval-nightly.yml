@@ -18,7 +18,7 @@ on:
 
 jobs:
   deterministic-release-gates:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       QDRANT_URL: ${{ secrets.QDRANT_URL }}
@@ -67,7 +67,7 @@ jobs:
   full-ragas:
     if: github.event_name == 'workflow_dispatch' && inputs.run_ragas
     needs: deterministic-release-gates
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -104,7 +104,7 @@ jobs:
 
   promptfoo-redteam:
     if: github.event_name == 'workflow_dispatch' && inputs.run_promptfoo
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
