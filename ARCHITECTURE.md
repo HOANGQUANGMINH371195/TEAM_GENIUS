@@ -75,18 +75,19 @@ exact point count nên Qdrant readiness đạt dù host env còn alias cũ;
 Cách xử lý đúng là cập nhật locator/reconcile có backup và chạy parity report;
 không tắt readiness, xóa mù hoặc fallback thành dữ liệu không có căn cứ.
 
-### Quyết định vận hành sau live benchmark (2026-08-28)
+### Quyết định vận hành sau live benchmark (2026-08-29)
 
-Suite `critical-bhyt-7` đã chạy read-only trên `gpt-5.6-luna` với release
-`snapshot-c439751724ab7f10`: lần chạy mới nhất v12 đạt 7/7 deterministic gate,
-P50/P95 14,65/16,73 giây (evaluator đã sửa để loại thời gian chờ semaphore).
-Các lần chạy trước từng đạt 5--6/7 và case lỗi thay đổi giữa các lần chạy; một
-lần pass duy nhất chưa chứng minh ổn định. Một số câu vẫn dao động
-giữa passage liên quan và văn bản thẩm quyền/currentness; các câu không có
-evidence bị abstain đúng guardrail. Vì vậy kiến trúc hiện tại **chưa phải
-production-ready**. Blocker nằm ở ổn định release-scoped recall/rerank, SQL
-hydration latency, projection bảng trống và Neo4j parity; không phải ở việc
-thiếu thêm graph framework.
+Smoke 7 câu và suite độc lập 100 câu đã chạy read-only bằng `gpt-5.6-luna`,
+PostgreSQL/Qdrant/Neo4j managed thật, release
+`snapshot-c439751724ab7f10`, collection vật lý theo release. Smoke đạt 6/7;
+100 câu đạt 75/100 deterministic pass, P50 11,93 giây và P95 20,59 giây. Usage
+thực của 100 câu là 350.460 input và 26.885 output tokens; cost generation
+ledger là $0,102354 theo rate model, chưa gồm embedding/cache/discount. Đây là
+đo usage tái lập được chứ không phải hóa đơn billing. Hai patch authority
+scoping/anchor cải thiện 73/100 lên 75/100 nhưng vẫn còn 25 lỗi cơ học và tail
+latency cao. Kiến trúc vì vậy **chưa production-ready**; blocker nằm ở
+release-scoped recall/rerank, SQL hydration, projection bảng trống, Neo4j parity,
+observability và recovery, không phải ở việc thiếu thêm graph framework.
 
 Smoke read-only ngày 2026-08-29 đã xác nhận GraphRAG wiring live: trace
 `provider:neo4j` thành công khoảng 83 ms và sau khi re-hydrate/filter còn 3
