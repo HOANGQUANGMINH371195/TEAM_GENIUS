@@ -11,7 +11,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from src.services.retrieval import extract_document_numbers, retrieval_intent
+from src.services.retrieval import (
+    extract_document_numbers,
+    requires_evidence_verification,
+    retrieval_intent,
+)
 
 Route = Literal[
     "policy",
@@ -111,7 +115,7 @@ def build_route_plan(query: str, *, settings) -> RoutePlan:
     else:
         route = "topical"
 
-    high_risk = any(
+    high_risk = requires_evidence_verification(query) or any(
         token in normalized
         for token in (
             "được hưởng", "được chi trả", "thanh toán", "mức hưởng", "hiệu lực",

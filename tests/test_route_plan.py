@@ -33,6 +33,15 @@ def test_table_route_keeps_dense_fallback_when_no_typed_fact_exists():
     assert plan.providers == ("postgres", "qdrant")
 
 
+def test_loss_of_benefit_wording_uses_strict_verification_route():
+    plan = build_route_plan(
+        "Cấp cứu nội trú không có giấy chuyển tuyến có mất quyền lợi BHYT không?",
+        settings=Settings(feature_graph_enabled=True),
+    )
+    assert plan.risk == "high"
+    assert plan.retrieval_budget_ms == 15_000
+
+
 def test_identifier_relationship_route_keeps_bounded_graphrag():
     plan = build_route_plan(
         "Văn bản 51/2024/QH15 sửa đổi văn bản nào và quan hệ thay thế ra sao?",

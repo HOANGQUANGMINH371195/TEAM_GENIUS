@@ -159,6 +159,14 @@ class GraphRagRuntime:
         self._community_index_cache: tuple[str, int, str, tuple[CommunitySummary, ...]] | None = None
         self._experience_index_cache: tuple[str, int, str, ExperienceIndex] | None = None
         self._authority_document_cache: dict[str, tuple[list[str], float]] = {}
+        # Document ranking metadata is immutable inside a release.  The same
+        # high-authority documents recur across adjacent BHYT questions; cache
+        # the bounded SQL projection so ranking does not reopen a JSON-heavy
+        # Postgres query on every request.  The cache key is release-scoped.
+        self._ranking_metadata_cache: dict[
+            tuple[str, str], tuple[dict[str, object], float]
+        ] = {}
+        self._ranking_metadata_lock = asyncio.Lock()
         # Concurrent high-risk requests should share the release-scoped
         # authority seed instead of stampeding managed PostgreSQL with the
         # same metadata scan.  The lock is intentionally narrow and only
@@ -541,6 +549,61 @@ class GraphRagRuntime:
             self._authority_document_cache[dataset_id] = (list(ids), time.monotonic())
             return list(ids)
 
+    async def _document_ranking_metadata(
+        self,
+        repository: GraphRepository,
+        document_ids: Sequence[str],
+        *,
+        dataset_id: str,
+    ) -> dict[str, dict[str, object]]:
+        """Read/cache immutable ranking metadata for one release-scoped set."""
+        identifiers = tuple(sorted({str(item) for item in document_ids if item}))
+        if not identifiers:
+            return {}
+        now = time.monotonic()
+        result: dict[str, dict[str, object]] = {}
+        missing = []
+        for identifier in identifiers:
+            cached = self._ranking_metadata_cache.get((dataset_id, identifier))
+            if cached and now - cached[1] < 300:
+                result[identifier] = dict(cached[0])
+            else:
+                missing.append(identifier)
+        if not missing:
+            metrics.inc("retrieval_metadata_cache", outcome="hit")
+            return result
+        # Recheck under a narrow lock so concurrent requests for the same
+        # authority set do not stampede Supabase with identical JSON queries.
+        async with self._ranking_metadata_lock:
+            now = time.monotonic()
+            still_missing = []
+            for identifier in missing:
+                cached = self._ranking_metadata_cache.get((dataset_id, identifier))
+                if cached and now - cached[1] < 300:
+                    result[identifier] = dict(cached[0])
+                else:
+                    still_missing.append(identifier)
+            if still_missing:
+                value = await repository.document_ranking_metadata(
+                    still_missing, dataset_id=dataset_id
+                )
+                for identifier, metadata in value.items():
+                    if len(self._ranking_metadata_cache) >= 512:
+                        oldest = min(
+                            self._ranking_metadata_cache,
+                            key=lambda item: self._ranking_metadata_cache[item][1],
+                        )
+                        self._ranking_metadata_cache.pop(oldest, None)
+                    self._ranking_metadata_cache[(dataset_id, identifier)] = (
+                        dict(metadata), now
+                    )
+                    result[identifier] = dict(metadata)
+        metrics.inc(
+            "retrieval_metadata_cache",
+            outcome="partial" if result else "miss",
+        )
+        return result
+
     async def _resolve_qdrant_release(
         self,
         *,
@@ -783,6 +846,25 @@ class GraphRagRuntime:
         route_started = time.perf_counter()
         route_deadline = route_started + route_plan.retrieval_budget_ms / 1000
 
+        optional_db_budgets = {
+            # These scans are recall accelerators.  They must never consume
+            # the entire interactive route deadline when Supabase is cold or
+            # a free-tier pool is saturated; lexical+dense evidence remains
+            # the correctness floor.
+            "hydrate_scope": 2.5,
+            "hydrate_document_semantic": 1.5,
+            "expand_references": 2.0,
+            "ranking_metadata": 2.5,
+            "document_lexical": 2.0,
+            "operative_phrase": 2.0,
+            "operative_terms": 2.0,
+            "operative_siblings": 2.0,
+            "operative_fallback": 1.5,
+            "relational_anchors": 2.0,
+            "relational_references": 2.0,
+            "exact_operatives": 2.0,
+        }
+
         async def bounded_db(awaitable, stage: str):
             """Enforce the route deadline for every phase-3 SQL operation.
 
@@ -793,17 +875,19 @@ class GraphRagRuntime:
             whether an optional channel should be dropped or lexical fallback
             should be returned.
             """
-            remaining = route_deadline - time.perf_counter()
+            operation_started = time.perf_counter()
+            remaining = route_deadline - operation_started
             if remaining <= 0:
                 close = getattr(awaitable, "close", None)
                 if callable(close):
                     close()
-                _record_trace_event(f"postgres:{stage}", route_started, outcome="deadline")
+                _record_trace_event(f"postgres:{stage}", operation_started, outcome="deadline")
                 raise TimeoutError(f"retrieval route deadline exceeded at {stage}")
             try:
-                return await asyncio.wait_for(awaitable, timeout=max(0.05, remaining))
+                timeout = min(remaining, optional_db_budgets.get(stage, remaining))
+                return await asyncio.wait_for(awaitable, timeout=max(0.05, timeout))
             except TimeoutError:
-                _record_trace_event(f"postgres:{stage}", route_started, outcome="deadline")
+                _record_trace_event(f"postgres:{stage}", operation_started, outcome="deadline")
                 raise
 
         async def lexical_search(
@@ -1465,7 +1549,8 @@ class GraphRagRuntime:
                             legal_reference_results = []
                 try:
                     ranking_metadata = await bounded_db(
-                        hydration_repository.document_ranking_metadata(
+                        self._document_ranking_metadata(
+                            hydration_repository,
                             [
                                 item.document_id
                                 for item in [
@@ -2851,6 +2936,7 @@ class GraphRagRuntime:
         self._community_index_cache = None
         self._experience_index_cache = None
         self._authority_document_cache.clear()
+        self._ranking_metadata_cache.clear()
 
 
 def _merge_evidence(vector_results: list, graph_results: list) -> list:
