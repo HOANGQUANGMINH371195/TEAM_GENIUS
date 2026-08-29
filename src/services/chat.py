@@ -2440,6 +2440,11 @@ class GraphRagRuntime:
                 fused_evidence = operative_anchors[:2] + [
                     item for item in fused_evidence if item.chunk_id not in anchor_ids
                 ]
+                # Anchors are injected after the first authority filter so a
+                # high-scoring historical passage cannot bypass current-law
+                # selection merely because it matched a query phrase.  Apply
+                # the same source-derived policy once more after insertion.
+                fused_evidence = filter_current_authority_candidates(query, fused_evidence)
             if is_table_route:
                 # Numeric routes must keep an explicit source value in the
                 # final context. RRF can otherwise prefer a heading that
