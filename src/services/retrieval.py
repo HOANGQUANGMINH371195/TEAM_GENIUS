@@ -234,7 +234,17 @@ def filter_current_authority_candidates(
     lowered = query.casefold()
     if any(marker in lowered for marker in ("trước ngày", "vào năm", "lịch sử", "thời điểm đó")):
         return list(hits)
-    asks_current = any(marker in lowered for marker in ("hiện nay", "hiện hành", "hiện tại", "năm 2026"))
+    # A legal question without an explicit historical qualifier is normally a
+    # request for the rule in force.  Restricting currentness filtering to the
+    # literal words “hiện nay” allowed old transition instruments (for example
+    # a 2005 circular) to outrank the current statute for “quyền lợi ... được
+    # tính thế nào?”.  Preserve an explicit year as historical context only
+    # when it is older than the current release horizon.
+    query_years = [int(value) for value in re.findall(r"\b(?:19|20)\d{2}\b", query)]
+    asks_historical = any(marker in lowered for marker in ("trước ngày", "vào năm", "lịch sử", "thời điểm đó")) or any(
+        value < date.today().year - 1 for value in query_years
+    )
+    asks_current = not asks_historical
     if not asks_current:
         return list(hits)
     current_year = date.today().year
