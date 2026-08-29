@@ -117,12 +117,19 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
     # used to discard cross-condition facts (e.g. “mức đóng *và* hỗ trợ”),
     # bypassing both HyDE and the current-law reranker.
     if requires_evidence_verification(query):
-        # High-risk legal questions are one semantic unit. Splitting them
-        # into fragments (for example, “5 năm liên tục” and “cùng chi trả”)
-        # and merging independently ranked bundles can discard the clause
-        # that satisfies both conditions. Preserve the complete question so
-        # lexical, semantic and operative retrieval are fused once.
-        bundle = await runtime.retrieve_bundle(query, route_plan_override=route_override)
+        # Keep the complete question as one semantic unit, but allow the
+        # bounded HyDE rewrite to run alongside it for short high-risk
+        # questions.  Colloquial wording such as “chuyển tuyến” or “5 năm
+        # liên tục” often differs from the operative statutory phrasing; the
+        # rewrite is retrieval-only and the final source-aware reranker still
+        # audits both views.  Long questions retain the single-pass path in
+        # ``retrieve_bundle_adaptive`` to protect latency.
+        if get_settings().query_rewrite_enabled:
+            bundle = await runtime.retrieve_bundle_adaptive(
+                query, route_plan_override=route_override
+            )
+        else:
+            bundle = await runtime.retrieve_bundle(query, route_plan_override=route_override)
     elif get_settings().query_rewrite_enabled:
         bundle = await runtime.retrieve_bundle_adaptive(query, route_plan_override=route_override)
     elif len(subqueries) > 1:
