@@ -170,15 +170,25 @@ export type BenefitCalculationInput = {
   rule_provenance?: string[];
 };
 
+export type BenefitCalculationResult = {
+  covered_cost: string;
+  applied_rate_percent: string;
+  insurer_pays: string;
+  patient_pays: string;
+  threshold_met: boolean;
+  formula_id: string;
+  provenance: string[];
+};
+
 export async function compareBenefitScenarios(
   scenarios: Array<{ label: string; calculation: BenefitCalculationInput }>,
-): Promise<{ results: Array<{ label: string; calculation: Record<string, unknown> }> }> {
+): Promise<{ results: Array<{ label: string; calculation: BenefitCalculationResult }> }> {
   const response = await adminRequest("/api/v1/calculator/bhyt/scenarios", {
     method: "POST",
     body: JSON.stringify({ scenarios }),
   });
   if (!response.ok) throw new Error("Không thể tính các kịch bản BHYT");
-  return response.json() as Promise<{ results: Array<{ label: string; calculation: Record<string, unknown> }> }>;
+  return response.json() as Promise<{ results: Array<{ label: string; calculation: BenefitCalculationResult }> }>;
 }
 
 export async function fetchAdminReviews(status = "pending", domain = "all"): Promise<ReviewQueueItem[]> {
