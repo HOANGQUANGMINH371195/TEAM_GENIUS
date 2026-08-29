@@ -55,6 +55,9 @@ vẫn 200 còn `/ready` 503 do Qdrant và Neo4j unavailable, nên chưa được
 production-ready. Vercel project còn khoảng 80 env vars, trong đó có backend /
 database secrets; web deployment chỉ nên giữ API URL và Firebase public config,
 phần còn lại cần được gỡ hoặc chuyển về backend host.
+Live Langfuse probe xác nhận label `medipay-system:production` hiện chưa tồn tại;
+resolver fail-open về local hash trong giới hạn 2 giây và cache kết quả, nhưng
+prompt production thật phải được tạo/pin trước khi promote.
 Render service đang chạy commit `b416129`, trước bounded release-collection
 resolver. Active PostgreSQL projection giữ locator logic cũ trong khi Qdrant
 đang lưu collection vật lý theo release; vì vậy bản cũ không tự resolve được và

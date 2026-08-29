@@ -121,6 +121,10 @@ synthetic benchmark không thay thế reviewer pháp lý, load test hay restore 
 - Migration hiện dùng SQL tuần tự, checksum và advisory lock tại
   `database/postgres/migrations/runner.py`; API không tự tạo bảng lúc khởi động.
 - Langfuse đã có adapter; `/metrics` đã có endpoint Prometheus-compatible.
+- Live Langfuse probe ngày 2026-08-29 xác nhận prompt `medipay-system:production`
+  hiện trả 404; resolver fail-open về prompt local trong khoảng 1,65 giây và
+  các request sau dùng cache dưới 1 ms sau khi đặt `LANGFUSE_TIMEOUT_SECONDS=2`.
+  Prompt production thật vẫn là prerequisite bên ngoài, chưa được giả lập.
 - Prompt runtime có fallback trong `src/agents/prompts.py` và đã có resolver
   Prompt Registry với cache/version lineage; khi control-plane lỗi vẫn ghi hash
   prompt local để tái lập.
