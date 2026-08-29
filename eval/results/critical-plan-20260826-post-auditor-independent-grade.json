@@ -1,0 +1,258 @@
+{
+  "grader": {
+    "type": "independent_manual_adjudication",
+    "strict": true,
+    "not_legal_opinion": true,
+    "internal_ids_used_as_pass_criteria": false,
+    "method": "Read every answer and citation in the post-Auditor artifact, compared them with critical-bhyt-7.jsonl and the local public-source files, and evaluated only publicly named authorities and answer content. No runtime, database or release mutation was performed."
+  },
+  "source_run": {
+    "path": "eval/results/critical-plan-20260826-post-auditor",
+    "sha256": "8c01ebd05be8105e73391910a62e085469ad0f917680aa56fe7519ed9392e67e",
+    "fixture": "eval/cases/critical-bhyt-7.jsonl",
+    "fixture_sha256": "461329a9452bd38104f3c78f6e45b53fe0217250d5cca9cbf0f330ddfb2a9ebb",
+    "run_id": "critical-bhyt-20260826T121859Z",
+    "model": "gpt-5.6-luna"
+  },
+  "source_check": {
+    "files_checked": [
+      "data/raw/metadata_bhyt.csv",
+      "data/raw/content.csv",
+      "data/raw/official_instruments/25-2008-qh12-dieu-23-khoan-6.json"
+    ],
+    "public_authorities_verified_available": [
+      "51/2024/QH15",
+      "04/VBHN-BYT",
+      "188/2025/NĐ-CP",
+      "25/2008/QH12"
+    ],
+    "public_authority_not_found_in_raw_metadata_search": ["01/2025/TT-BYT"],
+    "note": "A source being present locally does not prove that every returned citation supports the claim. Opaque document/chunk/dataset IDs were excluded from grading."
+  },
+  "summary": {
+    "cases": 7,
+    "deterministic_runtime_passes": 7,
+    "independent_full_passes": 1,
+    "independent_partial_or_safe_cases": 5,
+    "independent_failures": 6,
+    "substantive_legal_correctness": "PARTIAL; core rules recovered in cases 01, 02, 05 and 06, but answer completeness and source precision are inadequate",
+    "fully_grounded_cases": 1,
+    "claim_groundedness": "PARTIAL; case 06 fully grounded, cases 01/02/05 partly grounded, cases 03/04/07 incomplete or NOT_OBSERVABLE",
+    "citation_precision": "LOW_OVERALL; many citation lists contain unrelated or duplicate passages",
+    "citation_coverage_for_answerable_cases": "5/6 cases have at least one accepted public authority; case 07 has only a non-supporting current-law citation",
+    "citation_precision_numeric": {
+      "directly_supporting_citations": 13,
+      "total_citations": 58,
+      "approximate_precision": 0.2241,
+      "note": "Counts are strict manual counts of direct support, not an automatic metric; conditional/irrelevant citations are not credited."
+    },
+    "temporal_correctness": "PARTIAL; case 01 flags old/new threshold wording, case 07 avoids a false 2005-current claim, but currentness is not established with an authoritative status citation",
+    "security_output": "PASS_OBSERVED",
+    "internal_id_or_secret_leaks_observed": 0,
+    "latency_ms": {
+      "n": 7,
+      "p50": 15761.05,
+      "p95_reported": 22784.86,
+      "max": 22784.86,
+      "plan_comparison": "FAIL",
+      "note": "All requests are thematic/temporal in the artifact; the Plan targets hybrid p95 <=8s and temporal/multi-hop p95 <=15s or async. The reported p95 is effectively the maximum with n=7."
+    },
+    "first_useful_event_latency": "NOT_OBSERVABLE",
+    "trace_completeness": "NOT_OBSERVABLE",
+    "trace_fields_present": [
+      "run_id",
+      "case_id",
+      "latency_ms",
+      "route_intent",
+      "subquery_count",
+      "retrieval_ms",
+      "context_ms",
+      "candidate_count",
+      "verification_evidence_count",
+      "claim_count",
+      "verified_claim_count"
+    ],
+    "trace_fields_missing": [
+      "actual_trace_id",
+      "stage timings for SQL/embedding/Qdrant/Neo4j/reranker/LLM",
+      "per-channel candidate scores",
+      "selected source spans with stable provenance",
+      "provider finish reason",
+      "input/output token usage",
+      "cost",
+      "tool/state event stream",
+      "request error/timeout event"
+    ],
+    "overall_gate": "FAIL",
+    "release_decision": "DO_NOT_PROMOTE; improve citation selection, temporal authority handling, latency and real tracing, then rerun and obtain human legal review"
+  },
+  "cases": [
+    {
+      "case_id": "critical-bhyt-01-five-year-copay",
+      "expected_status": "answerable",
+      "answer": "- d) 100% chi phí khám bệnh, chữa bệnh khi người bệnh có thời gian tham gia bảo hiểm y tế 05 năm liên tục trở lên và có số tiền cùng chi trả chi phí khám bệnh, chữa bệnh trong năm của những lần đi khám bệnh, chữa bệnh theo quy định tại khoản 3, các điểm a, b, c, đ và e khoản 4, khoản 5 Điều này, Điều 26 và Điều 27 của Luật này lớn hơn 6 lần mức tham chiếu;\n- Ngưỡng hiện hành được nêu theo 6 lần mức tham chiếu; cách diễn đạt cũ có thể gặp là lớn hơn 06 tháng lương cơ sở, cần đối chiếu theo thời điểm áp dụng.",
+      "latency_ms": 22784.86,
+      "substantive_correctness": "PASS_CORE_WITH_CURRENTNESS_CAVEAT",
+      "claim_verification": {
+        "status": "PARTIAL",
+        "directly_verified_claims": 1,
+        "total_unique_claims": 2,
+        "note": "The 100%/5-year/threshold rule is directly quoted by 51/2024/QH15; the old/new wording caveat is plausible and partly supported by 04/VBHN-BYT, but the answer does not establish the transition/current reference amount."
+      },
+      "citation_precision": {
+        "directly_supporting": 4,
+        "total": 10,
+        "status": "LOW",
+        "note": "The two 51 citations duplicate each other; several 188/2025 and 233/2025 passages concern support administration or unrelated payment matters."
+      },
+      "temporal_correctness": "PARTIAL; recognizes threshold wording may depend on time, but does not resolve which threshold governs the user's date",
+      "abstention": "NOT_APPLICABLE",
+      "security": "PASS_OBSERVED_NO_INTERNAL_ID_OR_SECRET",
+      "trace_completeness": "NOT_OBSERVABLE",
+      "independent_verdict": "PARTIAL_PASS_NOT_RELEASE_READY"
+    },
+    {
+      "case_id": "critical-bhyt-02-provincial-self-referral",
+      "expected_status": "answerable_with_scope",
+      "answer": "- h) 50% mức hưởng khi khám bệnh, chữa bệnh ngoại trú theo lộ trình do Chính phủ quy định và 100% mức hưởng khi khám bệnh, chữa bệnh nội trú trong trường hợp khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp chuyên sâu mà trước ngày 01 tháng 01 năm 2025 đã được cơ quan có thẩm quyền xác định là tuyến tỉnh.\n- đ) 100% mức hưởng khi khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp cơ bản, cấp chuyên sâu mà trước ngày 01 tháng 01 năm 2025 đã được cơ quan có thẩm quyền xác định là tuyến huyện;\n- — h) 50% mức hưởng khi khám bệnh, chữa bệnh ngoại trú theo lộ trình do Chính phủ quy định và 100% mức hưởng khi khám bệnh, chữa bệnh nội trú trong trường hợp khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp chuyên sâu mà trước ngày 01 tháng 01 năm 2025 đã được cơ quan có thẩm quyền xác định là tuyến tỉnh.\n- Quy định cần phân biệt nội trú và ngoại trú; mức đóng hoặc mức hưởng phụ thuộc trường hợp áp dụng.",
+      "latency_ms": 12697.14,
+      "substantive_correctness": "PASS_CORE_WITH_SCOPE_GAP",
+      "claim_verification": {
+        "status": "PARTIAL",
+        "directly_verified_claims": 3,
+        "total_unique_claims": 4,
+        "note": "The inpatient/outpatient rates and former-provincial/former-district qualification are directly supported by 51/2024/QH15. The answer duplicates a bullet and incorrectly mentions 'mức đóng' when it should discuss benefit level/conditions."
+      },
+      "citation_precision": {
+        "directly_supporting": 2,
+        "total": 9,
+        "status": "LOW",
+        "note": "Only the two 51/2024 passages directly support the answer; the remaining citations concern medicines, technical services, old administrative material or unrelated tables."
+      },
+      "temporal_correctness": "PARTIAL; includes the 01/01/2025 classification boundary but does not state the user's actual facility level or current route facts",
+      "abstention": "PASS_NO_ABSTENTION",
+      "security": "PASS_OBSERVED_NO_INTERNAL_ID_OR_SECRET",
+      "trace_completeness": "NOT_OBSERVABLE",
+      "independent_verdict": "PARTIAL_PASS_NOT_RELEASE_READY"
+    },
+    {
+      "case_id": "critical-bhyt-03-student-contribution-2026",
+      "expected_status": "answerable_with_scope",
+      "answer": "- Năm 2026: học sinh thuộc nhóm được Nhà nước hỗ trợ mức đóng BHYT.\n- Mức đóng hoặc điều kiện xác định mức đóng được đối chiếu theo mức tham chiếu; nguồn hiện có chưa đủ để tính số tiền cụ thể.\n- Hỗ trợ của Nhà nước áp dụng theo nhóm đối tượng; chưa có đủ dữ liệu để xác định tỷ lệ cụ thể.\n- Năm 2026; mức đóng hoặc điều kiện xác định mức đóng được đối chiếu theo mức tham chiếu.\n- Hỗ trợ của Nhà nước áp dụng theo nhóm đối tượng; chưa đủ dữ liệu để xác định số tiền cụ thể.",
+      "latency_ms": 15221.89,
+      "substantive_correctness": "PARTIAL_INCOMPLETE",
+      "claim_verification": {
+        "status": "PARTIAL",
+        "directly_verified_claims": 1,
+        "total_unique_claims": 3,
+        "note": "51/2024/QH15 supports the student group and the maximum contribution basis (6% of the reference amount with partial State support). The answer does not state that percentage and cannot identify the actual 2026 amount or support rate; repeated bullets add no evidence."
+      },
+      "citation_precision": {
+        "directly_supporting": 2,
+        "total": 10,
+        "status": "LOW",
+        "note": "Several local resolutions are location-specific and cannot support a national answer; military, payroll and unrelated support passages are noise."
+      },
+      "temporal_correctness": "PARTIAL; recognizes 2026 but does not pin the applicable reference amount or effective local support policy",
+      "abstention": "PARTIAL_CLARIFICATION_NEEDED",
+      "security": "PASS_OBSERVED_NO_INTERNAL_ID_OR_SECRET",
+      "trace_completeness": "NOT_OBSERVABLE",
+      "independent_verdict": "FAIL_INCOMPLETE_NUMERIC_AND_SCOPE_ANSWER"
+    },
+    {
+      "case_id": "critical-bhyt-04-referral-validity",
+      "expected_status": "may_abstain_if_corpus_incomplete",
+      "answer": "- Nguồn được cung cấp không quy định thời hạn cụ thể của giấy chuyển tuyến, nên chưa thể xác định giấy có giá trị bao lâu.\n- Khi chuyển tuyến điều trị, người tham gia BHYT phải có hồ sơ chuyển viện của cơ sở khám bệnh, chữa bệnh.\n- Khi khám lại theo yêu cầu điều trị, phải có giấy hẹn khám lại của cơ sở khám bệnh, chữa bệnh.\n- Do nguồn không nêu thời hạn hoặc các trường hợp phải xin lại giấy chuyển tuyến, nội dung này chưa đủ để xác định đầy đủ. (Điều 27 Luật Bảo hiểm y tế số 25/2008/QH12)",
+      "latency_ms": 16393.96,
+      "substantive_correctness": "NOT_OBSERVABLE_FOR_ABSENCE_CLAIMS; PARTIAL_FOR_PROCEDURES",
+      "claim_verification": {
+        "status": "NOT_OBSERVABLE",
+        "directly_verified_claims": 2,
+        "total_unique_claims": 4,
+        "note": "The transfer-dossier and re-examination-appointment statements match returned passages, but proving that no current duration exists cannot be done from retrieved excerpts. The cited 2008 law also requires currentness verification."
+      },
+      "citation_precision": {
+        "directly_supporting": 3,
+        "total": 10,
+        "status": "LOW",
+        "note": "Two procedural passages and the Article 27 heading are relevant; expiry, contract and card passages are unrelated."
+      },
+      "temporal_correctness": "NOT_OBSERVABLE_RISK; uses a 2008 citation without demonstrating that it is the governing current rule",
+      "abstention": "PASS_SAFE_ABSTENTION_ALLOWED_BUT_NOT_PROOF_OF_CORPUS_INCOMPLETENESS",
+      "security": "PASS_OBSERVED_NO_INTERNAL_ID_OR_SECRET",
+      "trace_completeness": "NOT_OBSERVABLE",
+      "independent_verdict": "PARTIAL_SAFE_ABSTENTION"
+    },
+    {
+      "case_id": "critical-bhyt-05-emergency-no-referral",
+      "expected_status": "answerable",
+      "answer": "- 5. Người tham gia bảo hiểm y tế được hưởng 100% mức hưởng quy định tại khoản 1 Điều này khi khám bệnh, chữa bệnh tại bất kỳ cơ sở khám bệnh, chữa bệnh nào trong trường hợp cấp cứu.\n- Trường hợp này áp dụng tại bất kỳ cơ sở khám bệnh chữa bệnh khi cấp cứu.",
+      "latency_ms": 13865.78,
+      "substantive_correctness": "PASS_CORE_WITH_EXPLICIT_NO_REFERRAL_GAP",
+      "claim_verification": {
+        "status": "PARTIAL",
+        "directly_verified_claims": 2,
+        "total_unique_claims": 2,
+        "note": "The emergency/any-facility/100%-of-entitlement rule is directly supported by 51/2024/QH15. The answer does not explicitly explain the absence of a referral requirement or the post-emergency inpatient transition."
+      },
+      "citation_precision": {
+        "directly_supporting": 1,
+        "total": 9,
+        "status": "VERY_LOW",
+        "note": "Only 51/2024/QH15 directly supports the general rule; the other citations are disease-specific, military, technical-service or unrelated documents."
+      },
+      "temporal_correctness": "PASS_FOR_STATED_RULE; no effective-date analysis",
+      "abstention": "PASS_NO_ABSTENTION",
+      "security": "PASS_OBSERVED_NO_INTERNAL_ID_OR_SECRET",
+      "trace_completeness": "NOT_OBSERVABLE",
+      "independent_verdict": "PARTIAL_PASS_NOT_RELEASE_READY"
+    },
+    {
+      "case_id": "critical-bhyt-06-cosmetic-service",
+      "expected_status": "answerable",
+      "answer": "- Sử dụng dịch vụ thẩm mỹ.\n- thuộc trường hợp không được hưởng BHYT.\n- Căn cứ Điều 23 khoản 6.",
+      "latency_ms": 19947.24,
+      "substantive_correctness": "PASS",
+      "claim_verification": {
+        "status": "PASS",
+        "directly_verified_claims": 3,
+        "total_unique_claims": 3,
+        "note": "The official instrument contains the exact Article 23(6) text: use of cosmetic services. Its metadata records the provision as still effective while noting the law has amendments."
+      },
+      "citation_precision": {
+        "directly_supporting": 1,
+        "total": 1,
+        "status": "HIGH"
+      },
+      "temporal_correctness": "PASS_OBSERVED_WITH_SOURCE_STATUS",
+      "abstention": "PASS_NO_ABSTENTION",
+      "security": "PASS_OBSERVED_NO_INTERNAL_ID_OR_SECRET",
+      "trace_completeness": "NOT_OBSERVABLE",
+      "independent_verdict": "PASS_CONTENT_ONLY_NOT_RELEASE_READY_DUE_TO_LATENCY_TRACE"
+    },
+    {
+      "case_id": "critical-bhyt-07-historical-2005",
+      "expected_status": "answerable_with_currentness_caveat",
+      "answer": "- Không coi thông tư năm 2005 là căn cứ hiện hành nếu không có chứng cứ hiệu lực. Cần đối chiếu căn cứ hiện hành và tình trạng hiệu lực trước khi kết luận; đây là trường hợp abstain có giải thích khi chưa xác minh được hiệu lực. Cần nêu căn cứ hiện hành hoặc abstain có giải thích.",
+      "latency_ms": 15761.05,
+      "substantive_correctness": "PARTIAL_SAFE_BEHAVIOR_NO_ANSWER",
+      "claim_verification": {
+        "status": "NOT_OBSERVABLE",
+        "directly_verified_claims": 0,
+        "total_unique_claims": 3,
+        "note": "The answer correctly avoids asserting a historical circular is current, but this is a safety posture rather than a sourced answer. It does not identify the current authority governing benefit levels."
+      },
+      "citation_precision": {
+        "directly_supporting": 0,
+        "total": 8,
+        "status": "VERY_LOW",
+        "note": "The 51/2024 citation is about out-of-network percentages, not the requested currentness of a 2005 circular; the remaining passages are unrelated or insufficient to prove current status."
+      },
+      "temporal_correctness": "PASS_NEGATIVE_ONLY; avoids false currentness but does not establish the positive current rule",
+      "abstention": "PARTIAL_ABSTENTION_WITH_EXPLANATION",
+      "security": "PASS_OBSERVED_NO_INTERNAL_ID_OR_SECRET",
+      "trace_completeness": "NOT_OBSERVABLE",
+      "independent_verdict": "FAIL_MISSING_CURRENT_AUTHORITY"
+    }
+  ]
+}

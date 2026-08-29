@@ -10,10 +10,15 @@ on:
         required: false
         default: false
         type: boolean
+      run_promptfoo:
+        description: "Run offline Promptfoo regression/red-team suite"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   deterministic-release-gates:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       QDRANT_URL: ${{ secrets.QDRANT_URL }}
@@ -27,9 +32,22 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install --require-hashes -r requirements/dev.lock
+      - name: Check external release artifacts
+        id: release-artifacts
+        run: |
+          if [ -f data/clean/medical_active_v31_fully_reviewed/release_benchmark.jsonl ] && \
+             [ -f data/clean/medical_active_v31_fully_reviewed/semantic_question_benchmark.jsonl ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            PYTHONPATH=. python scripts/verify_release_artifacts.py --root . --require \
+              --output eval/results/release-artifacts.json
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::External release artifacts are not mounted; source-only checks remain, semantic retrieval evaluation is not run."
+          fi
       - name: Validate release-locked suite
         run: PYTHONPATH=database/pipeline:. pytest -q eval/test_release_locked_suite.py
       - name: Evaluate Qdrant thematic retrieval
+        if: steps.release-artifacts.outputs.available == 'true'
         run: >-
           PYTHONPATH=database/pipeline:. python database/corpus/evaluate_qdrant_semantic.py
           --benchmark data/clean/medical_active_v31_fully_reviewed/semantic_question_benchmark.jsonl
@@ -39,11 +57,17 @@ jobs:
         with:
           name: nightly-qdrant-semantic
           path: eval/results/nightly-qdrant-semantic.json
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artifact-contract
+          path: eval/results/release-artifacts.json
+          if-no-files-found: ignore
 
   full-ragas:
     if: github.event_name == 'workflow_dispatch' && inputs.run_ragas
     needs: deterministic-release-gates
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -53,7 +77,10 @@ jobs:
       QDRANT_URL: ${{ secrets.QDRANT_URL }}
       QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
       QDRANT_COLLECTION: medical_legal_active
-      MODEL_NAME: gpt-4.1-mini
+      MODEL_NAME: ${{ secrets.MODEL_NAME || 'gpt-5.6-luna' }}
+      EVAL_MODEL_NAME: ${{ secrets.EVAL_MODEL_NAME || 'gpt-4o-mini' }}
+      PROMPT_REGISTRY_NAME: medipay-system
+      PROMPT_REGISTRY_LABEL: production
       EVAL_AGENT_MODE: read_only
     steps:
       - uses: actions/checkout@v4
@@ -67,9 +94,23 @@ jobs:
       - name: Run full read-only RAGAS evaluation
         run: >-
           python eval/golden_eval.py live --source-dir data/raw --out eval/results/nightly-ragas
-          --count 30 --ragas-python .eval-ragas-venv/bin/python --evaluator-model gpt-4o-mini
+          --count 30 --ragas-python .eval-ragas-venv/bin/python
+          --evaluator-model "${EVAL_MODEL_NAME:-gpt-4o-mini}"
           --embedding-model text-embedding-3-small --concurrency 3 --threshold 0.60
       - uses: actions/upload-artifact@v4
         with:
           name: nightly-ragas
           path: eval/results/nightly-ragas
+
+  promptfoo-redteam:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_promptfoo
+    runs-on: self-hosted
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run Promptfoo regression and red-team checks
+        run: npx --yes promptfoo@latest eval -c eval/promptfoo.yaml --no-cache

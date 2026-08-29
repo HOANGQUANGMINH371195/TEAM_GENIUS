@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import date
 
+from src.config import get_settings
 from src.models.graph import RetrievalResult
 
 # Vietnamese instruments use both year-qualified signatures
@@ -135,6 +137,54 @@ def extract_query_terms(query: str, *, limit: int = 24) -> list[str]:
     )[: max(0, limit)]
 
 
+def filter_relations_by_query(query: str, relations: Sequence[object]) -> list[object]:
+    """Keep graph relations whose typed label matches the user's request.
+
+    This is ontology-driven, not a question-to-document mapping.  Relation
+    labels are compared to query-derived terms and generic label words are
+    removed by selectivity across the returned graph set.  If no informative
+    label matches, the complete bounded set is retained for recall.
+    """
+    items = list(relations)
+    if len(items) <= 1:
+        return items
+    def fold(term: str) -> str:
+        # Graph relationship slugs are often ASCII (``Sửa`` -> ``Sua``) while
+        # user text keeps Vietnamese diacritics.  Compare both forms without
+        # maintaining a question-to-answer vocabulary.
+        value = term.replace("đ", "d").replace("Đ", "D")
+        return "".join(
+            char for char in unicodedata.normalize("NFD", value)
+            if unicodedata.category(char) != "Mn"
+        ).casefold()
+
+    query_terms = {fold(term) for term in extract_query_terms(query)}
+    if not query_terms:
+        return items
+    label_terms = [
+        set(
+            fold(term)
+            for term in extract_query_terms(
+                str(getattr(item, "relation_type", "")).replace("_", " ")
+            )
+        )
+        for item in items
+    ]
+    frequencies: dict[str, int] = defaultdict(int)
+    for terms in label_terms:
+        for term in terms:
+            frequencies[term] += 1
+    informative = {
+        term for term, frequency in frequencies.items()
+        if frequency <= max(1, len(items) // 2)
+    }
+    matched = [
+        item for item, terms in zip(items, label_terms)
+        if query_terms & terms & informative
+    ]
+    return matched or items
+
+
 def exclude_unverified_legacy_subordinate_sources(
     query: str, hits: Sequence[RetrievalResult]
 ) -> list[RetrievalResult]:
@@ -167,6 +217,56 @@ def exclude_unverified_legacy_subordinate_sources(
             continue
         retained.append(item)
     return retained
+
+
+def filter_current_authority_candidates(
+    query: str, hits: Sequence[RetrievalResult]
+) -> list[RetrievalResult]:
+    """Drop stale subordinate reproductions when a current rule is requested.
+
+    This is a generic temporal/authority guard, not a mapping from a question
+    to a known answer. If the corpus has no current authority for the request,
+    returning fewer candidates is safer than presenting a historical local
+    reproduction as the present national rule.
+    """
+    if not hits or extract_document_numbers(query):
+        return list(hits)
+    lowered = query.casefold()
+    if any(marker in lowered for marker in ("trước ngày", "vào năm", "lịch sử", "thời điểm đó")):
+        return list(hits)
+    asks_current = any(marker in lowered for marker in ("hiện nay", "hiện hành", "hiện tại", "năm 2026"))
+    if not asks_current:
+        return list(hits)
+    current_year = date.today().year
+
+    def year(item: RetrievalResult) -> int:
+        values = re.findall(r"\b(?:19|20)\d{2}\b", " ".join((item.issued_date, item.effective_from, item.document_number, item.title)))
+        return max((int(value) for value in values), default=0)
+
+    def subordinate(item: RetrievalResult) -> bool:
+        authority = " ".join((item.document_type, item.title)).casefold()
+        return any(marker in authority for marker in ("quyết định", "thông tư", "công văn", "hướng dẫn"))
+
+    # A verified status on an old subordinate reproduction does not establish
+    # that the reproduced clause is the current national rule.  When a recent
+    # source exists, prefer the recent authority for a present-day question;
+    # retain older primary instruments only as fallback context.
+    current = [item for item in hits if year(item) >= current_year - 2]
+    filtered = [
+        item for item in hits
+        if not (
+            subordinate(item)
+            and year(item)
+            and year(item) < current_year - 2
+            and (current or not item.legal_status_verified)
+        )
+    ]
+    # If the remaining pool has no current authority at all, do not let a
+    # stale subordinate source become an answer merely because it is the only
+    # lexical match.
+    if current and filtered:
+        return filtered
+    return [item for item in filtered if year(item) >= current_year - 2 or not year(item)]
 
 
 def scope_evidence_matches_query(
@@ -287,7 +387,10 @@ def policy_response(query: str) -> str | None:
         if social in {"tạm biệt", "bye"}:
             return "Tạm biệt bạn. Khi cần, tôi có thể hỗ trợ về BHYT và viện phí."
         return "Xin chào! Tôi có thể hỗ trợ bạn tra cứu thông tin BHYT và viện phí."
-    if any(token in lowered for token in ("bỏ qua hướng dẫn", "ignore previous", "system prompt", "prompt nội bộ")):
+    if any(token in lowered for token in (
+        "bỏ qua hướng dẫn", "ignore previous", "system prompt", "prompt nội bộ",
+        "api key", "token", "secret", "credential", "khóa truy cập", "hướng dẫn ẩn",
+    )):
         return (
             "Tôi không thể thực hiện yêu cầu thay đổi quy tắc vận hành hoặc tiết lộ "
             "thông tin bảo mật hoặc thông tin bí mật. Tôi chỉ hỗ trợ câu hỏi BHYT và viện phí dựa trên nguồn hợp lệ."
@@ -297,14 +400,20 @@ def policy_response(query: str) -> str | None:
             "Tôi không tiếp nhận hoặc lặp lại OTP, CVV hay mật khẩu. Không lưu các secret này; hãy dùng "
             "kênh thanh toán an toàn và chính thức."
         )
-    if any(token in lowered for token in ("số thẻ", "cccd", "hồ sơ bệnh án", "bệnh án của")):
+    if any(token in lowered for token in (
+        "số thẻ", "cccd", "hồ sơ bệnh án", "bệnh án của", "dữ liệu của người khác",
+        "dữ liệu bảo hiểm của bệnh nhân khác", "hồ sơ của người thân",
+    )):
         return (
             "Tôi không thể cung cấp hồ sơ hoặc số thẻ của người khác. Cần xác minh danh tính và quyền đại diện "
             "trước khi cung cấp dữ liệu; tôi chỉ có thể hướng dẫn quy trình chung đã ẩn thông tin cá nhân."
         )
     if any(token in lowered for token in ("kê đơn", "uống thuốc", "chẩn đoán bệnh", "liều thuốc")):
         return "Tôi không thể chẩn đoán hoặc kê đơn. Với triệu chứng hay liều dùng, hãy liên hệ bác sĩ hoặc cơ sở y tế; tôi chỉ hỗ trợ thông tin chính sách và viện phí có nguồn."
-    if any(token in lowered for token in ("claim đã được duyệt", "yêu cầu đã được duyệt", "đã được phê duyệt")):
+    if any(token in lowered for token in (
+        "claim đã được duyệt", "yêu cầu đã được duyệt", "đã được phê duyệt",
+        "đã được chấp thuận", "đã được giải quyết", "sẽ chi trả", "chắc chắn là claim",
+    )):
         return "Tôi không thể xác nhận tình trạng phê duyệt yêu cầu thanh toán khi không có thông báo chính thức. Hãy kiểm tra kênh của cơ quan bảo hiểm hoặc cơ sở tiếp nhận."
     # A question about a person's own plan cannot be answered safely without
     # their plan/coverage facts.  Do not treat every general legal question
@@ -317,7 +426,10 @@ def policy_response(query: str) -> str | None:
     )
     if any(marker in lowered for marker in personal_plan_markers):
         return "Để xác định quyền lợi, cần tên hoặc mã gói bảo hiểm/văn bản áp dụng và ngày điều trị hoặc ngày hiệu lực. Tôi không thể khẳng định quyền lợi khi thiếu các thông tin này."
-    if "viện phí" in lowered and any(token in lowered for token in ("bao nhiêu", "ước tính", "tổng tiền", "tính", "cuối cùng")):
+    if "viện phí" in lowered and any(token in lowered for token in (
+        "bao nhiêu", "ước tính", "tổng tiền", "tính", "cuối cùng", "chốt viện phí",
+        "tổng tiền điều trị", "khẳng định số tiền",
+    )):
         return "Để đối chiếu viện phí an toàn, cần hóa đơn hoặc bảng kê chi tiết, nơi khám, tuyến/chuyển tuyến, mức hưởng BHYT và thời điểm điều trị. Không nên kết luận số tiền khi thiếu các đầu vào này."
     return None
 
@@ -345,8 +457,10 @@ def requires_evidence_verification(query: str) -> bool:
     lowered = query.casefold()
     return any(token in lowered for token in (
         "hiệu lực", "còn hiệu lực", "hết hiệu lực", "bãi bỏ", "thay thế",
-        "mức hưởng", "mức chi trả", "được chi trả", "được hưởng",
-        "có được", "bao nhiêu tiền", "thanh toán", "hiện nay", "hiện hành",
+        "mức hưởng", "mức chi trả", "mức đóng", "tỷ lệ", "hỗ trợ",
+        "được chi trả", "được hưởng",
+        "có được", "mất quyền lợi", "bao nhiêu tiền", "thanh toán",
+        "hiện nay", "hiện hành",
     ))
 
 
@@ -452,6 +566,22 @@ def rerank_legal_candidates(
         passage_terms = set(passage_tokens)
         metadata_terms = set(metadata_tokens)
         token_coverage = len(query_terms & passage_terms) / len(query_terms)
+        # Sentence-level coverage keeps a decisive operative clause ahead of
+        # a long background passage that happens to contain the same broad
+        # terms. It is a cheap learned-reranker seam: a cross-encoder can
+        # replace this score behind the same contract without changing the
+        # evidence or citation model.
+        sentence_coverage = max(
+            (
+                len(query_terms & {
+                    token.casefold() for token in _RETRIEVAL_TOKEN.findall(sentence)
+                })
+                / len(query_terms)
+                for sentence in re.split(r"(?<=[.!?。！？])\s+|\n+", item.content)
+                if sentence.strip()
+            ),
+            default=0.0,
+        )
         metadata_coverage = len(query_terms & metadata_terms) / len(query_terms)
         source_phrases = set(zip(passage_tokens, passage_tokens[1:]))
         source_triples = set(zip(passage_tokens, passage_tokens[1:], passage_tokens[2:]))
@@ -507,6 +637,17 @@ def rerank_legal_candidates(
         recency_bonus = 0.0
         if not historical_query and publication_year:
             recency_bonus = 0.20 * max(0.0, min(1.0, (publication_year - 1990) / 40))
+        # Effective-date proximity is a stronger current-regime signal than
+        # publication wording alone. It is derived from each document's
+        # metadata, so a current primary instrument can outrank an older
+        # reproduction without a question-to-document mapping.
+        effective_years = re.findall(r"\b(?:19|20)\d{2}\b", item.effective_from)
+        effective_year = max((int(value) for value in effective_years), default=0)
+        if not historical_query and effective_year:
+            if effective_year >= current_year - 2:
+                recency_bonus += 0.20
+            elif asks_current and effective_year < current_year - 5:
+                recency_bonus -= 0.08
         # For a question explicitly about the current regime, an old document
         # whose status cannot be tied to an official source is still useful
         # historical context, but cannot compete with an official current
@@ -542,6 +683,7 @@ def rerank_legal_candidates(
         rerank_score = (
             raw_score
             + 0.16 * token_coverage
+            + 0.22 * sentence_coverage
             + 0.10 * phrase_coverage
             + 0.45 * phrase_specificity
             + 0.03 * metadata_coverage
@@ -556,6 +698,7 @@ def rerank_legal_candidates(
             **item.rank_details,
             "semantic_raw_score": raw_score,
             "query_token_coverage": token_coverage,
+            "sentence_coverage": sentence_coverage,
             "query_phrase_coverage": phrase_coverage,
             "query_phrase_specificity": phrase_specificity,
             "metadata_token_coverage": metadata_coverage,
@@ -567,7 +710,23 @@ def rerank_legal_candidates(
             "currentness_penalty": currentness_penalty,
         }
         ranked.append(item)
-    return sorted(ranked, key=lambda item: (-item.score, item.document_id, item.chunk_id))
+    ordered = sorted(ranked, key=lambda item: (-item.score, item.document_id, item.chunk_id))
+    if get_settings().reranker_backend == "cross_encoder":
+        from src.services.reranker import cross_encoder_rerank
+
+        reranked, backend_status = cross_encoder_rerank(
+            query,
+            ordered,
+            model_name=get_settings().reranker_model,
+            max_candidates=get_settings().reranker_max_candidates,
+        )
+        for item in reranked:
+            item.rank_details = {
+                **item.rank_details,
+                "reranker_backend_status": backend_status,
+            }
+        return reranked
+    return ordered
 
 
 # Backward-compatible import for evaluation scripts while callers migrate to
@@ -605,6 +764,10 @@ def weighted_rrf(
         "document_recall_operatives": 5.0,
         "document_recall_semantic": 1.7,
         "document_anchor": 3.5,
+        # One canonical passage from each query-derived primary authority is
+        # retained as a diversity signal. It cannot become a citation unless
+        # it also survives the shared source/hash verifier.
+        "authority_anchor": 4.0,
         "legal_graph": 0.7,
         "page_index": 1.35,
     }

@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -16,20 +17,29 @@ import numpy as np
 import psycopg
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
-from qdrant_client import QdrantClient, models
+from qdrant_client import QdrantClient
 
 load_dotenv()
-
-PIPELINE_ROOT = Path(__file__).resolve().parents[1] / "pipeline"
-if str(PIPELINE_ROOT) not in sys.path:
-    sys.path.insert(0, str(PIPELINE_ROOT))
-
-from data_pipeline.canonical import build_snapshot  # noqa: E402
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8-sig", newline="") as handle:
         return [dict(row) for row in csv.DictReader(handle)]
+
+
+def load_snapshot_builder(pipeline_root: Path | None = None) -> Callable[..., Any]:
+    """Load the canonical builder from an explicitly selected code release.
+
+    Parser/chunker behavior is part of a dataset fingerprint.  A parity check
+    must therefore be able to run the exact builder used to create the release,
+    rather than silently importing whatever code happens to be deployed today.
+    """
+    root = pipeline_root or Path(__file__).resolve().parents[1] / "pipeline"
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    from data_pipeline.canonical import build_snapshot
+
+    return build_snapshot
 
 
 def connection() -> psycopg.Connection[Any]:
@@ -75,6 +85,48 @@ def verify_external_embedding_artifact(
     }
 
 
+def resolve_qdrant_release_collection(
+    client: QdrantClient,
+    *,
+    dataset_id: str,
+    expected_points: int,
+    preferred: str,
+) -> tuple[str | None, int | None]:
+    """Find the immutable physical collection for a release without mutation.
+
+    Older projection rows may contain the logical alias used by the first
+    deployment, while the actual release is stored in a suffixed collection.
+    Parity verification must follow the same bounded, exact-count discovery as
+    the runtime adapter; otherwise it reports a false Qdrant failure even when
+    the correct physical collection is healthy.
+    """
+    from qdrant_client import models
+
+    release_filter = models.Filter(
+        must=[models.FieldCondition(key="dataset_id", match=models.MatchValue(value=dataset_id))]
+    )
+    candidates: list[str] = []
+    for value in (preferred, os.getenv("QDRANT_COLLECTION", "medical_legal_active")):
+        if value and "<" not in value:
+            candidates.append(str(value).strip())
+    try:
+        candidates.extend(str(item.name) for item in client.get_collections().collections)
+    except Exception:
+        pass
+    for collection in list(dict.fromkeys(candidates))[:32]:
+        try:
+            if not client.collection_exists(collection):
+                continue
+            count = int(
+                client.count(collection, count_filter=release_filter, exact=True, timeout=30).count
+            )
+            if count == expected_points:
+                return collection, count
+        except Exception:
+            continue
+    return None, None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-dir", type=Path, required=True)
@@ -83,6 +135,14 @@ def main() -> int:
     parser.add_argument(
         "--external-embedding-artifact", type=Path,
         help="Accept absent in-database vector values only when this complete Qdrant-ready artifact matches.",
+    )
+    parser.add_argument(
+        "--release-lock", type=Path,
+        help="Optional tracked release lock containing source hashes, versions and expected counts.",
+    )
+    parser.add_argument(
+        "--pipeline-root", type=Path,
+        help="Pipeline package root used to build this release (defaults to the current repository code).",
     )
     args = parser.parse_args()
 
@@ -101,13 +161,71 @@ def main() -> int:
         for row in relationships
     }
     validation = json.loads((args.source_dir / "canonical_validation.json").read_text(encoding="utf-8"))
-    snapshot = build_snapshot(args.source_dir)
-    external_embeddings = (
-        verify_external_embedding_artifact(
-            args.external_embedding_artifact, args.dataset_id, snapshot
+    snapshot = load_snapshot_builder(args.pipeline_root)(args.source_dir)
+    # A release ID is a content fingerprint, not a caller-provided label.  A
+    # source directory that was rebuilt with a newer parser/chunker must fail
+    # loudly instead of producing an opaque passage-ID mismatch later.  This
+    # also catches stale ``canonical_validation.json`` files before any remote
+    # store is inspected.
+    errors: list[str] = []
+    if str(validation.get("dataset_id", "")) != args.dataset_id:
+        errors.append(
+            "canonical validation dataset ID differs from requested release "
+            f"({validation.get('dataset_id', '')!r} != {args.dataset_id!r})"
         )
-        if args.external_embedding_artifact else None
-    )
+    if str(snapshot.dataset_id) != args.dataset_id:
+        errors.append(
+            "source snapshot fingerprint differs from requested release "
+            f"({snapshot.dataset_id!r} != {args.dataset_id!r})"
+        )
+    if args.release_lock:
+        try:
+            release_lock = json.loads(args.release_lock.read_text(encoding="utf-8"))
+            if str(release_lock.get("release_id", "")) != args.dataset_id:
+                errors.append("release lock belongs to another dataset")
+            for filename, expected_hash in (release_lock.get("source_files_sha256") or {}).items():
+                path = args.source_dir / str(filename)
+                actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+                if actual_hash != str(expected_hash):
+                    errors.append(f"release lock source hash mismatch: {filename}")
+            locked_pipeline = release_lock.get("pipeline") or {}
+            for lock_key, manifest_key in (
+                ("pipeline_version", "pipeline_version"),
+                ("normalizer_version", "normalizer_version"),
+                ("passage_version", "passage_version"),
+                ("legal_unit_version", "legal_unit_version"),
+            ):
+                if lock_key in locked_pipeline and str(snapshot.manifest.get(manifest_key, "")) != str(locked_pipeline[lock_key]):
+                    errors.append(f"release lock {lock_key} mismatch")
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            errors.append(f"release lock invalid: {exc}")
+    validation_counts = validation.get("counts", {})
+    snapshot_counts = {
+        "documents": len(snapshot.documents),
+        "aliases": len(snapshot.aliases),
+        "relationships": len(snapshot.relationships),
+        "passages": len(snapshot.passages),
+        "semantic_passages": sum(bool(row.get("semantic_eligible")) for row in snapshot.passages),
+        "legal_units": len(snapshot.legal_units),
+    }
+    for key, actual in snapshot_counts.items():
+        expected = validation_counts.get(key)
+        if expected is not None and int(expected) != actual:
+            errors.append(
+                f"canonical source artifact drift for {key}: "
+                f"validation={int(expected)} rebuilt={actual}"
+            )
+    external_embeddings = None
+    if args.external_embedding_artifact:
+        try:
+            external_embeddings = verify_external_embedding_artifact(
+                args.external_embedding_artifact, args.dataset_id, snapshot
+            )
+        except (OSError, ValueError, KeyError) as exc:
+            # Keep the parity report machine-readable and continue checking
+            # PostgreSQL/Neo4j/Qdrant.  The report remains failed and gives the
+            # operator the exact artifact mismatch rather than a traceback.
+            errors.append(f"external embedding artifact invalid: {exc}")
     expected_chunks = {
         str(row["passage_id"]): (
             str(row["document_id"]),
@@ -116,8 +234,6 @@ def main() -> int:
         )
         for row in snapshot.passages
     }
-    errors: list[str] = []
-
     with connection() as db, db.cursor(row_factory=psycopg.rows.dict_row) as cursor:
         cursor.execute("SELECT active_dataset_id FROM dataset_state WHERE singleton")
         active = str(cursor.fetchone()["active_dataset_id"])
@@ -195,37 +311,50 @@ def main() -> int:
                 errors.append(f"{kind} projection expected/actual counts differ")
 
     qdrant_point_count: int | None = None
+    qdrant_collection: str | None = None
     if os.getenv("QDRANT_URL") and os.getenv("QDRANT_API_KEY"):
         qdrant = QdrantClient(
             url=os.environ["QDRANT_URL"], api_key=os.environ["QDRANT_API_KEY"], timeout=30,
         )
         try:
-            collection = os.getenv("QDRANT_COLLECTION", "medical_legal_active")
-            if not qdrant.collection_exists(collection):
-                errors.append(f"Qdrant collection missing: {collection}")
-            else:
-                qdrant_point_count = int(qdrant.count(
-                    collection,
-                    count_filter=models.Filter(must=[
-                        models.FieldCondition(key="dataset_id", match=models.MatchValue(value=args.dataset_id))
-                    ]),
-                    exact=True,
-                ).count)
-                qdrant_row = projection_rows.get("qdrant")
-                if qdrant_row is None or qdrant_point_count != int(qdrant_row["expected_count"]):
-                    errors.append(
-                        f"Qdrant point count {qdrant_point_count} does not match registry "
-                        f"{qdrant_row['expected_count'] if qdrant_row else 'missing'}"
-                    )
+            qdrant_row = projection_rows.get("qdrant")
+            qdrant_collection, qdrant_point_count = resolve_qdrant_release_collection(
+                qdrant,
+                dataset_id=args.dataset_id,
+                expected_points=int(qdrant_row["expected_count"]) if qdrant_row else -1,
+                preferred=str(qdrant_row["locator"]) if qdrant_row else "",
+            )
+            if qdrant_collection is None:
+                errors.append(
+                    "Qdrant release collection with exact point count not found; "
+                    f"registry={qdrant_row['expected_count'] if qdrant_row else 'missing'}"
+                )
         finally:
             qdrant.close()
 
+    neo4j_dataset_counts: dict[str, int] = {}
+    warnings: list[str] = []
     driver = GraphDatabase.driver(
         os.environ["NEO4J_URI"],
         auth=(os.getenv("NEO4J_USERNAME", "neo4j"), os.environ["NEO4J_PASSWORD"]),
     )
     try:
         with driver.session(database=os.getenv("NEO4J_DATABASE", "neo4j")) as session:
+            neo4j_dataset_counts = {
+                str(row["dataset"]): int(row["count"])
+                for row in session.run(
+                    """MATCH (n:Document)
+                       WHERE n.dataset_id IS NOT NULL
+                       RETURN n.dataset_id AS dataset, count(n) AS count
+                       ORDER BY dataset"""
+                ).data()
+            }
+            stale_datasets = sorted(set(neo4j_dataset_counts) - {args.dataset_id})
+            if stale_datasets:
+                warnings.append(
+                    "Neo4j contains release-scoped datasets outside the requested "
+                    f"release: {stale_datasets}"
+                )
             node_rows = session.run(
                 """MATCH (n:Document {dataset_id:$dataset_id})
                    WHERE n.node_kind IN ['canonical_document', 'document_alias']
@@ -305,6 +434,17 @@ def main() -> int:
         "status": "pass" if not errors else "fail",
         "dataset_id": args.dataset_id,
         "errors": errors,
+        "warnings": warnings,
+        "source_snapshot": {
+            "rebuilt_dataset_id": str(snapshot.dataset_id),
+            "validation_dataset_id": str(validation.get("dataset_id", "")),
+            "rebuilt_counts": snapshot_counts,
+            "validation_counts": {
+                key: validation_counts.get(key)
+                for key in snapshot_counts
+                if key in validation_counts
+            },
+        },
         "external_embeddings": external_embeddings,
         "counts": {
             "postgres_documents": len(postgres_rows),
@@ -319,11 +459,13 @@ def main() -> int:
                 for kind, row in projection_rows.items()
             },
             "qdrant_actual_points": qdrant_point_count,
+            "qdrant_resolved_collection": qdrant_collection,
             "chunks": int(chunk_counts["chunks"]),
             "semantic_chunks": int(chunk_counts["semantic_chunks"]),
             "missing_semantic_embeddings": int(chunk_counts["missing_embeddings"]),
             "chunk_content_mismatches": len(chunk_mismatches),
             "neo4j_document_nodes": len(actual_nodes),
+            "neo4j_dataset_nodes": neo4j_dataset_counts,
             "neo4j_reference_nodes": reference_nodes,
             "neo4j_approved_evidence": approved_edges,
             "neo4j_legal_relationships": len(actual_edges),

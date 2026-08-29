@@ -1,0 +1,147 @@
+{
+  "grader": {
+    "type": "independent_strict_manual_model_comparison",
+    "not_legal_opinion": true,
+    "internal_ids_used_as_pass_criteria": false,
+    "source_used": "model-comparison-v1-luna-rerun, model-comparison-v1-nano, model-comparison-v1-4o-mini",
+    "method": "Read all 15 answers and citations, compared each with eval/cases/model-comparison-v1.jsonl and local source material, checked quote/span/hash/provenance, exact citation-to-retrieved-evidence linkage, abstention/security, latency and trace. No provider calls and no runtime/database/source-file mutation."
+  },
+  "fixture": {
+    "path": "eval/cases/model-comparison-v1.jsonl",
+    "sha256": "deea869bc38295a0e97ba1dbd46e4cf7dd891c20e8332f795e8e95073fbe719d",
+    "cases_per_model": 5,
+    "total_cases": 15
+  },
+  "models": {
+    "luna": {
+      "artifact": "eval/results/model-comparison-v1-luna-rerun",
+      "sha256": "dc89acfe04b0dc7ac124dd4a97bc57ee64d8d7f8d102f670aff3544a23e2fe84",
+      "run_id": "live-benchmark-20260826T140722Z",
+      "model_name": "gpt-5.6-luna"
+    },
+    "nano": {
+      "artifact": "eval/results/model-comparison-v1-nano",
+      "sha256": "3bc182556a330bfe173d36aa515f3778801afbbb4786c9ab2c46f31743c88458",
+      "run_id": "live-benchmark-20260826T140416Z",
+      "model_name": "gpt-5.4-nano"
+    },
+    "4o-mini": {
+      "artifact": "eval/results/model-comparison-v1-4o-mini",
+      "sha256": "b93690620aec4ceeec25ef43136ffb6f49cada91f18841be895c3d629b63adc1",
+      "run_id": "live-benchmark-20260826T140528Z",
+      "model_name": "gpt-4o-mini"
+    }
+  },
+  "summary": {
+    "deterministic_passes": {"luna": 3, "nano": 3, "4o-mini": 3},
+    "independent_full_content_passes": {"luna": 1, "nano": 1, "4o-mini": 1},
+    "independent_partial_cases": {"luna": 3, "nano": 3, "4o-mini": 3},
+    "independent_failures": {"luna": 2, "nano": 1, "4o-mini": 1},
+    "manual_direct_citation_precision": {
+      "luna": {"directly_supporting": 5, "total": 30, "approximate_precision": 0.1667},
+      "nano": {"directly_supporting": 5, "total": 30, "approximate_precision": 0.1667},
+      "4o-mini": {"directly_supporting": 5, "total": 30, "approximate_precision": 0.1667}
+    },
+    "provenance": {
+      "luna": {"true": 9, "false": 21, "quote_hash_equal": 13},
+      "nano": {"true": 9, "false": 21, "quote_hash_equal": 13},
+      "4o-mini": {"true": 9, "false": 21, "quote_hash_equal": 14}
+    },
+    "model_exercise": "NOT_OBSERVABLE_AS_A_MODEL_COMPARISON; generation_trace.outcome=skipped for every successful case in all three artifacts, provider usage is absent for all 15 cases, and successful answer hashes are identical across models for all five questions",
+    "winner": {
+      "quality": "NO_VALID_MODEL_WINNER; the model was not exercised for successful answers, and all models share the same retrieval/guardrail answer pattern",
+      "operational_latency": "4o-mini has the lowest all-case median (12,438.66 ms); nano has the lowest reported p95 (21,582.50 ms) and wall time (62,889.41 ms). Differences are not statistically meaningful from one five-case run.",
+      "reliability": "All three rerun artifacts complete 5/5; the prior Luna transient error is retained only as historical context and is not included in this score"
+    },
+    "common_failure_pattern": "Retrieval/guardrail emits raw or stale passages: current five-year rule is recoverable, provincial and emergency rules are incomplete raw bullets, student returns a 1998 local rule for a 2026 question, and cosmetic returns an unrelated 1998 payment rule instead of the Article 23(6) exclusion.",
+    "security": "PASS_OBSERVED",
+    "internal_id_or_secret_leaks_observed": 0,
+    "overall_gate": "FAIL",
+    "release_decision": "DO_NOT_PROMOTE"
+  },
+  "trace_and_latency": {
+    "luna": {
+      "reported_p50_ms": 13523.05,
+      "reported_p95_ms": 21261.32,
+      "independent_all_case_median_ms": 13523.05,
+      "independent_all_case_p95_ms": 21261.32,
+      "quantile_note": "Rerun includes all five completed cases; prior Luna transient error is not included in this score.",
+      "cases_with_trace_id": 5,
+      "cases_with_retrieved_evidence": 5,
+      "cases_with_exact_citation_evidence_linkage": 5,
+      "cases_with_provider_usage": 0,
+      "error_trace": "none in rerun; prior transient error is excluded from primary score"
+    },
+    "nano": {
+      "reported_p50_ms": 12486.23,
+      "reported_p95_ms": 21582.5,
+      "independent_all_case_median_ms": 12486.23,
+      "independent_all_case_p95_ms": 21582.5,
+      "cases_with_trace_id": 5,
+      "cases_with_retrieved_evidence": 5,
+      "cases_with_exact_citation_evidence_linkage": 5,
+      "cases_with_provider_usage": 0
+    },
+    "4o-mini": {
+      "reported_p50_ms": 12438.66,
+      "reported_p95_ms": 21837.57,
+      "independent_all_case_median_ms": 12438.66,
+      "independent_all_case_p95_ms": 21837.57,
+      "cases_with_trace_id": 5,
+      "cases_with_retrieved_evidence": 5,
+      "cases_with_exact_citation_evidence_linkage": 5,
+      "cases_with_provider_usage": 0
+    },
+    "plan_gates": {
+      "simple_p50_ms": 2000,
+      "simple_p95_ms": 5000,
+      "hybrid_topical_p95_ms": 8000,
+      "temporal_or_multihop_p95_ms": 15000,
+      "first_useful_sse_p95_ms": 1000
+    },
+    "gate": "FAIL",
+    "trace_common_gaps": ["no provider tokens/cost", "no TTFT/first-useful-SSE", "no claim-to-span verifier decisions", "no graph relation path", "no repeated cold/warm/concurrency run"]
+  },
+  "cases": [
+    {
+      "case_id": "cmp-five-year",
+      "expected_status": "answerable",
+      "luna": {"status": "completed", "latency_ms": 22775.6, "content": "PASS_CURRENT_RULE", "direct_citations": "2/6", "provenance": "0/6 true", "finding": "Rerun correctly states 100%, five continuous years and six-times-reference threshold; noisy citations and no transition explanation."},
+      "nano": {"status": "completed", "latency_ms": 23582.49, "content": "PASS_CURRENT_RULE", "direct_citations": "2/6", "provenance": "0/6 true", "finding": "Correctly states 100%, five continuous years and six-times-reference threshold; noisy citations and no transition explanation."},
+      "4o-mini": {"status": "completed", "latency_ms": 23896.27, "content": "PASS_CURRENT_RULE", "direct_citations": "2/6", "provenance": "0/6 true", "finding": "Same answer as nano; correct current rule but noisy citations and no transition explanation."},
+      "independent_verdict": "All three rerun models content pass; citations remain noisy/provenance-unverified"
+    },
+    {
+      "case_id": "cmp-provincial",
+      "expected_status": "answerable_with_scope",
+      "luna": {"status": "completed", "latency_ms": 15204.22, "content": "PARTIAL_CORE_RULE", "direct_citations": "2/6", "provenance": "0/2 direct true", "finding": "Outpatient/inpatient and former-tier rates are present, but output is duplicated raw bullets without a user-specific scope explanation."},
+      "nano": {"status": "completed", "latency_ms": 12486.23, "content": "PARTIAL_CORE_RULE", "direct_citations": "2/6", "provenance": "0/2 direct true", "finding": "Same raw duplicated bullet answer and scope gap."},
+      "4o-mini": {"status": "completed", "latency_ms": 12438.66, "content": "PARTIAL_CORE_RULE", "direct_citations": "2/6", "provenance": "0/2 direct true", "finding": "Same raw duplicated bullet answer and scope gap."},
+      "independent_verdict": "All models partial; no model-specific gain observed"
+    },
+    {
+      "case_id": "cmp-student",
+      "expected_status": "answerable_with_scope",
+      "luna": {"status": "completed", "latency_ms": 4872.84, "content": "FAIL_WRONG_HISTORICAL_LOCAL_RULE", "direct_citations": "0/6", "provenance": "1/6 true", "finding": "Returns a 1998–1999 provincial voluntary-school rule, not the requested 2026 amount or State support."},
+      "nano": {"status": "completed", "latency_ms": 5285.52, "content": "FAIL_WRONG_HISTORICAL_LOCAL_RULE", "direct_citations": "0/6", "provenance": "1/6 true", "finding": "Same stale 1998–1999 local rule; no 2026 amount/support."},
+      "4o-mini": {"status": "completed", "latency_ms": 5020.0, "content": "FAIL_WRONG_HISTORICAL_LOCAL_RULE", "direct_citations": "0/6", "provenance": "1/6 true", "finding": "Same stale 1998–1999 local rule; no 2026 amount/support."},
+      "independent_verdict": "All models fail temporal/legal completeness; 4o-mini is fastest on this case only"
+    },
+    {
+      "case_id": "cmp-emergency",
+      "expected_status": "answerable",
+      "luna": {"status": "completed", "latency_ms": 13523.05, "content": "PARTIAL_CORE_RULE", "direct_citations": "1/6", "provenance": "0/1 direct true", "finding": "Correct 100%-at-any-facility emergency rule, but no explicit no-referral/inpatient/post-emergency qualification."},
+      "nano": {"status": "completed", "latency_ms": 13582.55, "content": "PARTIAL_CORE_RULE", "direct_citations": "1/6", "provenance": "0/1 direct true", "finding": "Same core rule and same scope gap."},
+      "4o-mini": {"status": "completed", "latency_ms": 13602.76, "content": "PARTIAL_CORE_RULE", "direct_citations": "1/6", "provenance": "0/1 direct true", "finding": "Same core rule and same scope gap."},
+      "independent_verdict": "All models partial; Luna fastest on this case"
+    },
+    {
+      "case_id": "cmp-cosmetic",
+      "expected_status": "answerable",
+      "luna": {"status": "completed", "latency_ms": 7645.56, "content": "FAIL_WRONG_TOPIC_HISTORICAL_RULE", "direct_citations": "0/6", "provenance": "4/6 true", "finding": "Returns an unrelated 1998 80/20 payment rule; does not answer cosmetic-service exclusion or Article 23(6)."},
+      "nano": {"status": "completed", "latency_ms": 6894.59, "content": "FAIL_WRONG_TOPIC_HISTORICAL_RULE", "direct_citations": "0/6", "provenance": "4/6 true", "finding": "Same unrelated historical 80/20 rule; no Article 23(6)."},
+      "4o-mini": {"status": "completed", "latency_ms": 6967.75, "content": "FAIL_WRONG_TOPIC_HISTORICAL_RULE", "direct_citations": "0/6", "provenance": "4/6 true", "finding": "Same unrelated historical 80/20 rule; no Article 23(6)."},
+      "independent_verdict": "All models fail; wrong legal topic is a high-risk error"
+    }
+  ]
+}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -42,6 +43,95 @@ class QdrantVectorStore:
             cloud_inference=True,
         )
         self._hybrid_bm25: bool | None = None
+        self._resolved_release: tuple[str, int] | None = None
+
+    def set_collection(self, collection: str) -> None:
+        """Switch to a verified release collection and reset capabilities."""
+        value = str(collection or "").strip()
+        if value and value != self.collection:
+            self.collection = value
+            self._hybrid_bm25 = None
+            self._resolved_release = None
+
+    async def resolve_collection(
+        self,
+        *,
+        dataset_id: str,
+        expected_points: int,
+        preferred_collection: str | None = None,
+    ) -> bool:
+        """Resolve a stale env alias to the immutable collection holding a release.
+
+        PostgreSQL's projection locator is authoritative, but older backfills may
+        contain a logical locator while Qdrant retains a release-suffixed physical
+        collection.  Discovery is bounded to the collection list and requires an
+        exact release point count; no collection is created, renamed or mutated.
+        """
+        if getattr(self, "_resolved_release", None) == (dataset_id, expected_points):
+            return True
+        if not dataset_id or expected_points <= 0:
+            return False
+        from qdrant_client import models
+
+        release_filter = models.Filter(
+            must=[models.FieldCondition(key="dataset_id", match=models.MatchValue(value=dataset_id))]
+        )
+        # Probe the release projection locator first.  This is both faster and
+        # safer than enumerating every collection on Qdrant Cloud: PostgreSQL
+        # is the release control plane, while collection discovery is only a
+        # compatibility fallback for older projection rows.
+        preferred = str(preferred_collection or "").strip()
+        if preferred and "<" not in preferred:
+            try:
+                info = await self.client.get_collection(preferred)
+                vectors = info.config.params.vectors
+                dense_vectors = vectors.get("dense") if isinstance(vectors, dict) else vectors
+                if getattr(dense_vectors, "size", None) == self.dimensions:
+                    count = await self.client.count(
+                        preferred,
+                        count_filter=release_filter,
+                        exact=True,
+                        timeout=self.timeout,
+                    )
+                    if int(count.count) == expected_points:
+                        self.set_collection(preferred)
+                        self._resolved_release = (dataset_id, expected_points)
+                        return True
+            except Exception:
+                # A stale logical locator is expected during rolling upgrades;
+                # fall through to bounded discovery below.
+                pass
+
+        # Lightweight test doubles and older client wrappers may not expose
+        # collection discovery. Keep the normal readiness check as the source
+        # of truth for those callers.
+        if not hasattr(self.client, "get_collections"):
+            return True
+        try:
+            listed = await self.client.get_collections()
+            names = [str(item.name) for item in listed.collections]
+        except Exception:
+            return False
+        candidates = list(dict.fromkeys([preferred, self.collection, *names]))
+        for candidate in candidates[:32]:
+            if not candidate or "<" in candidate:
+                continue
+            try:
+                info = await self.client.get_collection(candidate)
+                vectors = info.config.params.vectors
+                dense_vectors = vectors.get("dense") if isinstance(vectors, dict) else vectors
+                if getattr(dense_vectors, "size", None) != self.dimensions:
+                    continue
+                count = await self.client.count(
+                    candidate, count_filter=release_filter, exact=True, timeout=self.timeout
+                )
+                if int(count.count) == expected_points:
+                    self.set_collection(candidate)
+                    self._resolved_release = (dataset_id, expected_points)
+                    return True
+            except Exception:
+                continue
+        return False
 
     async def _supports_hybrid_bm25(self) -> bool:
         """Detect a fully published hybrid collection once per process.
@@ -53,13 +143,34 @@ class QdrantVectorStore:
         if self._hybrid_bm25 is not None:
             return self._hybrid_bm25
         try:
-            info = await self.client.get_collection(self.collection)
+            # Capability discovery must never consume the whole chat budget.
+            # A slow/unreachable Qdrant control-plane endpoint should fall
+            # back to dense retrieval, which uses the already published
+            # collection data path.
+            info = await asyncio.wait_for(
+                self.client.get_collection(self.collection),
+                timeout=min(2.0, float(self.timeout)),
+            )
             vectors = info.config.params.vectors
             sparse = info.config.params.sparse_vectors or {}
             self._hybrid_bm25 = isinstance(vectors, dict) and {"dense"} <= set(vectors) and "bm25" in sparse
         except Exception:
             self._hybrid_bm25 = False
         return self._hybrid_bm25
+
+    async def _dense_query(self, vector: Sequence[float], **kwargs):
+        """Query dense vectors across named and legacy unnamed collections.
+
+        Release collections are usually named ``dense`` vectors.  A retry
+        without ``using`` keeps compatibility with older snapshots while
+        preventing Qdrant's opaque "wrong vector name" 400 from taking down
+        the whole retrieval request.
+        """
+        values = [float(value) for value in vector]
+        try:
+            return await self.client.query_points(query=values, using="dense", **kwargs)
+        except Exception:
+            return await self.client.query_points(query=values, **kwargs)
 
     async def search(
         self,
@@ -126,11 +237,9 @@ class QdrantVectorStore:
                 # unavailable.  The release remains observable as dense-only
                 # until its BM25 capability is fixed and republished.
                 self._hybrid_bm25 = False
-                response = await self.client.query_points(
-                    query=[float(value) for value in vector], **kwargs
-                )
+                response = await self._dense_query(vector, **kwargs)
         else:
-            response = await self.client.query_points(query=[float(value) for value in vector], **kwargs)
+            response = await self._dense_query(vector, **kwargs)
         return [
             VectorHit(
                 chunk_id=str(point.payload.get("passage_id") or point.id).replace("-", ""),
@@ -205,9 +314,8 @@ class QdrantVectorStore:
         query_filter = models.Filter(must=conditions)
 
         async def one(vector: Sequence[float]) -> list[VectorHit]:
-            response = await self.client.query_points(
-                self.collection,
-                query=[float(value) for value in vector],
+            common = dict(
+                collection_name=self.collection,
                 query_filter=query_filter,
                 limit=limit,
                 with_payload=["passage_id", "document_id", "unit_id", "input_sha256"],
@@ -215,6 +323,7 @@ class QdrantVectorStore:
                 score_threshold=score_threshold,
                 timeout=self.timeout,
             )
+            response = await self._dense_query(vector, **common)
             return [
                 VectorHit(
                     chunk_id=str(point.payload.get("passage_id") or point.id).replace("-", ""),
@@ -235,6 +344,7 @@ class QdrantVectorStore:
         requests = [
             models.QueryRequest(
                 query=vector,
+                using="dense",
                 filter=query_filter,
                 limit=limit,
                 with_payload=["passage_id", "document_id", "unit_id", "input_sha256"],
@@ -246,6 +356,11 @@ class QdrantVectorStore:
         try:
             responses = await query_batch(collection_name=self.collection, requests=requests)
         except (AttributeError, TypeError, NotImplementedError):
+            return await asyncio.gather(*(one(vector) for vector in values))
+        except Exception:
+            # Named-vector support varies across Qdrant Cloud snapshots. A
+            # failed batch must degrade to the per-vector compatibility path,
+            # never surface as an agent error.
             return await asyncio.gather(*(one(vector) for vector in values))
         return [
             [
@@ -266,6 +381,8 @@ class QdrantVectorStore:
         """Validate alias shape and release point count without touching PostgreSQL."""
         from qdrant_client import models
 
+        if not await self.resolve_collection(dataset_id=dataset_id, expected_points=expected_points):
+            return False
         if not await self.client.collection_exists(self.collection):
             return False
         info = await self.client.get_collection(self.collection)

@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 
+from src.services.eligibility_checklist import FIELD_CATALOG
+
 _REFERENCE_MARKER = re.compile(
     r"\b(văn bản đó|văn bản trên|văn bản này|khoản trên|điều trên|mục trên|nội dung đó|quy định đó)\b",
     re.IGNORECASE,
@@ -91,3 +93,39 @@ def resolve_conversational_query(query: str, turns: Sequence[Mapping[str, object
                 if hint:
                     return f"{normalized} Văn bản tham chiếu: {hint}."[:700]
     return normalized
+
+
+def apply_structured_user_facts(
+    query: str, turns: Sequence[Mapping[str, object]] = ()
+) -> str:
+    """Append only allowlisted, bounded user facts as non-evidence context."""
+    normalized = query.strip()
+    if not normalized:
+        return normalized
+    facts: Mapping[str, object] = {}
+    for turn in reversed(list(turns)[-20:]):
+        candidate = turn.get("user_facts")
+        if isinstance(candidate, Mapping):
+            facts = candidate
+            break
+    fragments: list[str] = []
+    for key in sorted(set(facts) & set(FIELD_CATALOG)):
+        value = facts[key]
+        if isinstance(value, bool):
+            public_value = "có" if value else "không"
+        elif isinstance(value, (str, int, float)):
+            public_value = " ".join(str(value).split())[:120]
+            if _UNTRUSTED_HINT.search(public_value):
+                continue
+            public_value = re.sub(r"[^0-9A-Za-zÀ-ỹĐđ .,/()%+\-]", "", public_value).strip()
+        else:
+            continue
+        if public_value:
+            fragments.append(f"{FIELD_CATALOG[key].label}: {public_value}")
+    if not fragments:
+        return normalized
+    suffix = "; ".join(fragments)[:800]
+    return (
+        f"{normalized}\nTình tiết do người dùng xác nhận, chỉ dùng để chọn quy định; "
+        f"không phải căn cứ pháp lý: {suffix}."
+    )[:1500]

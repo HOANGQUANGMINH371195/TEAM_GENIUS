@@ -3,6 +3,7 @@
 import { FormEvent, forwardRef, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 
@@ -72,6 +73,10 @@ function formatInlineMarkdown(value: string) {
   return value.split(/(\*\*[^*]+\*\*)/g).map((part, index) => part.startsWith("**") && part.endsWith("**") ? <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong> : part);
 }
 
+function isComparisonQuestion(value: string) {
+  return /\b(?:so sánh|đối chiếu|khác nhau|phương án|kịch bản)\b|\bvs\.?\b/i.test(value);
+}
+
 export default function HomePage() {
   const { user, signOut } = useAuth();
   const [question, setQuestion] = useState("");
@@ -92,6 +97,13 @@ export default function HomePage() {
   const drawerReturnFocusRef = useRef<HTMLElement | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
   const conversationIdRef = useRef(crypto.randomUUID());
+
+  useEffect(() => {
+    const candidate = new URLSearchParams(window.location.search).get("conversation_id") ?? "";
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate)) {
+      conversationIdRef.current = candidate;
+    }
+  }, []);
 
   const activeMessage = messages.find((message) => message.id === activeMessageId && message.role === "assistant");
   const activeEvidence = (activeMessage?.citations ?? []).map((citation, index) => ({ ...citation, evidenceId: `${activeMessage?.id ?? "active"}-${index}` }));
@@ -243,6 +255,9 @@ export default function HomePage() {
 
         <nav className="bhyt-nav" onClick={() => setMobileMenuOpen(false)}>
           <a className="bhyt-nav-item is-active" href="#main-chat"><Icon name="chat" /><span>Tra cứu BHYT</span></a>
+          <Link className="bhyt-nav-item" href="/calculator"><Icon name="document" /><span>So sánh kịch bản</span></Link>
+          <Link className="bhyt-nav-item" href="/timeline"><Icon name="history" /><span>Dòng thời gian pháp lý</span></Link>
+          <Link className="bhyt-nav-item" href="/eligibility"><Icon name="check" /><span>Checklist điều kiện</span></Link>
           <button className="bhyt-nav-item" type="button" onClick={() => chooseTopic(topicCards[2].question)}><Icon name="document" /><span>Hướng dẫn thủ tục</span></button>
           <button className="bhyt-nav-item" type="button" onClick={() => inputRef.current?.focus()}><Icon name="help" /><span>Trợ giúp &amp; Hỏi đáp</span></button>
         </nav>
@@ -256,7 +271,7 @@ export default function HomePage() {
             </div>
           ) : null}
           <div className="bhyt-support-note"><Icon name="shield" /><span><strong>Hỗ trợ tra cứu BHYT</strong><small>Thông tin được đối chiếu từ nguồn pháp lý</small></span></div>
-          {user?.role === "admin" ? <a className="bhyt-admin-link" href="/admin/review"><Icon name="shield" /><span>Cổng quản trị viên</span></a> : null}
+          {user?.role === "admin" ? <a className="bhyt-admin-link" href="/admin"><Icon name="shield" /><span>Cổng quản trị viên</span></a> : null}
         </div>
       </aside>
 
@@ -281,13 +296,13 @@ export default function HomePage() {
             <WelcomeScreen ref={welcomeRef} onChooseTopic={chooseTopic} onFocusComposer={() => inputRef.current?.focus()} />
           ) : (
             <div className="bhyt-message-stream">
-              {messages.map((message) => message.role === "user" ? (
+              {messages.map((message, index) => message.role === "user" ? (
                 <div className="bhyt-message-row is-user" key={message.id}>
                   <div className="bhyt-message-meta">Bạn <span>vừa hỏi</span></div>
                   <div className="bhyt-user-bubble">{message.content}</div>
                 </div>
               ) : (
-                <AssistantMessage key={message.id} message={message} evidenceDrawerOpen={evidenceOpen && activeMessageId === message.id} onEvidenceToggle={toggleEvidenceDrawer} />
+                <AssistantMessage key={message.id} message={message} comparisonQuestion={messages[index - 1]?.role === "user" && isComparisonQuestion(messages[index - 1].content) ? messages[index - 1].content : ""} evidenceDrawerOpen={evidenceOpen && activeMessageId === message.id} onEvidenceToggle={toggleEvidenceDrawer} />
               ))}
               {loading ? <LoadingMessage stage={streamStage} onCancel={cancelRequest} /> : null}
               {error ? <div className="bhyt-error" role="alert">{error}</div> : null}
@@ -375,7 +390,7 @@ const WelcomeScreen = forwardRef<HTMLDivElement, { onChooseTopic: (question: str
   );
 });
 
-function AssistantMessage({ message, evidenceDrawerOpen, onEvidenceToggle }: { message: ChatMessage; evidenceDrawerOpen: boolean; onEvidenceToggle: (message: ChatMessage) => void }) {
+function AssistantMessage({ message, comparisonQuestion, evidenceDrawerOpen, onEvidenceToggle }: { message: ChatMessage; comparisonQuestion: string; evidenceDrawerOpen: boolean; onEvidenceToggle: (message: ChatMessage) => void }) {
   const parsed = splitAnswer(message.content);
   const messageRef = useRef<HTMLDivElement>(null);
 
@@ -407,6 +422,7 @@ function AssistantMessage({ message, evidenceDrawerOpen, onEvidenceToggle }: { m
             <div className="bhyt-tier-heading"><span><Icon name="document" /></span><p>Căn cứ pháp lý</p></div>
             <button className="bhyt-evidence-summary-button" type="button" aria-expanded={evidenceDrawerOpen} aria-controls="evidence-drawer" onClick={() => onEvidenceToggle(message)}><Icon name="book" /><span><strong>{message.citations.length}</strong> căn cứ pháp lý trích dẫn</span><Icon name="chevron" /></button>
           </section> : null}
+          {comparisonQuestion ? <Link className="bhyt-comparison-cta" href={`/calculator?question=${encodeURIComponent(comparisonQuestion)}`}>Mở bảng so sánh từ câu hỏi này <span aria-hidden="true">→</span></Link> : null}
         </div>
       </div>
     </div>
@@ -435,7 +451,7 @@ function CitationCard({ citation, expanded, onToggle }: { citation: ChatCitation
         <span className="bhyt-evidence-copy"><small>{citation.document_number || "Nguồn pháp lý"}</small><strong>{citation.title || "Văn bản nguồn"}</strong><span>{citation.quote}</span></span>
         <span className="bhyt-evidence-chevron"><Icon name="chevron" /></span>
       </button>
-      {expanded ? <div className="bhyt-evidence-content" id={`evidence-${citation.evidenceId}`}><p>{citation.quote}</p>{citation.section_title ? <strong>{citation.section_title}</strong> : null}{citation.source_url ? <a href={citation.source_url} target="_blank" rel="noreferrer">Mở nguồn chính thức</a> : null}</div> : null}
+      {expanded ? <div className="bhyt-evidence-content" id={`evidence-${citation.evidenceId}`}><p>{citation.quote}</p>{citation.section_title ? <strong>{citation.section_title}</strong> : null}{citation.document_number ? <a href={`/document?number=${encodeURIComponent(citation.document_number)}`}>Mở bản HTML đã làm sạch</a> : null}{citation.source_url ? <a href={citation.source_url} target="_blank" rel="noreferrer">Mở nguồn chính thức</a> : null}</div> : null}
     </article>
   );
 }

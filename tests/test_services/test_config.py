@@ -28,3 +28,32 @@ def test_production_contract_rejects_malformed_firebase_json(monkeypatch):
 
 def test_non_production_contract_allows_local_defaults():
     Settings(app_env="test").validate_production_contract()
+
+
+def test_production_contract_requires_durable_global_search_dependencies():
+    settings = Settings(
+        app_env="production",
+        feature_global_search_enabled=True,
+        community_index_path="",
+        research_queue_backend="memory",
+        research_queue_redis_url="",
+    )
+    try:
+        settings.validate_production_contract()
+    except ValueError as exc:
+        message = str(exc)
+        assert "COMMUNITY_INDEX_PATH" in message
+        assert "RESEARCH_QUEUE_BACKEND=redis" in message
+        assert "RESEARCH_QUEUE_REDIS_URL" in message
+    else:  # pragma: no cover
+        raise AssertionError("expected global-search production contract failure")
+
+
+def test_production_contract_requires_experience_index_when_enabled():
+    settings = Settings(app_env="production", feature_experience_retrieval_enabled=True)
+    try:
+        settings.validate_production_contract()
+    except ValueError as exc:
+        assert "EXPERIENCE_INDEX_PATH" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected experience-index production contract failure")

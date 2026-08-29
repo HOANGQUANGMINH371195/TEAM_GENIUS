@@ -6,15 +6,18 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.agents.nodes.graphrag_nodes import _pack_context
+from src.agents.nodes.graphrag_nodes import _pack_context, _source_backed_fallback
 from src.integrations.qdrant import VectorHit
 from src.models.graph import DocumentCandidate, RetrievalResult
+from src.models.schemas import GroundedAnswer
 from src.services.chat import (
     GraphRagRuntime,
     RetrievalBundle,
     _answer_cache_allowed,
+    _apply_document_ranking_metadata,
     _format_metadata_answer,
     _limit_evidence,
+    render_grounded_answer,
 )
 
 
@@ -34,6 +37,63 @@ def test_limit_evidence_uses_internal_budget():
     assert len(selected) == 10
     assert selected[0].chunk_id == "chunk-11"
     assert selected[-1].chunk_id == "chunk-2"
+
+
+def test_lexical_passage_metadata_is_available_for_public_citations():
+    passage = RetrievalResult(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        dataset_id="release-1",
+        content="Quy định về quyền lợi BHYT.",
+        channels=["lexical"],
+    )
+
+    _apply_document_ranking_metadata(
+        [passage],
+        {
+            "doc-1": {
+                "document_number": "51/2024/QH15",
+                "document_type": "Luật",
+                "issued_date": "27/11/2024",
+                "effective_from": "01/07/2025",
+                "effective_to": "",
+                "legal_status": "Còn hiệu lực",
+                "legal_status_verified": True,
+                "issuer": "Quốc hội",
+                "jurisdiction": "Trung ương",
+                "source_url": "https://example.invalid/source",
+                "source_checked_at": "2026-08-28",
+                "categories": ["bhyt"],
+            }
+        },
+    )
+
+    assert passage.document_number == "51/2024/QH15"
+    assert passage.legal_status_verified is True
+
+
+def test_source_backed_fallback_never_invents_missing_numeric_value():
+    evidence = [
+        RetrievalResult(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            dataset_id="release-1",
+            section_title="Mức đóng và hỗ trợ",
+            content="Học sinh, sinh viên tự đóng và được ngân sách nhà nước hỗ trợ một phần mức đóng.",
+            text_sha256=sha256(
+                "Học sinh, sinh viên tự đóng và được ngân sách nhà nước hỗ trợ một phần mức đóng.".encode()
+            ).hexdigest(),
+        )
+    ]
+
+    fallback = _source_backed_fallback(
+        "Học sinh tham gia BHYT năm 2026 phải đóng bao nhiêu và được Nhà nước hỗ trợ thế nào?",
+        evidence,
+    )
+
+    assert "ngân sách nhà nước hỗ trợ" in fallback
+    assert "2026" not in fallback
+    assert "số tiền cụ thể" in fallback
 
 
 def test_metadata_status_fails_closed_without_verified_source():
@@ -165,6 +225,29 @@ async def test_social_fast_path_makes_zero_retrieval_provider_calls():
 
 
 @pytest.mark.asyncio
+async def test_current_authority_seed_is_coalesced_per_release():
+    runtime = GraphRagRuntime()
+    repository = SimpleNamespace(
+        current_authority_document_ids=AsyncMock(return_value=["doc-current"])
+    )
+
+    results = await asyncio.gather(
+        *(
+            runtime._current_authority_ids(
+                repository,
+                query=f"question-{index}",
+                dataset_id="release-1",
+                limit=8,
+            )
+            for index in range(4)
+        )
+    )
+
+    assert results == [["doc-current"]] * 4
+    repository.current_authority_document_ids.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_generate_uses_configured_llm():
     runtime = GraphRagRuntime()
     result = type("Message", (), {"content": "Grounded answer"})()
@@ -176,6 +259,44 @@ async def test_generate_uses_configured_llm():
     assert answer == "Grounded answer"
     llm.ainvoke.assert_awaited_once()
     assert "NGUỒN THỨ 1" in llm.ainvoke.await_args.args[0][1].content
+
+
+@pytest.mark.asyncio
+async def test_generate_uses_strict_grounded_schema_and_public_renderer():
+    runtime = GraphRagRuntime()
+    expected = GroundedAnswer(
+        conclusion="Được hưởng theo điều kiện của nguồn.",
+        conditions=["Có đủ điều kiện được nêu trong văn bản."],
+        exceptions=["Không áp dụng cho trường hợp bị loại trừ."],
+    )
+    structured = type("Structured", (), {})()
+    structured.ainvoke = AsyncMock(return_value=expected)
+    llm = type("Llm", (), {})()
+    llm.with_structured_output = lambda *_args, **_kwargs: structured
+
+    with patch("src.services.chat.get_llm", return_value=llm):
+        answer = await runtime.generate("question", "NGUỒN THỨ 1\nNỘI DUNG: nội dung")
+
+    assert answer == render_grounded_answer(expected)
+    assert "Điều kiện:" in answer
+    assert "Ngoại lệ:" in answer
+
+
+@pytest.mark.asyncio
+async def test_generate_retries_plain_text_after_truncated_structured_json():
+    runtime = GraphRagRuntime()
+    structured = type("Structured", (), {})()
+    structured.ainvoke = AsyncMock(side_effect=ValueError("Invalid JSON: EOF while parsing a string"))
+    plain = type("Message", (), {"content": "Mức đóng được xác định theo nhóm tham gia."})()
+    llm = type("Llm", (), {})()
+    llm.with_structured_output = lambda *_args, **_kwargs: structured
+    llm.ainvoke = AsyncMock(return_value=plain)
+
+    with patch("src.services.chat.get_llm", return_value=llm):
+        answer = await runtime.generate("Mức đóng BHYT theo từng nhóm là bao nhiêu?", "Nguồn đã xác nhận")
+
+    assert answer == plain.content
+    llm.ainvoke.assert_awaited_once()
 
 
 @pytest.mark.asyncio

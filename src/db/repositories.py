@@ -3,13 +3,14 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Sequence
+from datetime import date
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.integrations.neo4j import Neo4jGraphStore
 from src.models.graph import DocumentCandidate, Relation, RetrievalResult
-from src.services.retrieval import normalize_identifier
+from src.services.retrieval import extract_query_terms, normalize_identifier
 
 _LEXICAL_TOKEN = re.compile(r"[0-9A-Za-zÀ-ỹĐđ]+", re.IGNORECASE)
 
@@ -74,13 +75,11 @@ def lexical_phrases(query: str, *, limit: int = 48) -> list[str]:
 
 def lexical_disjunction(query: str, *, limit: int = 32) -> str:
     """Build a safe, bounded OR query from user-supplied lexical tokens."""
-    terms = list(
-        dict.fromkeys(
-            token.casefold()
-            for token in _LEXICAL_TOKEN.findall(query)
-            if len(token) > 1
-        )
-    )[: max(0, limit)]
+    # Use the shared query-term normalizer so function words do not make the
+    # disjunction look relevant merely because they occur in nearly every
+    # statute.  The terms are still entirely query-derived; no topic-to-answer
+    # vocabulary is introduced here.
+    terms = extract_query_terms(query, limit=max(0, limit))
     return " | ".join(terms)
 
 
@@ -105,6 +104,103 @@ class GraphRepository:
         )
         dataset_id = result.scalar_one_or_none()
         return str(dataset_id) if dataset_id is not None else None
+
+    async def public_document_html(
+        self, document_number: str, *, dataset_id: str | None = None
+    ) -> dict[str, object] | None:
+        """Load canonical HTML by public signature from the active release."""
+        normalized = normalize_identifier(document_number)
+        result = await self.session.execute(
+            text(
+                """
+                SELECT d.id, d.title, d.raw_html, d.raw_html_sha256,
+                       COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', d.payload ->> 'ngay_co_hieu_luc', '') AS effective_from,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_het_hieu_luc', d.payload ->> 'ngay_het_hieu_luc', '') AS effective_to,
+                       COALESCE(d.payload -> 'metadata' ->> 'official_status_url', d.payload ->> 'official_status_url', '') AS source_url
+                FROM documents d
+                JOIN datasets ds ON ds.dataset_id = d.dataset_id
+                WHERE d.dataset_id = COALESCE(:dataset_id, (
+                    SELECT COALESCE(pointer.active_dataset_id, state.active_dataset_id)
+                    FROM dataset_state state
+                    LEFT JOIN ops.active_release pointer ON pointer.singleton = TRUE
+                    WHERE state.singleton = TRUE
+                ))
+                  AND ds.status = 'active'
+                  AND upper(replace(replace(COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', ''), 'Ð', 'Đ'), 'ð', 'đ')) = :document_number
+                  AND d.raw_html <> ''
+                LIMIT 1
+                """
+            ),
+            {"dataset_id": dataset_id, "document_number": normalized},
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None
+
+    async def public_document_metadata(
+        self, document_number: str, *, dataset_id: str | None = None
+    ) -> dict[str, object] | None:
+        """Resolve a public signature to canonical release metadata."""
+        normalized = normalize_identifier(document_number)
+        result = await self.session.execute(
+            text(
+                """
+                SELECT d.id, d.title,
+                       COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_ban_hanh', d.payload ->> 'ngay_ban_hanh', '') AS issued_at,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', d.payload ->> 'ngay_co_hieu_luc', '') AS effective_from,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_het_hieu_luc', d.payload ->> 'ngay_het_hieu_luc', '') AS effective_to,
+                       COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', d.payload ->> 'tinh_trang_hieu_luc', '') AS status,
+                       COALESCE(d.payload -> 'metadata' ->> 'official_status_url', d.payload ->> 'official_status_url', '') AS source_url,
+                       d.dataset_id
+                FROM documents d
+                JOIN datasets ds ON ds.dataset_id = d.dataset_id
+                WHERE d.dataset_id = COALESCE(:dataset_id, (
+                    SELECT COALESCE(pointer.active_dataset_id, state.active_dataset_id)
+                    FROM dataset_state state
+                    LEFT JOIN ops.active_release pointer ON pointer.singleton = TRUE
+                    WHERE state.singleton = TRUE
+                ))
+                  AND ds.status = 'active'
+                  AND upper(replace(replace(COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', ''), 'Ð', 'Đ'), 'ð', 'đ')) = :document_number
+                  AND NOT d.is_external
+                LIMIT 1
+                """
+            ),
+            {"dataset_id": dataset_id, "document_number": normalized},
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None
+
+    async def public_document_metadata_by_ids(
+        self, document_ids: Sequence[str], *, dataset_id: str
+    ) -> dict[str, dict[str, object]]:
+        """Hydrate graph document IDs in one canonical PostgreSQL read."""
+        ids = list(dict.fromkeys(str(value) for value in document_ids if value))[:100]
+        if not ids:
+            return {}
+        result = await self.session.execute(
+            text(
+                """
+                SELECT d.id, d.title,
+                       COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_ban_hanh', d.payload ->> 'ngay_ban_hanh', '') AS issued_at,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', d.payload ->> 'ngay_co_hieu_luc', '') AS effective_from,
+                       COALESCE(d.payload -> 'metadata' ->> 'ngay_het_hieu_luc', d.payload ->> 'ngay_het_hieu_luc', '') AS effective_to,
+                       COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', d.payload ->> 'tinh_trang_hieu_luc', '') AS status,
+                       COALESCE(d.payload -> 'metadata' ->> 'official_status_url', d.payload ->> 'official_status_url', '') AS source_url,
+                       d.dataset_id
+                FROM documents d
+                JOIN datasets ds ON ds.dataset_id = d.dataset_id
+                WHERE d.dataset_id = :dataset_id
+                  AND d.id = ANY(CAST(:document_ids AS text[]))
+                  AND ds.status = 'active'
+                  AND NOT d.is_external
+                """
+            ),
+            {"dataset_id": dataset_id, "document_ids": ids},
+        )
+        return {str(row["id"]): dict(row) for row in result.mappings()}
 
     async def search_title_documents(
         self, query: str, *, dataset_id: str, limit: int = 4
@@ -181,6 +277,70 @@ class GraphRepository:
         )
         return [str(row.id) for row in result]
 
+    async def current_authority_document_ids(
+        self, query: str = "", *, dataset_id: str, limit: int = 16
+    ) -> list[str]:
+        """Return a small current-authority fallback set for open numeric queries.
+
+        This is a candidate seed only.  Every passage still has to match the
+        user's query, be hydrated from PostgreSQL and pass the normal legal
+        reranker.  It prevents a colloquial phrase (for example a user's
+        wording for an out-of-network visit) from forcing a full corpus scan
+        when the governing current instrument uses different terminology.
+        """
+        result = await self.session.execute(
+            text(
+                """
+                SELECT d.id
+                FROM documents d
+                WHERE d.dataset_id = :dataset_id
+                  AND NOT d.is_external
+                  AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                  AND (
+                      d.title ILIKE 'luật %'
+                      OR d.title ILIKE 'nghị định %'
+                      OR d.title ILIKE 'văn bản hợp nhất%'
+                  )
+                  AND (
+                      (
+                          COALESCE(d.payload -> 'metadata' ->> 'legal_status_verified', 'false')::boolean IS TRUE
+                          AND COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', '') ILIKE 'còn hiệu lực%'
+                      )
+                      OR GREATEST(
+                          CASE
+                              WHEN COALESCE(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', '') ~ '\\d{4}$'
+                              THEN RIGHT(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', 4)::int
+                              ELSE 0
+                          END,
+                          CASE
+                              WHEN COALESCE(d.payload -> 'metadata' ->> 'ngay_ban_hanh', '') ~ '\\d{4}$'
+                              THEN RIGHT(d.payload -> 'metadata' ->> 'ngay_ban_hanh', 4)::int
+                              ELSE 0
+                          END
+                      ) >= :minimum_year
+                  )
+                ORDER BY
+                  CASE
+                    WHEN d.title ILIKE 'luật %' THEN 4
+                    WHEN d.title ILIKE 'văn bản hợp nhất%' THEN 3
+                    WHEN d.title ILIKE 'nghị định %' THEN 2
+                    ELSE 1
+                  END DESC,
+                  CASE WHEN COALESCE(d.payload -> 'metadata' ->> 'ngay_ban_hanh', '') ~ '\\d{4}$'
+                       THEN substring(d.payload -> 'metadata' ->> 'ngay_ban_hanh' FROM '\\d{4}$')::int
+                       ELSE 0 END DESC,
+                  d.id
+                LIMIT :limit
+                """
+            ),
+            {
+                "dataset_id": dataset_id,
+                "limit": max(1, min(limit, 32)),
+                "minimum_year": date.today().year - 2,
+            },
+        )
+        return [str(row.id) for row in result]
+
     async def current_dataset_release(self) -> tuple[str, int] | None:
         """Return the active release and its expected external-vector count."""
         result = await self.session.execute(
@@ -205,6 +365,75 @@ class GraphRepository:
         )
         row = result.one_or_none()
         return (str(row.dataset_id), int(row.semantic_passages)) if row is not None else None
+
+    async def search_legal_fact_subjects(
+        self, terms: Sequence[str], *, dataset_id: str, limit: int = 8
+    ) -> list[str]:
+        """Find accepted typed-fact subjects using only query-derived terms."""
+        needles = list(dict.fromkeys(str(term).strip() for term in terms if str(term).strip()))[:24]
+        if not needles or not dataset_id:
+            return []
+        result = await self.session.execute(
+            text(
+                """
+                SELECT DISTINCT subject
+                FROM legal_facts
+                WHERE dataset_id = :dataset_id
+                  AND review_status = 'accepted'
+                  AND EXISTS (
+                      SELECT 1 FROM unnest(CAST(:terms AS text[])) AS needle
+                      WHERE lower(subject) LIKE '%' || lower(needle) || '%'
+                  )
+                ORDER BY subject
+                LIMIT :limit
+                """
+            ),
+            {"dataset_id": dataset_id, "terms": needles, "limit": max(1, min(int(limit), 24))},
+        )
+        return [str(row.subject) for row in result]
+
+    async def hydrate_units_by_ids(
+        self, unit_ids: Sequence[str], *, dataset_id: str, limit: int = 12
+    ) -> list[RetrievalResult]:
+        """Hydrate typed-fact anchors back to canonical PostgreSQL text."""
+        ids = list(dict.fromkeys(str(unit_id) for unit_id in unit_ids if str(unit_id)))[:50]
+        if not ids or not dataset_id:
+            return []
+        result = await self.session.execute(
+            text(
+                """
+                SELECT u.unit_id, u.document_id, u.heading, u.text,
+                       u.source_start, u.source_end, u.text_sha256, d.title
+                FROM legal_units u
+                JOIN documents d ON d.dataset_id = u.dataset_id AND d.id = u.document_id
+                WHERE u.dataset_id = :dataset_id
+                  AND u.unit_id = ANY(CAST(:unit_ids AS text[]))
+                  AND NOT d.is_external
+                  AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                ORDER BY u.source_start NULLS LAST, u.unit_id
+                LIMIT :limit
+                """
+            ),
+            {"dataset_id": dataset_id, "unit_ids": ids, "limit": max(1, min(int(limit), 50))},
+        )
+        return [
+            RetrievalResult(
+                chunk_id=f"unit:{row.unit_id}",
+                document_id=str(row.document_id),
+                dataset_id=dataset_id,
+                content=str(row.text or row.heading or ""),
+                source=str(row.document_id),
+                title=str(row.title or ""),
+                section_title=str(row.heading or ""),
+                unit_id=str(row.unit_id),
+                source_start=int(row.source_start) if row.source_start is not None else None,
+                source_end=int(row.source_end) if row.source_end is not None else None,
+                text_sha256=str(row.text_sha256 or ""),
+                channels=["typed_fact"],
+                score=1.0,
+            )
+            for row in result
+        ]
 
     async def current_projection_contract(self, dataset_id: str) -> dict[str, dict[str, object]]:
         """Return release-scoped projection rows for readiness/parity checks."""
@@ -330,6 +559,79 @@ class GraphRepository:
                     or canonical_embedding_input_sha256(str(row.section_title or ""), str(row.text or ""))
                 ),
                 channels=[channel],
+            )
+            for row in result
+        ]
+
+    async def search_table_facts(
+        self, query: str, *, dataset_id: str, limit: int = 12
+    ) -> list[RetrievalResult]:
+        """Recall typed table facts and anchor them to canonical legal units."""
+        # Avoid tokenizing the entire historical table projection when this
+        # release has no reviewed facts.  The partial index is installed by
+        # the migration below; the capability guard keeps older databases
+        # compatible while they roll forward.
+        accepted_check = await self.session.execute(
+            text(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM table_cell_facts
+                    WHERE dataset_id = :dataset_id
+                      AND payload ->> 'review_status' = 'accepted'
+                )
+                """
+            ),
+            {"dataset_id": dataset_id},
+        )
+        scalar = getattr(accepted_check, "scalar", None)
+        if callable(scalar) and not bool(scalar()):
+            return []
+        result = await self.session.execute(
+            text(
+                """
+                SELECT f.fact_id, f.subject, f.attribute, f.value, f.document_id,
+                       f.legal_unit_id, f.source_fragment_sha256, d.title,
+                       COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
+                       COALESCE(u.heading, u.label, '') AS section_title,
+                       u.text AS legal_unit_text,
+                       u.source_start, u.source_end, u.text_sha256
+                FROM table_cell_facts f
+                JOIN documents d ON d.dataset_id = f.dataset_id AND d.id = f.document_id
+                JOIN legal_units u ON u.dataset_id = f.dataset_id AND u.unit_id = f.legal_unit_id
+                WHERE f.dataset_id = :dataset_id
+                  AND COALESCE(f.payload ->> 'review_status', '') = 'accepted'
+                  AND u.text <> ''
+                  AND u.text_sha256 <> ''
+                  AND to_tsvector('simple', f.subject || ' ' || f.attribute || ' ' || f.value)
+                      @@ websearch_to_tsquery('simple', :query)
+                ORDER BY f.fact_id
+                LIMIT :limit
+                """
+            ),
+            {"dataset_id": dataset_id, "query": query, "limit": max(1, min(limit, 50))},
+        )
+        return [
+            RetrievalResult(
+                chunk_id=f"table-fact:{row.fact_id}",
+                document_id=str(row.document_id or ""),
+                dataset_id=dataset_id,
+                # The legal unit is the canonical text/hash pair.  The typed
+                # fact remains visible as a compact section label, while the
+                # content itself is never synthetic (otherwise provenance
+                # verification would correctly reject the result).
+                content=str(row.legal_unit_text or ""),
+                source=str(row.document_id or ""),
+                title=str(row.title or ""),
+                document_number=str(row.document_number or ""),
+                section_title=(
+                    f"{row.section_title or ''} — {row.subject}: "
+                    f"{row.attribute} = {row.value}"
+                ).strip(" —"),
+                unit_id=str(row.legal_unit_id or ""),
+                source_start=int(row.source_start) if row.source_start is not None else None,
+                source_end=int(row.source_end) if row.source_end is not None else None,
+                text_sha256=str(row.text_sha256 or row.source_fragment_sha256 or ""),
+                channels=["table_fact"],
             )
             for row in result
         ]
@@ -520,52 +822,65 @@ class GraphRepository:
         if not needle:
             return []
         ids = list(dict.fromkeys(document_ids or []))
-        phrases = lexical_phrases(needle)
         disjunction = lexical_disjunction(needle)
         result = await self.session.execute(
             text(
                 """
-                WITH phrase_queries AS (
-                    SELECT phrase,
-                           phraseto_tsquery('simple', phrase) AS phrase_query,
-                           cardinality(regexp_split_to_array(phrase, '\\s+')) AS token_count
-                    FROM unnest(CAST(:phrases AS text[])) AS phrase
-                ), ranked AS (
-                    SELECT c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
-                           c.source_start, c.source_end, c.text_sha256, c.embedding_input_sha256, d.title,
-                           GREATEST(
-                               ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', :query)),
-                               COALESCE(ts_rank_cd(c.search_vector, to_tsquery('simple', :disjunction)) * 1.5, 0.0),
-                               COALESCE((
-                                   -- A long exact phrase is normally more
-                                   -- discriminative than a verbose passage
-                                   -- matching many individual query words.
-                                   -- Weight by phrase length, all of which is
-                                   -- derived from the user query.
-                                   SELECT max(
-                                       ts_rank_cd(c.search_vector, pq.phrase_query)
-                                       * pq.token_count * 300.0
-                                   )
-                                   FROM phrase_queries pq
-                                   WHERE c.search_vector @@ pq.phrase_query
-                               ), 0.0)
-                           ) AS score
+                WITH candidate_ids AS (
+                    -- Bound both full-text branches before ranking.  The old
+                    -- OR predicate made PostgreSQL scan every eligible chunk
+                    -- and evaluate dozens of phrase subqueries before LIMIT;
+                    -- that routinely exceeded the 10s retrieval budget.
+                    (SELECT c.chunk_id,
+                           2.0 AS seed_score
                     FROM chunks c
                     JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
                     WHERE c.dataset_id = :dataset_id
                       AND c.lexical_eligible IS TRUE
                       AND NOT d.is_external
                       AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
-                      AND (
-                          c.search_vector @@ websearch_to_tsquery('simple', :query)
-                          OR (:disjunction <> '' AND c.search_vector @@ to_tsquery('simple', :disjunction))
-                          OR EXISTS (
-                              SELECT 1 FROM phrase_queries pq
-                              WHERE c.search_vector @@ pq.phrase_query
-                          )
-                      )
+                      AND c.search_vector @@ websearch_to_tsquery('simple', :query)
                       AND (cardinality(CAST(:document_ids AS text[])) = 0
                            OR c.document_id = ANY(CAST(:document_ids AS text[])))
+                    ORDER BY ts_rank_cd(
+                                 c.search_vector,
+                                 websearch_to_tsquery('simple', :query)
+                             ) DESC,
+                             c.chunk_id
+                    LIMIT 500)
+                    UNION ALL
+                    (SELECT c.chunk_id,
+                           1.0 AS seed_score
+                    FROM chunks c
+                    JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
+                    WHERE c.dataset_id = :dataset_id
+                      AND c.lexical_eligible IS TRUE
+                      AND NOT d.is_external
+                      AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                      AND :disjunction <> ''
+                      AND c.search_vector @@ to_tsquery('simple', :disjunction)
+                      AND (cardinality(CAST(:document_ids AS text[])) = 0
+                           OR c.document_id = ANY(CAST(:document_ids AS text[])))
+                    ORDER BY ts_rank_cd(
+                                 c.search_vector,
+                                 to_tsquery('simple', :disjunction)
+                             ) DESC,
+                             c.chunk_id
+                    LIMIT 500)
+                ), ranked AS (
+                    SELECT c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
+                           c.source_start, c.source_end, c.text_sha256, c.embedding_input_sha256, d.title,
+                           GREATEST(
+                               ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', :query)) * 2.0,
+                               COALESCE(ts_rank_cd(c.search_vector, to_tsquery('simple', :disjunction)) * 1.5, 0.0),
+                               max(ci.seed_score)
+                           ) AS score
+                    FROM candidate_ids ci
+                    JOIN chunks c ON c.chunk_id = ci.chunk_id
+                    JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
+                    GROUP BY c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
+                             c.source_start, c.source_end, c.text_sha256, c.embedding_input_sha256,
+                             d.title, c.search_vector
                 )
                 SELECT * FROM ranked ORDER BY score DESC, document_id, chunk_id LIMIT :limit
                 """
@@ -573,7 +888,6 @@ class GraphRepository:
             {
                 "dataset_id": dataset_id,
                 "query": needle,
-                "phrases": phrases,
                 "disjunction": disjunction,
                 "document_ids": ids,
                 "limit": limit,
@@ -642,8 +956,11 @@ class GraphRepository:
                     JOIN chunks c
                       ON c.dataset_id = :dataset_id
                      AND c.lexical_eligible IS TRUE
-                     AND lower(COALESCE(c.section_title, '') || ' ' || c.text)
-                         LIKE '%' || lower(pq.phrase) || '%'
+                     -- Use the generated tsvector/GiN index.  The previous
+                     -- lower(... LIKE '%phrase%') predicate forced a full
+                     -- chunks scan for every phrase and consumed the entire
+                     -- route deadline on the release-sized corpus.
+                     AND c.search_vector @@ pq.phrase_query
                     JOIN documents d
                       ON d.dataset_id = c.dataset_id AND d.id = c.document_id
                     WHERE NOT d.is_external
@@ -658,27 +975,6 @@ class GraphRepository:
                                  ELSE 0
                              END DESC,
                              length(c.text), c.document_id
-                ), unit_phrase_anchors AS (
-                    SELECT DISTINCT ON (pq.phrase) pq.phrase, u.document_id
-                    FROM phrase_queries pq
-                    JOIN legal_units u
-                      ON u.dataset_id = :dataset_id
-                     AND lower(COALESCE(u.heading, '') || ' ' || COALESCE(u.text, ''))
-                         LIKE '%' || lower(pq.phrase) || '%'
-                    JOIN documents d
-                      ON d.dataset_id = u.dataset_id AND d.id = u.document_id
-                    WHERE NOT d.is_external
-                      AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
-                    ORDER BY pq.phrase,
-                             CASE
-                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%luật%'
-                                      OR d.title ILIKE 'luật %' THEN 4
-                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%nghị định%'
-                                      OR d.title ILIKE 'nghị định %' THEN 3
-                                 WHEN d.title ILIKE 'văn bản hợp nhất%' THEN 2
-                                 ELSE 0
-                             END DESC,
-                             length(COALESCE(u.text, '') || COALESCE(u.heading, '')), u.document_id
                 ), ranked AS (
                     SELECT d.id AS document_id,
                        max(
@@ -729,8 +1025,6 @@ class GraphRepository:
                     SELECT DISTINCT document_id FROM phrase_anchors
                     UNION
                     SELECT DISTINCT document_id FROM chunk_phrase_anchors
-                    UNION
-                    SELECT DISTINCT document_id FROM unit_phrase_anchors
                 ) anchors
                   ON anchors.document_id = ranked.document_id
                 -- This is a candidate-recall stage, so a primary current

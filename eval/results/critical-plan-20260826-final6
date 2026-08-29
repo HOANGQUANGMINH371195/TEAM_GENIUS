@@ -1,0 +1,2283 @@
+{
+  "run_id": "critical-bhyt-20260826T125931Z",
+  "fixture": "/home/minh/projects/team-Vin-genius/P-151/eval/cases/critical-bhyt-7.jsonl",
+  "fixture_sha256": "461329a9452bd38104f3c78f6e45b53fe0217250d5cca9cbf0f330ddfb2a9ebb",
+  "release": {
+    "dataset_id": "snapshot-c439751724ab7f10",
+    "qdrant_collection": "medical_legal_hybrid_snapshot-c439751724ab7f10"
+  },
+  "runtime": {
+    "model_name": "gpt-5.6-luna",
+    "query_rewrite_enabled": false,
+    "provider_observability": "local_stage_trace",
+    "trace_schema_version": 1
+  },
+  "deterministic_summary": {
+    "cases": 7,
+    "passed": 7,
+    "failed": 0,
+    "p50_latency_ms": 15496.58,
+    "p95_latency_ms": 25556.06
+  },
+  "release_gate": "HUMAN_REVIEW_REQUIRED",
+  "review_note": "A deterministic pass proves only routing/citation/safety checks. Legal factual correctness and repeated-run p95 remain human-review requirements.",
+  "cases": [
+    {
+      "case_id": "critical-bhyt-01-five-year-copay",
+      "question": "Người tham gia BHYT 5 năm liên tục được hưởng quyền lợi gì khi số tiền cùng chi trả vượt mức quy định?",
+      "status": "completed",
+      "latency_ms": 27922.62,
+      "answer": "- d) 100% chi phí khám bệnh, chữa bệnh khi người bệnh có thời gian tham gia bảo hiểm y tế 5 năm liên tục trở lên và có số tiền cùng chi trả chi phí khám bệnh, chữa bệnh trong năm của những lần đi khám bệnh, chữa bệnh theo quy định tại khoản 3, các điểm a, b, c, đ và e khoản 4, khoản 5 Điều này, Điều 26 và Điều 27 của Luật này lớn hơn 6 lần mức tham chiếu;",
+      "answer_sha256": "94a2321cde8c74854afd27001ba68ecd2170a1a9ab08744e14f7960712474924",
+      "citations": [
+        {
+          "document_number": "51/2024/QH15",
+          "title": "Luật Bảo hiểm y tế sửa đổi 2024 số 51/2024/QH15",
+          "section_title": "d) 100% chi phí khám bệnh, chữa bệnh khi người bệnh có thời gian tham gia bảo hiểm y tế 5 năm liên tục trở lên và có số tiền cùng chi trả chi phí khám bệnh, chữa bệnh trong năm của những lần đi khám bệnh, chữa bệnh theo quy định tại khoản 3, các điểm a, b, c, đ và e khoản 4, khoản 5 Điều này, Điều 26 và Điều 27 của Luật này lớn hơn 6 lần mức tham chiếu;",
+          "quote": "1. Người tham gia bảo hiểm y tế khi khám bệnh, chữa bệnh theo quy định tại Điều 26 và Điều 27 của Luật này được quỹ bảo hiểm y tế thanh toán chi phí khám bệnh, chữa bệnh trong phạm vi được hưởng với mức hưởng như sau: — d) 100% chi phí khám bệnh, chữa bệnh khi người bệnh có thời gian tham gia bảo hiểm y tế 5 năm liên tục trở lên và có số tiền cùng chi trả chi phí khám bệnh, chữa bệnh trong năm của những lần đi khám bệnh, chữa bệnh theo quy định tại khoản 3, các điểm a, b, c, đ và e khoản 4, khoản 5 Điều này, Điều 26 và Điều 27 của Luật này lớn hơn 6 lần mức tham chiếu;",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "evidence_kind": "legal_unit",
+          "source_start": 27505,
+          "source_end": 27862,
+          "text_sha256": "bdddd48b19c133b26d317f5bbd2352d1e62493f1f887392faf4681dc7d98bdd4",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "51/2024/QH15",
+          "title": "Luật Bảo hiểm y tế sửa đổi 2024 số 51/2024/QH15",
+          "section_title": "d) 100% chi phí khám bệnh, chữa bệnh khi người bệnh có thời gian tham gia bảo hiểm y tế 5 năm liên tục trở lên và có số tiền cùng chi trả chi phí khám bệnh, chữa bệnh trong năm của những lần đi khám bệnh, chữa bệnh theo quy định tại khoản 3, các điểm a, b, c, đ và e khoản 4, khoản 5 Điều này, Điều 26 và Điều 27 của Luật này lớn hơn 6 lần mức tham chiếu;",
+          "quote": "d) 100% chi phí khám bệnh, chữa bệnh khi người bệnh có thời gian tham gia bảo hiểm y tế 5 năm liên tục trở lên và có số tiền cùng chi trả chi phí khám bệnh, chữa bệnh trong năm của những lần đi khám bệnh, chữa bệnh theo quy định tại khoản 3, các điểm a, b, c, đ và e khoản 4, khoản 5 Điều này, Điều 26 và Điều 27 của Luật này lớn hơn 6 lần mức tham chiếu;",
+          "channels": [
+            "document_operatives",
+            "document_recall_operatives",
+            "document_recall_semantic"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 27506,
+          "source_end": 27861,
+          "text_sha256": "bdddd48b19c133b26d317f5bbd2352d1e62493f1f887392faf4681dc7d98bdd4",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "188/2025/NĐ-CP",
+          "title": "Nghị định số 188/2025/NĐ-CP hướng dẫn Luật Bảo hiểm y tế",
+          "section_title": "e) Căn cứ khả năng ngân sách của địa phương và các nguồn kinh phí hợp pháp khác trình Hội đồng nhân dân tỉnh, thành phố trực thuộc Trung ương quyết định mức hỗ trợ đóng bảo hiểm y tế cho các đối tượng cao hơn mức hỗ trợ tối thiểu quy định tại các điểm b, c, d, đ và e khoản 6 Điều 6 Nghị định này; mức hỗ trợ đóng bảo hiểm y tế cho các đối tượng không được hưởng mức hỗ trợ quy định tại các điểm b, c, d, đ và e khoản 6 Điều 6 Nghị định này; đối tượng được hỗ trợ và mức hỗ trợ cùng chi trả chi phí khám bệnh, chữa bệnh bảo hiểm y tế cho người tham gia bảo hiểm y tế khi đi khám bệnh, chữa bệnh.",
+          "quote": "e) Căn cứ khả năng ngân sách của địa phương và các nguồn kinh phí hợp pháp khác trình Hội đồng nhân dân tỉnh, thành phố trực thuộc Trung ương quyết định mức hỗ trợ đóng bảo hiểm y tế cho các đối tượng cao hơn mức hỗ trợ tối thiểu quy định tại các điểm b, c, d, đ và e khoản 6 Điều 6 Nghị định này; mức hỗ trợ đóng bảo hiểm y tế cho các đối tượng không được hưởng mức hỗ trợ quy định tại các điểm b, c, d, đ và e khoản 6 Điều 6 Nghị định này; đối tượng được hỗ trợ và mức hỗ trợ cùng chi trả chi phí khám bệnh, chữa bệnh bảo hiểm y tế cho người tham gia bảo hiểm y tế khi đi khám bệnh, chữa bệnh.",
+          "channels": [
+            "document_operatives"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 179081,
+          "source_end": 179676,
+          "text_sha256": "c38d8e62be9b962c9601137a178b29f76a7de9bcadacdeb02fb9d26a2e01e732",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "04/VBHN-BYT",
+          "title": "Văn bản hợp nhất số 04/VBHN-BYT Quy định chi tiết và hướng dẫn biện pháp thi hành một số điều của luật bảo hiểm y tế",
+          "section_title": "c) Trường hợp người bệnh có số tiền cùng chi trả vượt quá 06 tháng lương cơ sở được tính từ ngày 01 tháng 01, quỹ bảo hiểm y tế thanh toán 100% chi phí khám bệnh chữa bệnh trong phạm vi quyền lợi của người bệnh kể từ thời điểm người bệnh tham gia đủ 05 năm liên tục đến hết ngày 31 tháng 12 của năm đó.",
+          "quote": "c) Trường hợp người bệnh có số tiền cùng chi trả vượt quá 06 tháng lương cơ sở được tính từ ngày 01 tháng 01, quỹ bảo hiểm y tế thanh toán 100% chi phí khám bệnh chữa bệnh trong phạm vi quyền lợi của người bệnh kể từ thời điểm người bệnh tham gia đủ 05 năm liên tục đến hết ngày 31 tháng 12 của năm đó.",
+          "channels": [
+            "document_operatives",
+            "document_recall_operatives",
+            "document_recall_semantic"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 63056,
+          "source_end": 63358,
+          "text_sha256": "02ec08ce90aaa9c0fd9881438ae953beb89efb0a7c2cd2870f8f19ae57e2858c",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "188/2025/NĐ-CP",
+          "title": "Nghị định số 188/2025/NĐ-CP hướng dẫn Luật Bảo hiểm y tế",
+          "section_title": "đ) Tổng hợp kịp thời thông tin về số tiền cùng chi trả lũy kế trong năm tài chính của người bệnh, thời điểm người bệnh tham gia bảo hiểm y tế đủ 05 năm liên tục trở lên và thông báo trên Cổng tiếp nhận dữ liệu để cơ sở khám bệnh, chữa bệnh tra cứu, xác định thời điểm người bệnh đủ điều kiện để được hưởng miễn cùng chi trả trong lần khám bệnh, chữa bệnh của người bệnh; bảo đảm không ảnh hưởng tới quyền lợi của người bệnh;",
+          "quote": "đ) Tổng hợp kịp thời thông tin về số tiền cùng chi trả lũy kế trong năm tài chính của người bệnh, thời điểm người bệnh tham gia bảo hiểm y tế đủ 05 năm liên tục trở lên và thông báo trên Cổng tiếp nhận dữ liệu để cơ sở khám bệnh, chữa bệnh tra cứu, xác định thời điểm người bệnh đủ điều kiện để được hưởng miễn cùng chi trả trong lần khám bệnh, chữa bệnh của người bệnh; bảo đảm không ảnh hưởng tới quyền lợi của người bệnh;",
+          "channels": [
+            "document_operatives",
+            "document_recall_operatives",
+            "document_recall_semantic"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 176341,
+          "source_end": 176765,
+          "text_sha256": "6ddd1173ca120f42b750ff791a4d3be2542c8f877ee976b2ac189c5a93977c07",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "188/2025/NĐ-CP",
+          "title": "Nghị định số 188/2025/NĐ-CP hướng dẫn Luật Bảo hiểm y tế",
+          "section_title": "b) Cơ quan bảo hiểm xã hội tổng hợp thông tin số tiền cùng chi trả lũy kế trong năm tài chính của người bệnh, thời điểm người bệnh tham gia bảo hiểm y tế đủ 05 năm liên tục trở lên và thông báo trên Cổng tiếp nhận dữ liệu của Bảo hiểm xã hội Việt Nam. Cơ sở khám bệnh, chữa bệnh căn cứ số tiền cùng chi trả lũy kế và thời điểm người bệnh tham gia bảo hiểm y tế đủ 05 năm liên tục trở lên để xác định thời điểm người bệnh đủ điều kiện để được hưởng miễn cùng chi trả trong lần khám bệnh, chữa bệnh của người bệnh;",
+          "quote": "b) Cơ quan bảo hiểm xã hội tổng hợp thông tin số tiền cùng chi trả lũy kế trong năm tài chính của người bệnh, thời điểm người bệnh tham gia bảo hiểm y tế đủ 05 năm liên tục trở lên và thông báo trên Cổng tiếp nhận dữ liệu của Bảo hiểm xã hội Việt Nam. Cơ sở khám bệnh, chữa bệnh căn cứ số tiền cùng chi trả lũy kế và thời điểm người bệnh tham gia bảo hiểm y tế đủ 05 năm liên tục trở lên để xác định thời điểm người bệnh đủ điều kiện để được hưởng miễn cùng chi trả trong lần khám bệnh, chữa bệnh của người bệnh;",
+          "channels": [
+            "document_operatives",
+            "document_recall_operatives",
+            "document_recall_semantic"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 47334,
+          "source_end": 47846,
+          "text_sha256": "99f0f41d9da239c46b98928d2ab3564c963ed87b0360de71455d6291d75f815d",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "188/2025/NĐ-CP",
+          "title": "Nghị định số 188/2025/NĐ-CP hướng dẫn Luật Bảo hiểm y tế",
+          "section_title": "c) Trường hợp mức lương cơ sở thay đổi trong năm, cách xác định số tiền còn lại phải cùng chi trả từ thời điểm mức lương cơ sở thay đổi đến hết ngày 31 tháng 12 năm đó như sau",
+          "quote": "c) Trường hợp mức lương cơ sở thay đổi trong năm, cách xác định số tiền còn lại phải cùng chi trả từ thời điểm mức lương cơ sở thay đổi đến hết ngày 31 tháng 12 năm đó như sau\n\nĐối với các trường hợp có số tiền cùng chi trả từ ngày 01 tháng 01 đến trước ngày thay đổi mức lương cơ sở trong năm đã đủ hoặc vượt quá 6 tháng lương cơ sở thì được hưởng quyền lợi theo quy định và không áp dụng công thức này.",
+          "channels": [
+            "document_operatives",
+            "document_recall_operatives",
+            "document_recall_semantic"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 47848,
+          "source_end": 48252,
+          "text_sha256": "32dae0bf8f4ce59badfbdbffbd0333510fcc5ca371b5229e8ba998df7b304d77",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "233/2025/NĐ-CP",
+          "title": "Nghị định số 233/2025/NĐ-CP Quy định cơ chế tài chính về bảo hiểm xã hội, bảo hiểm thất nghiệp, bảo hiểm y tế; chi tổ chức và hoạt động bảo hiểm xã hội, bảo hiểm thất nghiệp, bảo hiểm y tế",
+          "section_title": "b) Trích tối đa không quá 70% mức chi phí chi trả bình quân của hệ thống Bảo hiểm xã hội Việt Nam để chi cho tổ chức hỗ trợ chi trả chế độ. Chi phí chi trả còn lại sau khi chi thù lao cho tổ chức hỗ trợ chi trả chế độ được để lại cho cơ quan bảo hiểm xã hội sử dụng để phục vụ việc chi trả, xác minh thông tin người hưởng (gồm: bảo quản, lưu trữ hồ sơ người thụ hưởng; kiểm tra, giám sát việc chi trả, xác minh thông tin người hưởng; làm đêm, thêm giờ; hỗ trợ công chức, viên chức và người lao động có liên quan trong những ngày chi trả, xác minh thông tin người hưởng). Bảo hiểm xã hội Việt Nam phân bổ cho Bảo hiểm xã hội cấp tỉnh và đơn vị có liên quan để tổ chức thực hiện.",
+          "quote": "b) Trích tối đa không quá 70% mức chi phí chi trả bình quân của hệ thống Bảo hiểm xã hội Việt Nam để chi cho tổ chức hỗ trợ chi trả chế độ. Chi phí chi trả còn lại sau khi chi thù lao cho tổ chức hỗ trợ chi trả chế độ được để lại cho cơ quan bảo hiểm xã hội sử dụng để phục vụ việc chi trả, xác minh thông tin người hưởng (gồm: bảo quản, lưu trữ hồ sơ người thụ hưởng; kiểm tra, giám sát việc chi trả, xác minh thông tin người hưởng; làm đêm, thêm giờ; hỗ trợ công chức, viên chức và người lao động có liên quan trong những ngày chi trả, xác minh thông tin người hưởng). Bảo hiểm xã hội Việt Nam phân",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 62547,
+          "source_end": 63224,
+          "text_sha256": "29cc575210732084527d84e9c2102c800bf3ff3643dcd99a3f3c4a9c96ef2a0d",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "04/VBHN-BYT",
+          "title": "Văn bản hợp nhất số 04/VBHN-BYT Quy định chi tiết và hướng dẫn biện pháp thi hành một số điều của luật bảo hiểm y tế",
+          "section_title": "Điều 43. Trách nhiệm thi hành",
+          "quote": "6 Khoản này được bãi bỏ theo quy định tại khoản 2 Điều 2 của Nghị định số 75/2023/NĐ-CP, có hiệu lực từ ngày 19 tháng 10 năm 2023.\n\n7 Khoản này được bổ sung theo quy định tại điểm c khoản 1 Điều 183 của Nghị định số 131/2021/NĐ-CP, có hiệu lực từ ngày 15 tháng 02 năm 2022.\n\n8 Khoản này được bổ sung theo quy định tại điểm c khoản 1 Điều 183 của Nghị định số 131/2021/NĐ-CP, có hiệu lực từ ngày 15 tháng 02 năm 2022.\n\n9 Khoản này được bổ sung theo quy định tại điểm c khoản 1 Điều 1 của Nghị định số 75/2023/NĐ-CP, có hiệu lực từ ngày 19 tháng 10 năm 2023.\n\n10 Khoản này được sửa đổi, bổ sung theo qu",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 104490,
+          "source_end": 105487,
+          "text_sha256": "8bd213da79747024b85336718faea665ec695f7a8ec817e1ed95c48b8d928c27",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "188/2025/NĐ-CP",
+          "title": "Nghị định số 188/2025/NĐ-CP hướng dẫn Luật Bảo hiểm y tế",
+          "section_title": "a) Đối với trường hợp người tham gia kê khai bản giấy:",
+          "quote": "[07]. Điện thoại: ghi số điện thoại của người tham gia hoặc số điện thoại để liên hệ với người tham gia.\n\n[08]. Email: ghi địa chỉ thư điện tử của người tham gia hoặc địa chỉ thư điện tử để liên hệ với người tham gia (nếu có).\n\n[09]. Nơi đăng ký khám, chữa bệnh ban đầu (áp dụng đối với người tham gia bảo hiểm y tế lần đầu): ghi nơi đăng ký khám bệnh, chữa bệnh bảo hiểm y tế ban đầu do người tham gia lựa chọn theo hướng dẫn của cơ quan bảo hiểm xã hội.\n\n[10]. Đăng ký nhận kết quả giải quyết thủ tục hành chính.\n\nTrường hợp đăng ký phương thức nhận kết quả giải quyết thủ tục hành chính bản điện t",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 188834,
+          "source_end": 189802,
+          "text_sha256": "094fa3fcf6901db9719f69c90bc0a71783dc4717cea9edb8745f5d180d03a411",
+          "provenance_verified": false
+        }
+      ],
+      "claims_count": 1,
+      "metadata": {
+        "trace_id": "3bffe6dd723249d8a4ce196cdb6e5fd5",
+        "route_intent": "thematic",
+        "subquery_count": 1,
+        "retrieval_ms": 27905.57,
+        "candidate_count": 12,
+        "relation_count": 0,
+        "retrieval_channels": [
+          "document_operatives",
+          "document_recall_operatives",
+          "document_recall_semantic",
+          "lexical",
+          "page_index",
+          "semantic"
+        ],
+        "retrieval_trace": {
+          "trace_id": "539ce4666c624724895bc568ac617d7c",
+          "stages": [
+            {
+              "stage": "postgres:release_recall",
+              "duration_ms": 11430.35,
+              "outcome": "success",
+              "result_count": 0
+            },
+            {
+              "stage": "provider:embedding",
+              "duration_ms": 784.38,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 1840.87,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 1443.62,
+              "outcome": "success"
+            },
+            {
+              "stage": "postgres:lexical",
+              "duration_ms": 5292.03,
+              "outcome": "success",
+              "result_count": 60
+            },
+            {
+              "stage": "retrieval:provider_fusion",
+              "duration_ms": 5292.13,
+              "outcome": "success",
+              "lexical_count": 60,
+              "semantic_count": 60
+            },
+            {
+              "stage": "postgres:hydrate_rank",
+              "duration_ms": 11110.17,
+              "outcome": "success",
+              "hydrated_count": 60,
+              "operative_count": 307
+            },
+            {
+              "stage": "retrieval:rerank_select",
+              "duration_ms": 11179.65,
+              "outcome": "success",
+              "selected_count": 12,
+              "channel_count": 5
+            },
+            {
+              "stage": "retrieval_total",
+              "duration_ms": 27905.11,
+              "outcome": "success",
+              "evidence_count": 12
+            }
+          ]
+        },
+        "context_ms": 0.12,
+        "context_chars": 15143,
+        "context_tokens": 3786,
+        "verification_evidence_count": 12,
+        "verification_ms": 0.06,
+        "verification_failed": false,
+        "generation_ms": 0.37,
+        "generation_trace": {
+          "stage": "generation",
+          "outcome": "skipped"
+        },
+        "citation_count": 10,
+        "claim_count": 1,
+        "verified_claim_count": 1,
+        "guardrail_response_chars": 357,
+        "guardrail_ms": 5.27
+      },
+      "retrieved_evidence": [
+        {
+          "document_number": "51/2024/QH15",
+          "section_title": "d) 100% chi phí khám bệnh, chữa bệnh khi người bệnh có thời gian tham gia bảo hiểm y tế 5 năm liên tục trở lên và có số tiền cùng chi trả chi phí khám bệnh, chữa bệnh trong năm của những lần đi khám bệnh, chữa bệnh theo quy định tại khoản 3, các điểm a, b, c, đ và e khoản 4, khoản 5 Điều này, Điều 26 và Điều 27 của Luật này lớn hơn 6 lần mức tham chiếu;",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "score": null,
+          "quote": "1. Người tham gia bảo hiểm y tế khi khám bệnh, chữa bệnh theo quy định tại Điều 26 và Điều 27 của Luật này được quỹ bảo hiểm y tế thanh toán chi phí khám bệnh, chữa bệnh trong phạm vi được hưởng với mức hưởng như sau: — d) 100% chi phí khám bệnh, chữa bệnh khi người bệnh có thời gian tham gia bảo hiểm y tế 5 năm liên tục trở lên và có số tiền cùng chi trả chi phí khám bệnh, chữa bệnh trong năm của những lần đi khám bệnh, chữa bệnh theo quy định tại khoản 3, các điểm a, b, c, đ và e khoản 4, khoản 5 Điều này, Điều 26 và Điều 27 của Luật này lớn hơn 6 lần mức tham chiếu;",
+          "source_start": 27505,
+          "source_end": 27862,
+          "text_sha256": "bdddd48b19c133b26d317f5bbd2352d1e62493f1f887392faf4681dc7d98bdd4"
+        },
+        {
+          "document_number": "51/2024/QH15",
+          "section_title": "d) 100% chi phí khám bệnh, chữa bệnh khi người bệnh có thời gian tham gia bảo hiểm y tế 5 năm liên tục trở lên và có số tiền cùng chi trả chi phí khám bệnh, chữa bệnh trong năm của những lần đi khám bệnh, chữa bệnh theo quy định tại khoản 3, các điểm a, b, c, đ và e khoản 4, khoản 5 Điều này, Điều 26 và Điều 27 của Luật này lớn hơn 6 lần mức tham chiếu;",
+          "channels": [
+            "document_operatives",
+            "document_recall_operatives",
+            "document_recall_semantic"
+          ],
+          "score": null,
+          "quote": "d) 100% chi phí khám bệnh, chữa bệnh khi người bệnh có thời gian tham gia bảo hiểm y tế 5 năm liên tục trở lên và có số tiền cùng chi trả chi phí khám bệnh, chữa bệnh trong năm của những lần đi khám bệnh, chữa bệnh theo quy định tại khoản 3, các điểm a, b, c, đ và e khoản 4, khoản 5 Điều này, Điều 26 và Điều 27 của Luật này lớn hơn 6 lần mức tham chiếu;",
+          "source_start": 27506,
+          "source_end": 27861,
+          "text_sha256": "bdddd48b19c133b26d317f5bbd2352d1e62493f1f887392faf4681dc7d98bdd4"
+        },
+        {
+          "document_number": "188/2025/NĐ-CP",
+          "section_title": "e) Căn cứ khả năng ngân sách của địa phương và các nguồn kinh phí hợp pháp khác trình Hội đồng nhân dân tỉnh, thành phố trực thuộc Trung ương quyết định mức hỗ trợ đóng bảo hiểm y tế cho các đối tượng cao hơn mức hỗ trợ tối thiểu quy định tại các điểm b, c, d, đ và e khoản 6 Điều 6 Nghị định này; mức hỗ trợ đóng bảo hiểm y tế cho các đối tượng không được hưởng mức hỗ trợ quy định tại các điểm b, c, d, đ và e khoản 6 Điều 6 Nghị định này; đối tượng được hỗ trợ và mức hỗ trợ cùng chi trả chi phí khám bệnh, chữa bệnh bảo hiểm y tế cho người tham gia bảo hiểm y tế khi đi khám bệnh, chữa bệnh.",
+          "channels": [
+            "document_operatives"
+          ],
+          "score": null,
+          "quote": "e) Căn cứ khả năng ngân sách của địa phương và các nguồn kinh phí hợp pháp khác trình Hội đồng nhân dân tỉnh, thành phố trực thuộc Trung ương quyết định mức hỗ trợ đóng bảo hiểm y tế cho các đối tượng cao hơn mức hỗ trợ tối thiểu quy định tại các điểm b, c, d, đ và e khoản 6 Điều 6 Nghị định này; mức hỗ trợ đóng bảo hiểm y tế cho các đối tượng không được hưởng mức hỗ trợ quy định tại các điểm b, c, d, đ và e khoản 6 Điều 6 Nghị định này; đối tượng được hỗ trợ và mức hỗ trợ cùng chi trả chi phí khám bệnh, chữa bệnh bảo hiểm y tế cho người tham gia bảo hiểm y tế khi đi khám bệnh, chữa bệnh.",
+          "source_start": 179081,
+          "source_end": 179676,
+          "text_sha256": "c38d8e62be9b962c9601137a178b29f76a7de9bcadacdeb02fb9d26a2e01e732"
+        },
+        {
+          "document_number": "04/VBHN-BYT",
+          "section_title": "c) Trường hợp người bệnh có số tiền cùng chi trả vượt quá 06 tháng lương cơ sở được tính từ ngày 01 tháng 01, quỹ bảo hiểm y tế thanh toán 100% chi phí khám bệnh chữa bệnh trong phạm vi quyền lợi của người bệnh kể từ thời điểm người bệnh tham gia đủ 05 năm liên tục đến hết ngày 31 tháng 12 của năm đó.",
+          "channels": [
+            "document_operatives",
+            "document_recall_operatives",
+            "document_recall_semantic"
+          ],
+          "score": null,
+          "quote": "c) Trường hợp người bệnh có số tiền cùng chi trả vượt quá 06 tháng lương cơ sở được tính từ ngày 01 tháng 01, quỹ bảo hiểm y tế thanh toán 100% chi phí khám bệnh chữa bệnh trong phạm vi quyền lợi của người bệnh kể từ thời điểm người bệnh tham gia đủ 05 năm liên tục đến hết ngày 31 tháng 12 của năm đó.",
+          "source_start": 63056,
+          "source_end": 63358,
+          "text_sha256": "02ec08ce90aaa9c0fd9881438ae953beb89efb0a7c2cd2870f8f19ae57e2858c"
+        },
+        {
+          "document_number": "188/2025/NĐ-CP",
+          "section_title": "đ) Tổng hợp kịp thời thông tin về số tiền cùng chi trả lũy kế trong năm tài chính của người bệnh, thời điểm người bệnh tham gia bảo hiểm y tế đủ 05 năm liên tục trở lên và thông báo trên Cổng tiếp nhận dữ liệu để cơ sở khám bệnh, chữa bệnh tra cứu, xác định thời điểm người bệnh đủ điều kiện để được hưởng miễn cùng chi trả trong lần khám bệnh, chữa bệnh của người bệnh; bảo đảm không ảnh hưởng tới quyền lợi của người bệnh;",
+          "channels": [
+            "document_operatives",
+            "document_recall_operatives",
+            "document_recall_semantic"
+          ],
+          "score": null,
+          "quote": "đ) Tổng hợp kịp thời thông tin về số tiền cùng chi trả lũy kế trong năm tài chính của người bệnh, thời điểm người bệnh tham gia bảo hiểm y tế đủ 05 năm liên tục trở lên và thông báo trên Cổng tiếp nhận dữ liệu để cơ sở khám bệnh, chữa bệnh tra cứu, xác định thời điểm người bệnh đủ điều kiện để được hưởng miễn cùng chi trả trong lần khám bệnh, chữa bệnh của người bệnh; bảo đảm không ảnh hưởng tới quyền lợi của người bệnh;",
+          "source_start": 176341,
+          "source_end": 176765,
+          "text_sha256": "6ddd1173ca120f42b750ff791a4d3be2542c8f877ee976b2ac189c5a93977c07"
+        },
+        {
+          "document_number": "188/2025/NĐ-CP",
+          "section_title": "b) Cơ quan bảo hiểm xã hội tổng hợp thông tin số tiền cùng chi trả lũy kế trong năm tài chính của người bệnh, thời điểm người bệnh tham gia bảo hiểm y tế đủ 05 năm liên tục trở lên và thông báo trên Cổng tiếp nhận dữ liệu của Bảo hiểm xã hội Việt Nam. Cơ sở khám bệnh, chữa bệnh căn cứ số tiền cùng chi trả lũy kế và thời điểm người bệnh tham gia bảo hiểm y tế đủ 05 năm liên tục trở lên để xác định thời điểm người bệnh đủ điều kiện để được hưởng miễn cùng chi trả trong lần khám bệnh, chữa bệnh của người bệnh;",
+          "channels": [
+            "document_operatives",
+            "document_recall_operatives",
+            "document_recall_semantic"
+          ],
+          "score": null,
+          "quote": "b) Cơ quan bảo hiểm xã hội tổng hợp thông tin số tiền cùng chi trả lũy kế trong năm tài chính của người bệnh, thời điểm người bệnh tham gia bảo hiểm y tế đủ 05 năm liên tục trở lên và thông báo trên Cổng tiếp nhận dữ liệu của Bảo hiểm xã hội Việt Nam. Cơ sở khám bệnh, chữa bệnh căn cứ số tiền cùng chi trả lũy kế và thời điểm người bệnh tham gia bảo hiểm y tế đủ 05 năm liên tục trở lên để xác định thời điểm người bệnh đủ điều kiện để được hưởng miễn cùng chi trả trong lần khám bệnh, chữa bệnh của người bệnh;",
+          "source_start": 47334,
+          "source_end": 47846,
+          "text_sha256": "99f0f41d9da239c46b98928d2ab3564c963ed87b0360de71455d6291d75f815d"
+        },
+        {
+          "document_number": "188/2025/NĐ-CP",
+          "section_title": "c) Trường hợp mức lương cơ sở thay đổi trong năm, cách xác định số tiền còn lại phải cùng chi trả từ thời điểm mức lương cơ sở thay đổi đến hết ngày 31 tháng 12 năm đó như sau",
+          "channels": [
+            "document_operatives",
+            "document_recall_operatives",
+            "document_recall_semantic"
+          ],
+          "score": null,
+          "quote": "c) Trường hợp mức lương cơ sở thay đổi trong năm, cách xác định số tiền còn lại phải cùng chi trả từ thời điểm mức lương cơ sở thay đổi đến hết ngày 31 tháng 12 năm đó như sau\n\nĐối với các trường hợp có số tiền cùng chi trả từ ngày 01 tháng 01 đến trước ngày thay đổi mức lương cơ sở trong năm đã đủ hoặc vượt quá 6 tháng lương cơ sở thì được hưởng quyền lợi theo quy định và không áp dụng công thức này.",
+          "source_start": 47848,
+          "source_end": 48252,
+          "text_sha256": "32dae0bf8f4ce59badfbdbffbd0333510fcc5ca371b5229e8ba998df7b304d77"
+        },
+        {
+          "document_number": "233/2025/NĐ-CP",
+          "section_title": "b) Trích tối đa không quá 70% mức chi phí chi trả bình quân của hệ thống Bảo hiểm xã hội Việt Nam để chi cho tổ chức hỗ trợ chi trả chế độ. Chi phí chi trả còn lại sau khi chi thù lao cho tổ chức hỗ trợ chi trả chế độ được để lại cho cơ quan bảo hiểm xã hội sử dụng để phục vụ việc chi trả, xác minh thông tin người hưởng (gồm: bảo quản, lưu trữ hồ sơ người thụ hưởng; kiểm tra, giám sát việc chi trả, xác minh thông tin người hưởng; làm đêm, thêm giờ; hỗ trợ công chức, viên chức và người lao động có liên quan trong những ngày chi trả, xác minh thông tin người hưởng). Bảo hiểm xã hội Việt Nam phân bổ cho Bảo hiểm xã hội cấp tỉnh và đơn vị có liên quan để tổ chức thực hiện.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "b) Trích tối đa không quá 70% mức chi phí chi trả bình quân của hệ thống Bảo hiểm xã hội Việt Nam để chi cho tổ chức hỗ trợ chi trả chế độ. Chi phí chi trả còn lại sau khi chi thù lao cho tổ chức hỗ trợ chi trả chế độ được để lại cho cơ quan bảo hiểm xã hội sử dụng để phục vụ việc chi trả, xác minh thông tin người hưởng (gồm: bảo quản, lưu trữ hồ sơ người thụ hưởng; kiểm tra, giám sát việc chi trả, xác minh thông tin người hưởng; làm đêm, thêm giờ; hỗ trợ công chức, viên chức và người lao động có liên quan trong những ngày chi trả, xác minh thông tin người hưởng). Bảo hiểm xã hội Việt Nam phân",
+          "source_start": 62547,
+          "source_end": 63224,
+          "text_sha256": "29cc575210732084527d84e9c2102c800bf3ff3643dcd99a3f3c4a9c96ef2a0d"
+        },
+        {
+          "document_number": "04/VBHN-BYT",
+          "section_title": "Điều 43. Trách nhiệm thi hành",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "6 Khoản này được bãi bỏ theo quy định tại khoản 2 Điều 2 của Nghị định số 75/2023/NĐ-CP, có hiệu lực từ ngày 19 tháng 10 năm 2023.\n\n7 Khoản này được bổ sung theo quy định tại điểm c khoản 1 Điều 183 của Nghị định số 131/2021/NĐ-CP, có hiệu lực từ ngày 15 tháng 02 năm 2022.\n\n8 Khoản này được bổ sung theo quy định tại điểm c khoản 1 Điều 183 của Nghị định số 131/2021/NĐ-CP, có hiệu lực từ ngày 15 tháng 02 năm 2022.\n\n9 Khoản này được bổ sung theo quy định tại điểm c khoản 1 Điều 1 của Nghị định số 75/2023/NĐ-CP, có hiệu lực từ ngày 19 tháng 10 năm 2023.\n\n10 Khoản này được sửa đổi, bổ sung theo qu",
+          "source_start": 104490,
+          "source_end": 105487,
+          "text_sha256": "8bd213da79747024b85336718faea665ec695f7a8ec817e1ed95c48b8d928c27"
+        },
+        {
+          "document_number": "188/2025/NĐ-CP",
+          "section_title": "a) Đối với trường hợp người tham gia kê khai bản giấy:",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "[07]. Điện thoại: ghi số điện thoại của người tham gia hoặc số điện thoại để liên hệ với người tham gia.\n\n[08]. Email: ghi địa chỉ thư điện tử của người tham gia hoặc địa chỉ thư điện tử để liên hệ với người tham gia (nếu có).\n\n[09]. Nơi đăng ký khám, chữa bệnh ban đầu (áp dụng đối với người tham gia bảo hiểm y tế lần đầu): ghi nơi đăng ký khám bệnh, chữa bệnh bảo hiểm y tế ban đầu do người tham gia lựa chọn theo hướng dẫn của cơ quan bảo hiểm xã hội.\n\n[10]. Đăng ký nhận kết quả giải quyết thủ tục hành chính.\n\nTrường hợp đăng ký phương thức nhận kết quả giải quyết thủ tục hành chính bản điện t",
+          "source_start": 188834,
+          "source_end": 189802,
+          "text_sha256": "094fa3fcf6901db9719f69c90bc0a71783dc4717cea9edb8745f5d180d03a411"
+        }
+      ],
+      "findings": {
+        "deterministic_status": "PASS",
+        "failures": [],
+        "abstained": false,
+        "public_document_numbers": [
+          "51/2024/QH15",
+          "188/2025/NĐ-CP",
+          "04/VBHN-BYT",
+          "233/2025/NĐ-CP"
+        ],
+        "accepted_document_numbers_found": [
+          "04/VBHN-BYT",
+          "188/2025/NĐ-CP",
+          "51/2024/QH15"
+        ],
+        "required_facts_missing_for_reviewer": [
+          "lớn hơn 06 tháng lương cơ sở"
+        ],
+        "review_flags": [
+          "required_fact_review"
+        ],
+        "citation_count": 10
+      }
+    },
+    {
+      "case_id": "critical-bhyt-02-provincial-self-referral",
+      "question": "Tôi khám trái tuyến tại bệnh viện tuyến tỉnh thì BHYT thanh toán bao nhiêu phần trăm?",
+      "status": "completed",
+      "latency_ms": 13465.53,
+      "answer": "- h) 50% mức hưởng khi khám bệnh, chữa bệnh ngoại trú theo lộ trình do Chính phủ quy định và 100% mức hưởng khi khám bệnh, chữa bệnh nội trú trong trường hợp khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp chuyên sâu mà trước ngày 01 tháng 01 năm 2025 đã được cơ quan có thẩm quyền xác định là tuyến tỉnh.\n- đ) 100% mức hưởng khi khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp cơ bản, cấp chuyên sâu mà trước ngày 01 tháng 01 năm 2025 đã được cơ quan có thẩm quyền xác định là tuyến huyện;\n- — h) 50% mức hưởng khi khám bệnh, chữa bệnh ngoại trú theo lộ trình do Chính phủ quy định và 100% mức hưởng khi khám bệnh, chữa bệnh nội trú trong trường hợp khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp chuyên sâu mà trước ngày 01 tháng 01 năm 2025 đã được cơ quan có thẩm quyền xác định là tuyến tỉnh.",
+      "answer_sha256": "d6e6baccd7d82979e29f05c5f9e0a5cce9605344c43aa9d3b4614e6cd955f968",
+      "citations": [
+        {
+          "document_number": "51/2024/QH15",
+          "title": "Luật Bảo hiểm y tế sửa đổi 2024 số 51/2024/QH15",
+          "section_title": "h) 50% mức hưởng khi khám bệnh, chữa bệnh ngoại trú theo lộ trình do Chính phủ quy định và 100% mức hưởng khi khám bệnh, chữa bệnh nội trú trong trường hợp khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp chuyên sâu mà trước ngày 01 tháng 01 năm 2025 đã được cơ quan có thẩm quyền xác định là tuyến tỉnh.",
+          "quote": "4. Người tham gia bảo hiểm y tế tự đi khám bệnh, chữa bệnh không đúng cơ sở đăng ký khám bệnh, chữa bệnh bảo hiểm y tế ban đầu, không đúng quy định về chuyển người bệnh quy định tại Điều 26 và Điều 27 của Luật này, trừ trường hợp quy định tại khoản 3 và khoản 5 Điều này, được quỹ bảo hiểm y tế thanh toán theo tỷ lệ phần trăm của mức hưởng quy định tại khoản 1 Điều này như sau: — h) 50% mức hưởng khi khám bệnh, chữa bệnh ngoại trú theo lộ trình do Chính phủ quy định và 100% mức hưởng khi khám bệnh, chữa bệnh nội trú trong trường hợp khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp chuyên",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "evidence_kind": "legal_unit",
+          "source_start": 30519,
+          "source_end": 30832,
+          "text_sha256": "e45ec66247db1cd72ada51feaabe12b62a09803de1516108bc1635a60ad40d62",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "51/2024/QH15",
+          "title": "Luật Bảo hiểm y tế sửa đổi 2024 số 51/2024/QH15",
+          "section_title": "đ) 100% mức hưởng khi khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp cơ bản, cấp chuyên sâu mà trước ngày 01 tháng 01 năm 2025 đã được cơ quan có thẩm quyền xác định là tuyến huyện;",
+          "quote": "4. Người tham gia bảo hiểm y tế tự đi khám bệnh, chữa bệnh không đúng cơ sở đăng ký khám bệnh, chữa bệnh bảo hiểm y tế ban đầu, không đúng quy định về chuyển người bệnh quy định tại Điều 26 và Điều 27 của Luật này, trừ trường hợp quy định tại khoản 3 và khoản 5 Điều này, được quỹ bảo hiểm y tế thanh toán theo tỷ lệ phần trăm của mức hưởng quy định tại khoản 1 Điều này như sau: — đ) 100% mức hưởng khi khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp cơ bản, cấp chuyên sâu mà trước ngày 01 tháng 01 năm 2025 đã được cơ quan có thẩm quyền xác định là tuyến huyện;",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "evidence_kind": "legal_unit",
+          "source_start": 29899,
+          "source_end": 30091,
+          "text_sha256": "56b7ea1d2992737b3107d18094791d1ac5b2f9bd3e168debe9adb9995d78a3b5",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "39/2024/TT-BYT",
+          "title": "Thông tư 39/2024/TT-BYT sửa đổi Thông tư 35/2016/TT-BYT về Danh mục và tỷ lệ, điều kiện thanh toán đối với dịch vụ kỹ thuật y tế thuộc phạm vi được hưởng của người tham gia bảo hiểm y tế do Bộ trưởng Bộ Y tế ban hành",
+          "section_title": "d) Trường hợp số ca đề nghị thanh toán cao hơn số ca tối đa theo cách tính quy định tại điểm a khoản này: Đối với số ca bằng số ca tối đa theo cách tính tại điểm a khoản này, cơ quan bảo hiểm xã hội thanh toán theo mức giá mà cơ sở đã được duyệt. Đối với số ca lớn hơn số ca tối đa theo cách tính tại điểm a khoản này, cơ quan bảo hiểm xã hội thanh toán theo mức giá không bao gồm chi phí tiền lương, mức giá thanh toán cụ thể như sau:",
+          "quote": "Số ca tối đa được cơ quan bảo hiểm y tế thanh toán theo mức giá Chụp X-quang quy định tại Thông tư này là: (58:8) X 9 X 3 X 78 X 120% = 18.322,2 ca.\n\nTổng số ca chụp X-quang đề nghị cơ quan bảo hiểm xã hội thanh toán trong quý III/2018 nhỏ hơn hoặc bằng 18.322 ca thì được cơ quan bảo hiểm y tế thanh toán theo mức giá quy định tại Thông tư này.\n\nTrường hợp số ca cơ sở khám bệnh, chữa bệnh đề nghị thanh toán lớn hơn 18.322 ca, giả sử là 20.000 ca, cơ quan bảo hiểm xã hội thanh toán 18.322 ca theo mức giá quy định tại Thông tư này, còn lại 1.678 ca (=20.000 ca - 18.322 ca) cơ quan bảo hiểm xã hội",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 21388,
+          "source_end": 22055,
+          "text_sha256": "a9508bce26269669331311a6161d770815dd85398b61ce630b916fa9132f35aa",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "37/2024/TT-BYT",
+          "title": "Thông tư 37/2024/TT-BYT quy định nguyên tắc, tiêu chí xây dựng, cập nhật, ghi thông tin, cấu trúc danh mục và hướng dẫn thanh toán đối với thuốc hóa dược, sinh phẩm, thuốc phóng xạ và chất đánh dấu thuộc phạm vi được hưởng của người tham gia bảo hiểm y tế do Bộ trưởng Bộ Y tế ban hành",
+          "section_title": "6. Trường hợp thuốc có quy định tỷ lệ, điều kiện thanh toán tại cột ghi chú của danh mục thuốc, quỹ bảo hiểm y tế thanh toán theo tỷ lệ, điều kiện thanh toán của thuốc. Đối với thuốc có điều kiện thanh toán theo cơ sở khám bệnh, chữa bệnh hoặc cấp chuyên môn kỹ thuật trong khám bệnh, chữa bệnh hoặc yêu cầu chuyên môn về sử dụng thuốc, quỹ bảo hiểm y tế chỉ thanh toán khi cơ sở khám bệnh, chữa bệnh sử dụng thuốc đáp ứng yêu cầu về điều kiện thanh toán được quy định tại cột ghi chú của danh mục thuốc.",
+          "quote": "6. Trường hợp thuốc có quy định tỷ lệ, điều kiện thanh toán tại cột ghi chú của danh mục thuốc, quỹ bảo hiểm y tế thanh toán theo tỷ lệ, điều kiện thanh toán của thuốc. Đối với thuốc có điều kiện thanh toán theo cơ sở khám bệnh, chữa bệnh hoặc cấp chuyên môn kỹ thuật trong khám bệnh, chữa bệnh hoặc yêu cầu chuyên môn về sử dụng thuốc, quỹ bảo hiểm y tế chỉ thanh toán khi cơ sở khám bệnh, chữa bệnh sử dụng thuốc đáp ứng yêu cầu về điều kiện thanh toán được quy định tại cột ghi chú của danh mục thuốc.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 17108,
+          "source_end": 17612,
+          "text_sha256": "762dcd49addbd952fb15f1a7ad333e914451bbd3d6b1f26c771a0e81247a7205",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "09/BYT-TT",
+          "title": "Thông tư số 09/BYT-TT Hướng dẫn việc lập, quản lý và sử dụng quỹ khen thưởng, quỹ hỗ trợ được trích từ nguồn thu một phần viện phí",
+          "section_title": "2. Tỷ lệ và cách tính mức cụ thể các cơ sở khám chữa bệnh phải chuyển nộp cho cơ quan chủ quản để lập quỹ hỗ trợ được xác định như sau:",
+          "quote": "2. Tỷ lệ và cách tính mức cụ thể các cơ sở khám chữa bệnh phải chuyển nộp cho cơ quan chủ quản để lập quỹ hỗ trợ được xác định như sau:\n\na. Tỷ lệ phần trăm (%) mà cơ sở khám chữa bệnh phải chuyển nộp về cơ quan chủ quản bằng 30% trừ đi tỷ lệ phần trăm (%) mà cơ sở khám chữa bệnh được phép trích lập quỹ khen thưởng do cơ quan chủ quản quy định.\n\nb. Mức cụ thể mà cơ sở khám chữa bệnh phải chuyển nộp về cơ quan chủ quản bằng tổng số viện phí thực thu nhân với tỷ lệ phần trăm (%) mà cơ sở khám chữa bệnh phải chuyển nộp về cơ quan chủ quản theo cách tính tại điểm a nêu trên.\n\nVí dụ: bệnh viện A the",
+          "channels": [
+            "document_recall_operatives",
+            "lexical",
+            "semantic"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 4415,
+          "source_end": 5352,
+          "text_sha256": "b02a39f8c20352300bafe8e17af7acff37b81eb6c6d29d38ef65d7f642577551",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "20/2022/TT-BYT",
+          "title": "Thông tư số 20/2022/TT-BYT ban hành Danh mục và tỷ lệ, điều kiện thanh toán đối với thuốc hóa dược, sinh phẩm, thuốc phóng xạ và chất đánh dấu thuộc phạm vi được hưởng của người tham gia bảo hiểm y tế.",
+          "section_title": "d) Cột 4, 5, 6, 7: Ghi hạng bệnh viện được sử dụng và thanh toán bảo hiểm y tế. Thuốc, hoạt chất trong Danh mục thuốc quy định tại Phụ lục I được sử dụng và thanh toán bảo hiểm y tế tại các cơ sở khám bệnh, chữa bệnh theo hạng bệnh viện, cụ thể như sau:",
+          "quote": "d) Cột 4, 5, 6, 7: Ghi hạng bệnh viện được sử dụng và thanh toán bảo hiểm y tế. Thuốc, hoạt chất trong Danh mục thuốc quy định tại Phụ lục I được sử dụng và thanh toán bảo hiểm y tế tại các cơ sở khám bệnh, chữa bệnh theo hạng bệnh viện, cụ thể như sau:\n\n- Bệnh viện hạng đặc biệt và hạng I sử dụng các thuốc quy định tại cột 4;\n\n- Bệnh viện hạng II sử dụng các thuốc quy định tại cột 5;\n\n- Bệnh viện hạng III và hạng IV, bao gồm cả phòng khám đa khoa thuộc bệnh viện đa khoa hoặc thuộc trung tâm y tế quận, huyện, thị xã, thành phố trực thuộc tỉnh thành phố trực thuộc trung ương, phòng khám đa khoa",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 3268,
+          "source_end": 4043,
+          "text_sha256": "e49cadfb93cd2d8ac6a1bdc165983100edd17b73a7e79d8ce3590284e804c7b5",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "4652/BHXH-CSYT",
+          "title": "Công văn số 4652/BHXH-CSYT Thanh toán chi phí VTYTTH, VTYTTT theo chế độ KCB BHYT",
+          "section_title": "2. Về việc sử dụng và thanh toán chi phí VTYTTH, VTYTTT:",
+          "quote": "- Đối với các loại VTYTTH có định mức thanh toán đã được thống nhất giữa cơ quan BHXH và cơ sở KCB thì chi phí của VTYTTH được tính theo định mức thanh toán và giá mua vào của cơ sở KCB.\n\n- Các loại VTYTTH, VTYTTT sử dụng trong các DVKT chỉnh hình thẩm mỹ, tạo hình thẩm mỹ không thuộc phạm vi thanh toán của Quỹ BHYT. Cơ quan BHXH có trách nhiệm giám định đối với từng bệnh nhân cụ thể để xác định các trường hợp sử dụng các DVKT và VTYTTH, VTYTTT này vào mục đích chỉnh hình thẩm mỹ, tạo hình thẩm mỹ để từ chối thanh toán theo chế độ BHYT.\n\n-Đối với các cơ sở KCB ngoài công lập, giá thanh toán củ",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 5049,
+          "source_end": 6010,
+          "text_sha256": "2dd2649efa591f8e0ace3540edabf83f568bb78fa5e374f73def351968f003c4",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "50/2017/TT-BYT",
+          "title": "Thông tư số 50/2017/TT-BYT Sửa đổi, bổ sung các quy định liên quan đến thanh toán chi phí khám bệnh, chữa bệnh",
+          "section_title": "Table 2, row 4",
+          "quote": "STT: 18 | DVKT/Nhóm DVKT: Các DVKT phục hồi chức năng. | Điều kiện thanh toán: 1. Các DVKT phục hồi chức năng phải do người hành nghề có phạm vi hoạt động chuyên môn ghi trên chứng chỉ hành nghề hoặc quyết định bổ sung phạm vi hoạt động chuyên môn về phục hồi chức năng thực hiện. 2. Tổng số DVKT phục hồi chức năng thanh toán tối đa không quá 06 DVKT/ngày, trong đó: a) Các kỹ thuật vận động trị liệu thanh toán tối đa 03 kỹ thuật/ngày, trong đó các kỹ thuật tương đương với kỹ thuật vận động toàn thân thanh toán tối đa 02 kỹ thuật/ngày; b) Các kỹ thuật hoạt động trị liệu thanh toán tối đa 02 kỹ t",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 17709,
+          "source_end": 20177,
+          "text_sha256": "e2c456cb26b277f917e2e5167abaab5341121a1bcdb402f0b0ac92d59401af82",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "04/2017/TT-BYT",
+          "title": "Thông tư số 04/2017/TT-BYT Ban hành Danh mục và tỷ lệ, điều kiện thanh toán đối với vật tư y tế thuộc phạm vi được hưởng của người tham gia bảo hiểm y tế",
+          "section_title": "Table 14, row 11",
+          "quote": "STT (*): III. Vật tư y tế quy định tỷ lệ thanh toán | Mã số tại DM ban hành kèm theo TT: III. Vật tư y tế quy định tỷ lệ thanh toán | Mã VTYT (**): III. Vật tư y tế quy định tỷ lệ thanh toán | Tên VTYT quy định tại Thông tư: III. Vật tư y tế quy định tỷ lệ thanh toán | Tên Thương mại: III. Vật tư y tế quy định tỷ lệ thanh toán | Mã hiệu sản phẩm (nếu có): III. Vật tư y tế quy định tỷ lệ thanh toán | Quy cách: III. Vật tư y tế quy định tỷ lệ thanh toán | Hãng sản xuất: III. Vật tư y tế quy định tỷ lệ thanh toán | Nước sản xuất: III. Vật tư y tế quy định tỷ lệ thanh toán | Đơn vị tính: III. Vật ",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 67996,
+          "source_end": 68577,
+          "text_sha256": "5d45814dbdc1ee3c2fbd167667b41e7e85d1bf2cbd24443b5c895b18e9925c79",
+          "provenance_verified": true
+        }
+      ],
+      "claims_count": 3,
+      "metadata": {
+        "trace_id": "a33ab9622f6543169ab2938e442e9a81",
+        "route_intent": "thematic",
+        "subquery_count": 1,
+        "retrieval_ms": 13453.98,
+        "candidate_count": 9,
+        "relation_count": 0,
+        "retrieval_channels": [
+          "document_operatives",
+          "document_recall_operatives",
+          "lexical",
+          "page_index",
+          "semantic"
+        ],
+        "retrieval_trace": {
+          "trace_id": "5a245a25c5654e0c81810676d376fb57",
+          "stages": [
+            {
+              "stage": "postgres:release_recall",
+              "duration_ms": 5935.21,
+              "outcome": "success",
+              "result_count": 0
+            },
+            {
+              "stage": "provider:embedding",
+              "duration_ms": 285.68,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 967.29,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 968.58,
+              "outcome": "success"
+            },
+            {
+              "stage": "postgres:lexical",
+              "duration_ms": 2987.32,
+              "outcome": "success",
+              "result_count": 60
+            },
+            {
+              "stage": "retrieval:provider_fusion",
+              "duration_ms": 2987.42,
+              "outcome": "success",
+              "lexical_count": 60,
+              "semantic_count": 60
+            },
+            {
+              "stage": "postgres:hydrate_rank",
+              "duration_ms": 4470.08,
+              "outcome": "success",
+              "hydrated_count": 60,
+              "operative_count": 270
+            },
+            {
+              "stage": "retrieval:rerank_select",
+              "duration_ms": 4529.85,
+              "outcome": "success",
+              "selected_count": 9,
+              "channel_count": 4
+            },
+            {
+              "stage": "retrieval_total",
+              "duration_ms": 13453.84,
+              "outcome": "success",
+              "evidence_count": 9
+            }
+          ]
+        },
+        "context_ms": 0.05,
+        "context_chars": 11602,
+        "context_tokens": 2901,
+        "verification_evidence_count": 9,
+        "verification_ms": 0.03,
+        "verification_failed": false,
+        "generation_ms": 2.7,
+        "generation_trace": {
+          "stage": "generation",
+          "outcome": "skipped"
+        },
+        "citation_count": 9,
+        "claim_count": 3,
+        "verified_claim_count": 3,
+        "guardrail_response_chars": 822,
+        "guardrail_ms": 3.6
+      },
+      "retrieved_evidence": [
+        {
+          "document_number": "51/2024/QH15",
+          "section_title": "h) 50% mức hưởng khi khám bệnh, chữa bệnh ngoại trú theo lộ trình do Chính phủ quy định và 100% mức hưởng khi khám bệnh, chữa bệnh nội trú trong trường hợp khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp chuyên sâu mà trước ngày 01 tháng 01 năm 2025 đã được cơ quan có thẩm quyền xác định là tuyến tỉnh.",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "score": null,
+          "quote": "4. Người tham gia bảo hiểm y tế tự đi khám bệnh, chữa bệnh không đúng cơ sở đăng ký khám bệnh, chữa bệnh bảo hiểm y tế ban đầu, không đúng quy định về chuyển người bệnh quy định tại Điều 26 và Điều 27 của Luật này, trừ trường hợp quy định tại khoản 3 và khoản 5 Điều này, được quỹ bảo hiểm y tế thanh toán theo tỷ lệ phần trăm của mức hưởng quy định tại khoản 1 Điều này như sau: — h) 50% mức hưởng khi khám bệnh, chữa bệnh ngoại trú theo lộ trình do Chính phủ quy định và 100% mức hưởng khi khám bệnh, chữa bệnh nội trú trong trường hợp khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp chuyên",
+          "source_start": 30519,
+          "source_end": 30832,
+          "text_sha256": "e45ec66247db1cd72ada51feaabe12b62a09803de1516108bc1635a60ad40d62"
+        },
+        {
+          "document_number": "51/2024/QH15",
+          "section_title": "đ) 100% mức hưởng khi khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp cơ bản, cấp chuyên sâu mà trước ngày 01 tháng 01 năm 2025 đã được cơ quan có thẩm quyền xác định là tuyến huyện;",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "score": null,
+          "quote": "4. Người tham gia bảo hiểm y tế tự đi khám bệnh, chữa bệnh không đúng cơ sở đăng ký khám bệnh, chữa bệnh bảo hiểm y tế ban đầu, không đúng quy định về chuyển người bệnh quy định tại Điều 26 và Điều 27 của Luật này, trừ trường hợp quy định tại khoản 3 và khoản 5 Điều này, được quỹ bảo hiểm y tế thanh toán theo tỷ lệ phần trăm của mức hưởng quy định tại khoản 1 Điều này như sau: — đ) 100% mức hưởng khi khám bệnh, chữa bệnh tại cơ sở khám bệnh, chữa bệnh cấp cơ bản, cấp chuyên sâu mà trước ngày 01 tháng 01 năm 2025 đã được cơ quan có thẩm quyền xác định là tuyến huyện;",
+          "source_start": 29899,
+          "source_end": 30091,
+          "text_sha256": "56b7ea1d2992737b3107d18094791d1ac5b2f9bd3e168debe9adb9995d78a3b5"
+        },
+        {
+          "document_number": "39/2024/TT-BYT",
+          "section_title": "d) Trường hợp số ca đề nghị thanh toán cao hơn số ca tối đa theo cách tính quy định tại điểm a khoản này: Đối với số ca bằng số ca tối đa theo cách tính tại điểm a khoản này, cơ quan bảo hiểm xã hội thanh toán theo mức giá mà cơ sở đã được duyệt. Đối với số ca lớn hơn số ca tối đa theo cách tính tại điểm a khoản này, cơ quan bảo hiểm xã hội thanh toán theo mức giá không bao gồm chi phí tiền lương, mức giá thanh toán cụ thể như sau:",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "Số ca tối đa được cơ quan bảo hiểm y tế thanh toán theo mức giá Chụp X-quang quy định tại Thông tư này là: (58:8) X 9 X 3 X 78 X 120% = 18.322,2 ca.\n\nTổng số ca chụp X-quang đề nghị cơ quan bảo hiểm xã hội thanh toán trong quý III/2018 nhỏ hơn hoặc bằng 18.322 ca thì được cơ quan bảo hiểm y tế thanh toán theo mức giá quy định tại Thông tư này.\n\nTrường hợp số ca cơ sở khám bệnh, chữa bệnh đề nghị thanh toán lớn hơn 18.322 ca, giả sử là 20.000 ca, cơ quan bảo hiểm xã hội thanh toán 18.322 ca theo mức giá quy định tại Thông tư này, còn lại 1.678 ca (=20.000 ca - 18.322 ca) cơ quan bảo hiểm xã hội",
+          "source_start": 21388,
+          "source_end": 22055,
+          "text_sha256": "a9508bce26269669331311a6161d770815dd85398b61ce630b916fa9132f35aa"
+        },
+        {
+          "document_number": "37/2024/TT-BYT",
+          "section_title": "6. Trường hợp thuốc có quy định tỷ lệ, điều kiện thanh toán tại cột ghi chú của danh mục thuốc, quỹ bảo hiểm y tế thanh toán theo tỷ lệ, điều kiện thanh toán của thuốc. Đối với thuốc có điều kiện thanh toán theo cơ sở khám bệnh, chữa bệnh hoặc cấp chuyên môn kỹ thuật trong khám bệnh, chữa bệnh hoặc yêu cầu chuyên môn về sử dụng thuốc, quỹ bảo hiểm y tế chỉ thanh toán khi cơ sở khám bệnh, chữa bệnh sử dụng thuốc đáp ứng yêu cầu về điều kiện thanh toán được quy định tại cột ghi chú của danh mục thuốc.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "6. Trường hợp thuốc có quy định tỷ lệ, điều kiện thanh toán tại cột ghi chú của danh mục thuốc, quỹ bảo hiểm y tế thanh toán theo tỷ lệ, điều kiện thanh toán của thuốc. Đối với thuốc có điều kiện thanh toán theo cơ sở khám bệnh, chữa bệnh hoặc cấp chuyên môn kỹ thuật trong khám bệnh, chữa bệnh hoặc yêu cầu chuyên môn về sử dụng thuốc, quỹ bảo hiểm y tế chỉ thanh toán khi cơ sở khám bệnh, chữa bệnh sử dụng thuốc đáp ứng yêu cầu về điều kiện thanh toán được quy định tại cột ghi chú của danh mục thuốc.",
+          "source_start": 17108,
+          "source_end": 17612,
+          "text_sha256": "762dcd49addbd952fb15f1a7ad333e914451bbd3d6b1f26c771a0e81247a7205"
+        },
+        {
+          "document_number": "09/BYT-TT",
+          "section_title": "2. Tỷ lệ và cách tính mức cụ thể các cơ sở khám chữa bệnh phải chuyển nộp cho cơ quan chủ quản để lập quỹ hỗ trợ được xác định như sau:",
+          "channels": [
+            "document_recall_operatives",
+            "lexical",
+            "semantic"
+          ],
+          "score": null,
+          "quote": "2. Tỷ lệ và cách tính mức cụ thể các cơ sở khám chữa bệnh phải chuyển nộp cho cơ quan chủ quản để lập quỹ hỗ trợ được xác định như sau:\n\na. Tỷ lệ phần trăm (%) mà cơ sở khám chữa bệnh phải chuyển nộp về cơ quan chủ quản bằng 30% trừ đi tỷ lệ phần trăm (%) mà cơ sở khám chữa bệnh được phép trích lập quỹ khen thưởng do cơ quan chủ quản quy định.\n\nb. Mức cụ thể mà cơ sở khám chữa bệnh phải chuyển nộp về cơ quan chủ quản bằng tổng số viện phí thực thu nhân với tỷ lệ phần trăm (%) mà cơ sở khám chữa bệnh phải chuyển nộp về cơ quan chủ quản theo cách tính tại điểm a nêu trên.\n\nVí dụ: bệnh viện A the",
+          "source_start": 4415,
+          "source_end": 5352,
+          "text_sha256": "b02a39f8c20352300bafe8e17af7acff37b81eb6c6d29d38ef65d7f642577551"
+        },
+        {
+          "document_number": "20/2022/TT-BYT",
+          "section_title": "d) Cột 4, 5, 6, 7: Ghi hạng bệnh viện được sử dụng và thanh toán bảo hiểm y tế. Thuốc, hoạt chất trong Danh mục thuốc quy định tại Phụ lục I được sử dụng và thanh toán bảo hiểm y tế tại các cơ sở khám bệnh, chữa bệnh theo hạng bệnh viện, cụ thể như sau:",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "d) Cột 4, 5, 6, 7: Ghi hạng bệnh viện được sử dụng và thanh toán bảo hiểm y tế. Thuốc, hoạt chất trong Danh mục thuốc quy định tại Phụ lục I được sử dụng và thanh toán bảo hiểm y tế tại các cơ sở khám bệnh, chữa bệnh theo hạng bệnh viện, cụ thể như sau:\n\n- Bệnh viện hạng đặc biệt và hạng I sử dụng các thuốc quy định tại cột 4;\n\n- Bệnh viện hạng II sử dụng các thuốc quy định tại cột 5;\n\n- Bệnh viện hạng III và hạng IV, bao gồm cả phòng khám đa khoa thuộc bệnh viện đa khoa hoặc thuộc trung tâm y tế quận, huyện, thị xã, thành phố trực thuộc tỉnh thành phố trực thuộc trung ương, phòng khám đa khoa",
+          "source_start": 3268,
+          "source_end": 4043,
+          "text_sha256": "e49cadfb93cd2d8ac6a1bdc165983100edd17b73a7e79d8ce3590284e804c7b5"
+        },
+        {
+          "document_number": "4652/BHXH-CSYT",
+          "section_title": "2. Về việc sử dụng và thanh toán chi phí VTYTTH, VTYTTT:",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "- Đối với các loại VTYTTH có định mức thanh toán đã được thống nhất giữa cơ quan BHXH và cơ sở KCB thì chi phí của VTYTTH được tính theo định mức thanh toán và giá mua vào của cơ sở KCB.\n\n- Các loại VTYTTH, VTYTTT sử dụng trong các DVKT chỉnh hình thẩm mỹ, tạo hình thẩm mỹ không thuộc phạm vi thanh toán của Quỹ BHYT. Cơ quan BHXH có trách nhiệm giám định đối với từng bệnh nhân cụ thể để xác định các trường hợp sử dụng các DVKT và VTYTTH, VTYTTT này vào mục đích chỉnh hình thẩm mỹ, tạo hình thẩm mỹ để từ chối thanh toán theo chế độ BHYT.\n\n-Đối với các cơ sở KCB ngoài công lập, giá thanh toán củ",
+          "source_start": 5049,
+          "source_end": 6010,
+          "text_sha256": "2dd2649efa591f8e0ace3540edabf83f568bb78fa5e374f73def351968f003c4"
+        },
+        {
+          "document_number": "50/2017/TT-BYT",
+          "section_title": "Table 2, row 4",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "STT: 18 | DVKT/Nhóm DVKT: Các DVKT phục hồi chức năng. | Điều kiện thanh toán: 1. Các DVKT phục hồi chức năng phải do người hành nghề có phạm vi hoạt động chuyên môn ghi trên chứng chỉ hành nghề hoặc quyết định bổ sung phạm vi hoạt động chuyên môn về phục hồi chức năng thực hiện. 2. Tổng số DVKT phục hồi chức năng thanh toán tối đa không quá 06 DVKT/ngày, trong đó: a) Các kỹ thuật vận động trị liệu thanh toán tối đa 03 kỹ thuật/ngày, trong đó các kỹ thuật tương đương với kỹ thuật vận động toàn thân thanh toán tối đa 02 kỹ thuật/ngày; b) Các kỹ thuật hoạt động trị liệu thanh toán tối đa 02 kỹ t",
+          "source_start": 17709,
+          "source_end": 20177,
+          "text_sha256": "e2c456cb26b277f917e2e5167abaab5341121a1bcdb402f0b0ac92d59401af82"
+        },
+        {
+          "document_number": "04/2017/TT-BYT",
+          "section_title": "Table 14, row 11",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "STT (*): III. Vật tư y tế quy định tỷ lệ thanh toán | Mã số tại DM ban hành kèm theo TT: III. Vật tư y tế quy định tỷ lệ thanh toán | Mã VTYT (**): III. Vật tư y tế quy định tỷ lệ thanh toán | Tên VTYT quy định tại Thông tư: III. Vật tư y tế quy định tỷ lệ thanh toán | Tên Thương mại: III. Vật tư y tế quy định tỷ lệ thanh toán | Mã hiệu sản phẩm (nếu có): III. Vật tư y tế quy định tỷ lệ thanh toán | Quy cách: III. Vật tư y tế quy định tỷ lệ thanh toán | Hãng sản xuất: III. Vật tư y tế quy định tỷ lệ thanh toán | Nước sản xuất: III. Vật tư y tế quy định tỷ lệ thanh toán | Đơn vị tính: III. Vật ",
+          "source_start": 67996,
+          "source_end": 68577,
+          "text_sha256": "5d45814dbdc1ee3c2fbd167667b41e7e85d1bf2cbd24443b5c895b18e9925c79"
+        }
+      ],
+      "findings": {
+        "deterministic_status": "PASS",
+        "failures": [],
+        "abstained": false,
+        "public_document_numbers": [
+          "51/2024/QH15",
+          "39/2024/TT-BYT",
+          "37/2024/TT-BYT",
+          "09/BYT-TT",
+          "20/2022/TT-BYT",
+          "4652/BHXH-CSYT",
+          "50/2017/TT-BYT",
+          "04/2017/TT-BYT"
+        ],
+        "accepted_document_numbers_found": [
+          "51/2024/QH15"
+        ],
+        "required_facts_missing_for_reviewer": [
+          "phân biệt nội trú và ngoại trú",
+          "mức hưởng phụ thuộc trường hợp áp dụng"
+        ],
+        "review_flags": [
+          "required_fact_review"
+        ],
+        "citation_count": 9
+      }
+    },
+    {
+      "case_id": "critical-bhyt-03-student-contribution-2026",
+      "question": "Học sinh tham gia BHYT năm 2026 phải đóng bao nhiêu và được Nhà nước hỗ trợ thế nào?",
+      "status": "completed",
+      "latency_ms": 15496.58,
+      "answer": "- d) Mức đóng hằng tháng của đối tượng quy định tại khoản 4 Điều 12 của Luật này tối đa bằng 6% mức tham chiếu do đối tượng tự đóng và được ngân sách nhà nước hỗ trợ một phần mức đóng.\n- Năm 2026; mức đóng hoặc điều kiện xác định mức đóng được đối chiếu theo mức tham chiếu.\n- Hỗ trợ của Nhà nước áp dụng theo nhóm đối tượng; chưa đủ dữ liệu để xác định số tiền cụ thể.",
+      "answer_sha256": "2317e93fbf7dbb66194ad50c13f4bec8fc29f6ea483872fe923b74197cb18655",
+      "citations": [
+        {
+          "document_number": "51/2024/QH15",
+          "title": "Luật Bảo hiểm y tế sửa đổi 2024 số 51/2024/QH15",
+          "section_title": "d) Mức đóng hằng tháng của đối tượng quy định tại khoản 4 Điều 12 của Luật này tối đa bằng 6% mức tham chiếu do đối tượng tự đóng và được ngân sách nhà nước hỗ trợ một phần mức đóng.",
+          "quote": "d) Mức đóng hằng tháng của đối tượng quy định tại khoản 4 Điều 12 của Luật này tối đa bằng 6% mức tham chiếu do đối tượng tự đóng và được ngân sách nhà nước hỗ trợ một phần mức đóng.",
+          "channels": [
+            "document_operatives"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 16068,
+          "source_end": 16250,
+          "text_sha256": "ff31c9f207b420a53854e808a946a98569e49fb299b856237e814bbdd0c616f0",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "116/2025/TT-BTC",
+          "title": "Thông tư số 116/2025/TT-BTC Hướng dẫn thực hiện cơ chế tài chính về bảo hiểm xã hội, bảo hiểm thất nghiệp, bảo hiểm y tế; chi tổ chức và hoạt động bảo hiểm xã hội, bảo hiểm thất nghiệp, bảo hiểm y tế",
+          "section_title": "b) Chi hỗ trợ cho công chức, viên chức, người lao động ảnh hưởng khi thực hiện sắp xếp tổ chức bộ máy theo quy định tại điểm 2 Điều 13 Nghị quyết số 190/2025/QH15 ngày 19 tháng 02 năm 2025 của Quốc hội về xử lý một số vấn đề liên quan đến sắp xếp tổ chức bộ máy nhà nước, Điều 3 Nghị quyết số 202/2025/QH15 ngày 12 tháng 6 năm 2025 của Quốc hội về việc sắp xếp đơn vị hành chính cấp tỉnh và điểm m khoản 1 Điều 20 Nghị định số 233/2025/NĐ-CP: Nội dung chi bao gồm hỗ trợ tiền ăn ở, đi lại cho công chức, viên chức, người lao động của cơ quan bảo hiểm xã hội khi thực hiện sắp xếp tổ chức bộ máy, tinh giản biên chế phải thay đổi trụ sở làm việc hoặc phải thuê chỗ ở mới từ địa bàn này sang địa bàn khác. Thời gian hỗ trợ từ ngày 01 tháng 07 năm 2025 đến hết ngày 31 tháng 12 năm 2026, mức hỗ trợ tối đa không quá 5.000.000 đồng/người/tháng. Đối tượng hỗ trợ, phương thức hỗ trợ và mức hỗ trợ cụ thể được xác định tại quy chế chi tiêu nội bộ của Bảo hiểm xã hội Việt Nam; Bảo hiểm xã hội Việt Nam có trách nhiệm tổ chức thực hiện theo đúng quy định, phù hợp với thực tế và khả năng cân đối nguồn kinh phí.",
+          "quote": "b) Chi hỗ trợ cho công chức, viên chức, người lao động ảnh hưởng khi thực hiện sắp xếp tổ chức bộ máy theo quy định tại điểm 2 Điều 13 Nghị quyết số 190/2025/QH15 ngày 19 tháng 02 năm 2025 của Quốc hội về xử lý một số vấn đề liên quan đến sắp xếp tổ chức bộ máy nhà nước, Điều 3 Nghị quyết số 202/2025/QH15 ngày 12 tháng 6 năm 2025 của Quốc hội về việc sắp xếp đơn vị hành chính cấp tỉnh và điểm m khoản 1 Điều 20 Nghị định số 233/2025/NĐ-CP: Nội dung chi bao gồm hỗ trợ tiền ăn ở, đi lại cho công chức, viên chức, người lao động của cơ quan bảo hiểm xã hội khi thực hiện sắp xếp tổ chức bộ máy, tinh",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 4016,
+          "source_end": 5120,
+          "text_sha256": "6d159525a975e6208e22cd11377fbc7d34304ab388b591e0fcc03ed14137180a",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "04/VBHN-BYT",
+          "title": "Văn bản hợp nhất số 04/VBHN-BYT Quy định chi tiết và hướng dẫn biện pháp thi hành một số điều của luật bảo hiểm y tế",
+          "section_title": "Phụ lục",
+          "quote": "\n\n(Đơn vị tính: Thẻ; Đồng)\n\nSố TT\n\nĐối tượng tham gia bảo hiểm y tế (BHYT) được ngân sách nhà nước đóng, hỗ trợ\n\nSố thẻ\n\nBHYT đã phát hành\n\nSố tiền đóng BHYT tính theo mức đóng quy định\n\nSố tiền do người tham gia đóng\n\nSố tiền ngân sách nhà nước đóng, hỗ trợ\n\nSố tiền cơ quan tài chính, lao động đã chuyển\n\nSố tiền\n\ncơ quan tài chính, lao động còn phải chuyển\n\nA\n\nB\n\n1\n\n2\n\n3\n\n4=2-3\n\n5\n\n6=4-5\n\nTổng số\n\n1\n\nTrẻ em dưới 6 tuổi\n\n2\n\nNgười thuộc hộ gia đình nghèo\n\n3\n\nNgười thuộc hộ gia đình cận nghèo\n\n- Đối tượng được NSNN hỗ trợ 100% mức đóng\n\n- Đối tượng được NSNN hỗ trợ ...% mức đóng\n\n4\n\nHọc sinh, si",
+          "channels": [
+            "document_recall_operatives",
+            "document_recall_semantic",
+            "lexical",
+            "semantic"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 116773,
+          "source_end": 118127,
+          "text_sha256": "c520d80204d275c7d919909f04b3986703c6bf99e87a4e677632392f78db9021",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "110/2025/NQ-HĐND",
+          "title": "Nghị quyết số 110/2025/NQ-HĐND Quy định mức hỗ trợ đóng bảo hiểm y tế cho người thuộc hộ gia đình cận nghèo; học sinh, sinh viên là người dân tộc thiểu số; người thuộc hộ gia đình làm nông nghiệp, lâm nghiệp, ngư nghiệp có mức sống trung bình trên địa bàn tỉnh Lai Châu giai đoạn 2026 – 2030",
+          "section_title": "2. Nguyên tắc hỗ trợ",
+          "quote": "2. Nguyên tắc hỗ trợ\n\n- Trường hợp một người thuộc nhiều nhóm đối tượng được ngân sách nhà nước hỗ trợ thì hỗ trợ đóng bảo hiểm y tế theo đối tượng có mức hỗ trợ cao nhất.\n\n- Mức đóng bảo hiểm y tế làm căn cứ hỗ trợ là mức đóng do Chính phủ quy định áp dụng cho từng năm theo Luật Bảo hiểm y tế.\n\n- Mức hỗ trợ thẻ bảo hiểm y tế từ ngân sách địa phương và mức hỗ trợ từ ngân sách Trung ương không vượt quá 100% giá trị của thẻ bảo hiểm y tế, theo các quy định của pháp luật.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical",
+            "semantic"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 3099,
+          "source_end": 3572,
+          "text_sha256": "c4345ce65a27f4cdcb792b76f1dc04496c0004055f985b048c2b7967862bca53",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "51/2024/QH15",
+          "title": "Luật Bảo hiểm y tế sửa đổi 2024 số 51/2024/QH15",
+          "section_title": "a) 100% chi phí khám bệnh, chữa bệnh đối với đối tượng quy định tại các điểm a, b, c, d, đ, e, h, i, o, r và s khoản 3 Điều 12 của Luật này. Chi phí khám bệnh, chữa bệnh ngoài phạm vi được hưởng bảo hiểm y tế của đối tượng quy định tại các điểm a, b, c, d và đ khoản 3 Điều 12 của Luật này được chi trả từ nguồn kinh phí bảo hiểm y tế dành cho khám bệnh, chữa bệnh của nhóm đối tượng này; trường hợp nguồn kinh phí này không đủ thì do ngân sách nhà nước bảo đảm;",
+          "quote": "1. Người tham gia bảo hiểm y tế khi khám bệnh, chữa bệnh theo quy định tại Điều 26 và Điều 27 của Luật này được quỹ bảo hiểm y tế thanh toán chi phí khám bệnh, chữa bệnh trong phạm vi được hưởng với mức hưởng như sau: — a) 100% chi phí khám bệnh, chữa bệnh đối với đối tượng quy định tại các điểm a, b, c, d, đ, e, h, i, o, r và s khoản 3 Điều 12 của Luật này. Chi phí khám bệnh, chữa bệnh ngoài phạm vi được hưởng bảo hiểm y tế của đối tượng quy định tại các điểm a, b, c, d và đ khoản 3 Điều 12 của Luật này được chi trả từ nguồn kinh phí bảo hiểm y tế dành cho khám bệnh, chữa bệnh của nhóm đối tư",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "evidence_kind": "legal_unit",
+          "source_start": 26274,
+          "source_end": 26738,
+          "text_sha256": "d93a351771586a7c516051cc8dbb7b37c6ddf9e038b9b932eeda4280b806fc10",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "18/2024/NQ-HĐND",
+          "title": "Nghị quyết số 18/2024/NQ-HĐND Quy định chính sách hỗ trợ bảo hiểm y tế đối với người thuộc hộ mới thoát nghèo và hộ người có công với cách mạng có mức sống trung bình; hỗ trợ tiếp cận nguồn nước sinh hoạt đối với hộ nghèo, hộ cận nghèo, hộ người có công với cách mạng có mức sống trung bình trên địa bàn tỉnh Vĩnh Long giai đoạn 2024 - 2025",
+          "section_title": "c) Người thuộc hộ có mức sống trung bình, thiếu hụt dịch vụ xã hội cơ bản về bảo hiểm y tế, trừ các trường hợp tham gia bảo hiểm y tế bắt buộc theo quy định, có thành viên thuộc một trong các đối tượng sau: Người trực tiếp tham gia kháng chiến chống Mỹ cứu nước nhưng chưa được hưởng chính sách của Đảng và Nhà nước theo Quyết định số 290/2005/QĐ-TTg ngày 08 tháng 11 năm 2005; quân nhân tham gia kháng chiến chống Mỹ cứu nước có dưới 20 năm công tác trong quân đội đã phục viên, xuất ngũ về địa phương theo Quyết định số 142/2008/QĐ-TTg ngày 27 tháng 10 năm 2008; cán bộ, chiến sĩ công an nhân dân tham gia kháng chiến chống Mỹ có dưới 20 năm công tác trong Công an nhân dân đã thôi việc, xuất ngũ về địa phương theo Quyết định số 53/2010/QĐ-TTg ngày 20 tháng 8 năm 2010; thanh niên xung phong đã hoàn thành nhiệm vụ trong kháng chiến theo Quyết định số 40/2011/QĐ-TTg ngày 27 tháng 7 năm 2011; người tham gia chiến tranh bảo vệ Tổ quốc, làm nhiệm vụ quốc tế ở Căm-pu-chi-a, giúp bạn Lào sau ngày 30 tháng 4 năm 1975 đã phục viên, xuất ngũ, thôi việc theo Quyết định số 62/2011/QĐ-TTg ngày 09 tháng 11 năm 2011; người được cử làm chuyên gia sang giúp Lào và Căm-pu-chi-a theo Quyết định số 57/2013/QĐ-TTg ngày 14 tháng 10 năm 2013; dân công hỏa tuyến tham gia kháng chiến chống Pháp, chống Mỹ, chiến tranh bảo vệ Tổ quốc và làm nhiệm vụ quốc tế theo Quyết định số 49/2015/QĐ-TTg ngày 14 tháng 10 năm 2015; người có thành tích tham gia kháng chiến được tặng Bằng khen của Bộ trưởng, thủ trưởng cơ quan ngang bộ, thủ trưởng cơ quan thuộc Chính phủ, Bằng khen của Chủ tịch Ủy ban nhân dân cấp tỉnh theo Quyết định số 24/2016/QĐ-TTg ngày 14 tháng 6 năm 2016 của Thủ tướng Chính phủ.",
+          "quote": "c) Người thuộc hộ có mức sống trung bình, thiếu hụt dịch vụ xã hội cơ bản về bảo hiểm y tế, trừ các trường hợp tham gia bảo hiểm y tế bắt buộc theo quy định, có thành viên thuộc một trong các đối tượng sau: Người trực tiếp tham gia kháng chiến chống Mỹ cứu nước nhưng chưa được hưởng chính sách của Đảng và Nhà nước theo Quyết định số 290/2005/QĐ-TTg ngày 08 tháng 11 năm 2005; quân nhân tham gia kháng chiến chống Mỹ cứu nước có dưới 20 năm công tác trong quân đội đã phục viên, xuất ngũ về địa phương theo Quyết định số 142/2008/QĐ-TTg ngày 27 tháng 10 năm 2008; cán bộ, chiến sĩ công an nhân dân t",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 2561,
+          "source_end": 4134,
+          "text_sha256": "4e76a57d52e6fcf261b7b6cde16dd274e85cc735218e7aa01392ef16af73ec1e",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "98/2025/TT-BQP",
+          "title": "Thông tư số 98/2025/TT-BQP Hướng dẫn thực hiện một số điều của Nghị định số 188/2025/NĐ-CP ngày 01 tháng 7 năm 2025 của Chính phủ quy định chi tiết và hướng dẫn thi hành một số điều của Luật Bảo hiểm y tế đối với các đối tượng thuộc phạm vi quản lý của Bộ Quốc phòng",
+          "section_title": "5. Đối với đối tượng quy định tại khoản 4 Điều 2 Thông tư này",
+          "quote": "5. Đối với đối tượng quy định tại khoản 4 Điều 2 Thông tư này\n\nHằng năm, đơn vị trực tiếp quản lý học sinh, sinh viên thu tiền đóng bảo hiểm y tế phần trách nhiệm đóng của học sinh, sinh viên và nộp về đơn vị cấp trên trực tiếp đến đơn vị cấp trực thuộc Bộ Quốc phòng để nộp về Bảo hiểm xã hội Quân đội trong thời hạn 30 ngày kể từ ngày nhập học (đối với học sinh, sinh viên năm thứ nhất), chậm nhất ngày cuối cùng tháng đầu năm ngân sách (đối với các đối tượng học sinh, sinh viên còn lại).\n\nTrường hợp học sinh, sinh viên năm đầu của khóa học mà thẻ bảo hiểm y tế lớp 12 còn giá trị sử dụng: Thu ti",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 10455,
+          "source_end": 11318,
+          "text_sha256": "72310b2b807693fd54fd0a09bf8621c48135dcbf32e2b978c94e0feb8d82ba38",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "68/2025/NQ-HĐND",
+          "title": "Nghị quyết số 68/2025/NQ-HĐND Quy định mức hỗ trợ đóng bảo hiểm y tế cho các đối tượng cao hơn mức hỗ trợ tối thiểu; đối tượng được hỗ trợ và mức hỗ trợ cùng chi trả chi phí khám bệnh, chữa bệnh bảo hiểm y tế cho người tham gia bảo hiểm y tế khi đi khám bệnh, chữa bệnh trên địa bàn tỉnh Lâm Đồng",
+          "section_title": "",
+          "quote": "Xét Tờ trình số 8323/TTr-UBND ngày 02 tháng 12 năm 2025 của Ủy ban nhân dân tỉnh về dự thảo Nghị quyết quy định mức hỗ trợ đóng bảo hiểm y tế cho các đối tượng cao hơn mức hỗ trợ tối thiểu; đối tượng được hỗ trợ và mức hỗ trợ cùng chi trả chi phí khám bệnh, chữa bệnh bảo hiểm y tế cho người tham gia bảo hiểm y tế khi đi khám bệnh, chữa bệnh trên địa bàn tỉnh Lâm Đồng; Báo cáo tiếp thu, giải trình số 289/BC-UBND ngày 08 tháng 12 năm 2025 của UBND tỉnh; Báo cáo thẩm tra số 324/BC-BDT của Ban Dân tộc Hội đồng nhân dân tỉnh; ý kiến thảo luận của đại biểu Hội đồng nhân dân tại kỳ họp;\n\nHội đồng nhâ",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 995,
+          "source_end": 1888,
+          "text_sha256": "1633e853a7608d2c652cf37feb854494f59462e782552bba4031dec79125e9ba",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "233/2025/NĐ-CP",
+          "title": "Nghị định số 233/2025/NĐ-CP Quy định cơ chế tài chính về bảo hiểm xã hội, bảo hiểm thất nghiệp, bảo hiểm y tế; chi tổ chức và hoạt động bảo hiểm xã hội, bảo hiểm thất nghiệp, bảo hiểm y tế",
+          "section_title": "7. Chi phí chi trả lương hưu, trợ cấp bảo hiểm xã hội, bảo hiểm thất nghiệp từ quỹ bảo hiểm xã hội, quỹ bảo hiểm thất nghiệp bằng 0,54% số tiền chi trả từ các quỹ thành phần: Bảo hiểm tai nạn lao động, bệnh nghề nghiệp, hưu trí và tử tuất (trừ các khoản chi: Phí khám giám định; dưỡng sức, phục hồi sức khỏe; hỗ trợ phòng ngừa, chia sẻ rủi ro về tai nạn lao động, bệnh nghề nghiệp; hỗ trợ chuyển đổi nghề nghiệp cho người bị tai nạn lao động, bệnh nghề nghiệp khi trở lại làm việc; đóng bảo hiểm y tế) và chi bảo hiểm thất nghiệp (trừ các khoản chi: Hỗ trợ tư vấn giới thiệu việc làm; hỗ trợ học nghề; hỗ trợ đào tạo duy trì việc làm; đóng bảo hiểm y tế) để chi tập huấn nghiệp vụ và thù lao của tổ chức hỗ trợ chi trả chế độ; cước tin nhắn thông báo đến người hưởng ủy quyền cho người khác nhận thay tiền chế độ bằng tiền mặt và qua tài khoản cá nhân; phí chuyển tiền vào tài khoản người hưởng; chi phí văn phòng phẩm, in mẫu biểu, chi phí chi trả tại nơi cư trú; khen thưởng tổ chức hỗ trợ chi trả chế độ; sơ kết, tổng kết công tác chi trả; xác minh thông tin người hưởng đủ điều kiện hưởng chế độ bảo hiểm xã hội.",
+          "quote": "7. Chi phí chi trả lương hưu, trợ cấp bảo hiểm xã hội, bảo hiểm thất nghiệp từ quỹ bảo hiểm xã hội, quỹ bảo hiểm thất nghiệp bằng 0,54% số tiền chi trả từ các quỹ thành phần: Bảo hiểm tai nạn lao động, bệnh nghề nghiệp, hưu trí và tử tuất (trừ các khoản chi: Phí khám giám định; dưỡng sức, phục hồi sức khỏe; hỗ trợ phòng ngừa, chia sẻ rủi ro về tai nạn lao động, bệnh nghề nghiệp; hỗ trợ chuyển đổi nghề nghiệp cho người bị tai nạn lao động, bệnh nghề nghiệp khi trở lại làm việc; đóng bảo hiểm y tế) và chi bảo hiểm thất nghiệp (trừ các khoản chi: Hỗ trợ tư vấn giới thiệu việc làm; hỗ trợ học nghề",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 60918,
+          "source_end": 62034,
+          "text_sha256": "6063c83be0c626bc257f6d9858f82c2c4ba2da5aebcb105eefede63a3b96803b",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "14/2026/NQ-HĐND",
+          "title": "Nghị quyết số 14/2026/NQ-HĐND Nghị quyết quy định chính sách hỗ trợ an sinh xã hội cho người dân thủ đô",
+          "section_title": "c) Nguyên tắc hỗ trợ",
+          "quote": "c) Nguyên tắc hỗ trợ\n\nĐối với nội dung hỗ trợ đột xuất đối với người lao động bị tai nạn lao động trong các vụ tai nạn lao động chết người xảy ra trên địa bàn thành phố Hà Nội (không phân biệt nơi cư trú của người lao động bị tai nạn lao động):\n\nChủ tịch Ủy ban nhân dân cấp xã nơi xảy ra tai nạn lao động có thẩm quyền quyết định hỗ trợ kịp thời theo định mức quy định tại Nghị quyết. Các trường hợp đã được Ủy ban nhân dân Thành phố hỗ trợ thì UBND cấp xã không hỗ trợ theo chính sách.\n\nMỗi người chỉ được hỗ trợ một lần cho mỗi vụ việc theo chính sách hỗ trợ từ nguồn ngân sách nhà nước quy định t",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 28670,
+          "source_end": 29406,
+          "text_sha256": "75ba0597af2d7eb120ae80d8600ca43db122f4fc36b700682c6bb3c51c176016",
+          "provenance_verified": false
+        }
+      ],
+      "claims_count": 3,
+      "metadata": {
+        "trace_id": "1e7d5e395a004b5a8ce813959f87edc7",
+        "route_intent": "temporal",
+        "subquery_count": 2,
+        "retrieval_ms": 15485.63,
+        "candidate_count": 12,
+        "relation_count": 0,
+        "retrieval_channels": [
+          "document_operatives",
+          "document_recall_operatives",
+          "document_recall_semantic",
+          "lexical",
+          "page_index",
+          "semantic"
+        ],
+        "retrieval_trace": {
+          "trace_id": "d55dbdbd6c514235bb070b860122f36e",
+          "stages": [
+            {
+              "stage": "postgres:release_recall",
+              "duration_ms": 6047.08,
+              "outcome": "success",
+              "result_count": 0
+            },
+            {
+              "stage": "provider:embedding",
+              "duration_ms": 259.99,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 961.32,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 1550.78,
+              "outcome": "success"
+            },
+            {
+              "stage": "postgres:lexical",
+              "duration_ms": 3206.97,
+              "outcome": "success",
+              "result_count": 60
+            },
+            {
+              "stage": "retrieval:provider_fusion",
+              "duration_ms": 3207.09,
+              "outcome": "success",
+              "lexical_count": 60,
+              "semantic_count": 60
+            },
+            {
+              "stage": "postgres:hydrate_rank",
+              "duration_ms": 6172.56,
+              "outcome": "success",
+              "hydrated_count": 60,
+              "operative_count": 293
+            },
+            {
+              "stage": "retrieval:rerank_select",
+              "duration_ms": 6229.47,
+              "outcome": "success",
+              "selected_count": 12,
+              "channel_count": 5
+            },
+            {
+              "stage": "retrieval_total",
+              "duration_ms": 15485.51,
+              "outcome": "success",
+              "evidence_count": 12
+            }
+          ]
+        },
+        "context_ms": 0.07,
+        "context_chars": 20941,
+        "context_tokens": 5236,
+        "verification_evidence_count": 12,
+        "verification_ms": 0.05,
+        "verification_failed": false,
+        "generation_ms": 0.11,
+        "generation_trace": {
+          "stage": "generation",
+          "outcome": "skipped"
+        },
+        "citation_count": 10,
+        "claim_count": 3,
+        "verified_claim_count": 3,
+        "guardrail_response_chars": 369,
+        "guardrail_ms": 5.96
+      },
+      "retrieved_evidence": [
+        {
+          "document_number": "51/2024/QH15",
+          "section_title": "d) Mức đóng hằng tháng của đối tượng quy định tại khoản 4 Điều 12 của Luật này tối đa bằng 6% mức tham chiếu do đối tượng tự đóng và được ngân sách nhà nước hỗ trợ một phần mức đóng.",
+          "channels": [
+            "document_operatives"
+          ],
+          "score": null,
+          "quote": "d) Mức đóng hằng tháng của đối tượng quy định tại khoản 4 Điều 12 của Luật này tối đa bằng 6% mức tham chiếu do đối tượng tự đóng và được ngân sách nhà nước hỗ trợ một phần mức đóng.",
+          "source_start": 16068,
+          "source_end": 16250,
+          "text_sha256": "ff31c9f207b420a53854e808a946a98569e49fb299b856237e814bbdd0c616f0"
+        },
+        {
+          "document_number": "116/2025/TT-BTC",
+          "section_title": "b) Chi hỗ trợ cho công chức, viên chức, người lao động ảnh hưởng khi thực hiện sắp xếp tổ chức bộ máy theo quy định tại điểm 2 Điều 13 Nghị quyết số 190/2025/QH15 ngày 19 tháng 02 năm 2025 của Quốc hội về xử lý một số vấn đề liên quan đến sắp xếp tổ chức bộ máy nhà nước, Điều 3 Nghị quyết số 202/2025/QH15 ngày 12 tháng 6 năm 2025 của Quốc hội về việc sắp xếp đơn vị hành chính cấp tỉnh và điểm m khoản 1 Điều 20 Nghị định số 233/2025/NĐ-CP: Nội dung chi bao gồm hỗ trợ tiền ăn ở, đi lại cho công chức, viên chức, người lao động của cơ quan bảo hiểm xã hội khi thực hiện sắp xếp tổ chức bộ máy, tinh giản biên chế phải thay đổi trụ sở làm việc hoặc phải thuê chỗ ở mới từ địa bàn này sang địa bàn khác. Thời gian hỗ trợ từ ngày 01 tháng 07 năm 2025 đến hết ngày 31 tháng 12 năm 2026, mức hỗ trợ tối đa không quá 5.000.000 đồng/người/tháng. Đối tượng hỗ trợ, phương thức hỗ trợ và mức hỗ trợ cụ thể được xác định tại quy chế chi tiêu nội bộ của Bảo hiểm xã hội Việt Nam; Bảo hiểm xã hội Việt Nam có trách nhiệm tổ chức thực hiện theo đúng quy định, phù hợp với thực tế và khả năng cân đối nguồn kinh phí.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "b) Chi hỗ trợ cho công chức, viên chức, người lao động ảnh hưởng khi thực hiện sắp xếp tổ chức bộ máy theo quy định tại điểm 2 Điều 13 Nghị quyết số 190/2025/QH15 ngày 19 tháng 02 năm 2025 của Quốc hội về xử lý một số vấn đề liên quan đến sắp xếp tổ chức bộ máy nhà nước, Điều 3 Nghị quyết số 202/2025/QH15 ngày 12 tháng 6 năm 2025 của Quốc hội về việc sắp xếp đơn vị hành chính cấp tỉnh và điểm m khoản 1 Điều 20 Nghị định số 233/2025/NĐ-CP: Nội dung chi bao gồm hỗ trợ tiền ăn ở, đi lại cho công chức, viên chức, người lao động của cơ quan bảo hiểm xã hội khi thực hiện sắp xếp tổ chức bộ máy, tinh",
+          "source_start": 4016,
+          "source_end": 5120,
+          "text_sha256": "6d159525a975e6208e22cd11377fbc7d34304ab388b591e0fcc03ed14137180a"
+        },
+        {
+          "document_number": "04/VBHN-BYT",
+          "section_title": "Phụ lục",
+          "channels": [
+            "document_recall_operatives",
+            "document_recall_semantic",
+            "lexical",
+            "semantic"
+          ],
+          "score": null,
+          "quote": "\n\n(Đơn vị tính: Thẻ; Đồng)\n\nSố TT\n\nĐối tượng tham gia bảo hiểm y tế (BHYT) được ngân sách nhà nước đóng, hỗ trợ\n\nSố thẻ\n\nBHYT đã phát hành\n\nSố tiền đóng BHYT tính theo mức đóng quy định\n\nSố tiền do người tham gia đóng\n\nSố tiền ngân sách nhà nước đóng, hỗ trợ\n\nSố tiền cơ quan tài chính, lao động đã chuyển\n\nSố tiền\n\ncơ quan tài chính, lao động còn phải chuyển\n\nA\n\nB\n\n1\n\n2\n\n3\n\n4=2-3\n\n5\n\n6=4-5\n\nTổng số\n\n1\n\nTrẻ em dưới 6 tuổi\n\n2\n\nNgười thuộc hộ gia đình nghèo\n\n3\n\nNgười thuộc hộ gia đình cận nghèo\n\n- Đối tượng được NSNN hỗ trợ 100% mức đóng\n\n- Đối tượng được NSNN hỗ trợ ...% mức đóng\n\n4\n\nHọc sinh, si",
+          "source_start": 116773,
+          "source_end": 118127,
+          "text_sha256": "c520d80204d275c7d919909f04b3986703c6bf99e87a4e677632392f78db9021"
+        },
+        {
+          "document_number": "110/2025/NQ-HĐND",
+          "section_title": "2. Nguyên tắc hỗ trợ",
+          "channels": [
+            "document_recall_operatives",
+            "lexical",
+            "semantic"
+          ],
+          "score": null,
+          "quote": "2. Nguyên tắc hỗ trợ\n\n- Trường hợp một người thuộc nhiều nhóm đối tượng được ngân sách nhà nước hỗ trợ thì hỗ trợ đóng bảo hiểm y tế theo đối tượng có mức hỗ trợ cao nhất.\n\n- Mức đóng bảo hiểm y tế làm căn cứ hỗ trợ là mức đóng do Chính phủ quy định áp dụng cho từng năm theo Luật Bảo hiểm y tế.\n\n- Mức hỗ trợ thẻ bảo hiểm y tế từ ngân sách địa phương và mức hỗ trợ từ ngân sách Trung ương không vượt quá 100% giá trị của thẻ bảo hiểm y tế, theo các quy định của pháp luật.",
+          "source_start": 3099,
+          "source_end": 3572,
+          "text_sha256": "c4345ce65a27f4cdcb792b76f1dc04496c0004055f985b048c2b7967862bca53"
+        },
+        {
+          "document_number": "51/2024/QH15",
+          "section_title": "a) 100% chi phí khám bệnh, chữa bệnh đối với đối tượng quy định tại các điểm a, b, c, d, đ, e, h, i, o, r và s khoản 3 Điều 12 của Luật này. Chi phí khám bệnh, chữa bệnh ngoài phạm vi được hưởng bảo hiểm y tế của đối tượng quy định tại các điểm a, b, c, d và đ khoản 3 Điều 12 của Luật này được chi trả từ nguồn kinh phí bảo hiểm y tế dành cho khám bệnh, chữa bệnh của nhóm đối tượng này; trường hợp nguồn kinh phí này không đủ thì do ngân sách nhà nước bảo đảm;",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "score": null,
+          "quote": "1. Người tham gia bảo hiểm y tế khi khám bệnh, chữa bệnh theo quy định tại Điều 26 và Điều 27 của Luật này được quỹ bảo hiểm y tế thanh toán chi phí khám bệnh, chữa bệnh trong phạm vi được hưởng với mức hưởng như sau: — a) 100% chi phí khám bệnh, chữa bệnh đối với đối tượng quy định tại các điểm a, b, c, d, đ, e, h, i, o, r và s khoản 3 Điều 12 của Luật này. Chi phí khám bệnh, chữa bệnh ngoài phạm vi được hưởng bảo hiểm y tế của đối tượng quy định tại các điểm a, b, c, d và đ khoản 3 Điều 12 của Luật này được chi trả từ nguồn kinh phí bảo hiểm y tế dành cho khám bệnh, chữa bệnh của nhóm đối tư",
+          "source_start": 26274,
+          "source_end": 26738,
+          "text_sha256": "d93a351771586a7c516051cc8dbb7b37c6ddf9e038b9b932eeda4280b806fc10"
+        },
+        {
+          "document_number": "18/2024/NQ-HĐND",
+          "section_title": "c) Người thuộc hộ có mức sống trung bình, thiếu hụt dịch vụ xã hội cơ bản về bảo hiểm y tế, trừ các trường hợp tham gia bảo hiểm y tế bắt buộc theo quy định, có thành viên thuộc một trong các đối tượng sau: Người trực tiếp tham gia kháng chiến chống Mỹ cứu nước nhưng chưa được hưởng chính sách của Đảng và Nhà nước theo Quyết định số 290/2005/QĐ-TTg ngày 08 tháng 11 năm 2005; quân nhân tham gia kháng chiến chống Mỹ cứu nước có dưới 20 năm công tác trong quân đội đã phục viên, xuất ngũ về địa phương theo Quyết định số 142/2008/QĐ-TTg ngày 27 tháng 10 năm 2008; cán bộ, chiến sĩ công an nhân dân tham gia kháng chiến chống Mỹ có dưới 20 năm công tác trong Công an nhân dân đã thôi việc, xuất ngũ về địa phương theo Quyết định số 53/2010/QĐ-TTg ngày 20 tháng 8 năm 2010; thanh niên xung phong đã hoàn thành nhiệm vụ trong kháng chiến theo Quyết định số 40/2011/QĐ-TTg ngày 27 tháng 7 năm 2011; người tham gia chiến tranh bảo vệ Tổ quốc, làm nhiệm vụ quốc tế ở Căm-pu-chi-a, giúp bạn Lào sau ngày 30 tháng 4 năm 1975 đã phục viên, xuất ngũ, thôi việc theo Quyết định số 62/2011/QĐ-TTg ngày 09 tháng 11 năm 2011; người được cử làm chuyên gia sang giúp Lào và Căm-pu-chi-a theo Quyết định số 57/2013/QĐ-TTg ngày 14 tháng 10 năm 2013; dân công hỏa tuyến tham gia kháng chiến chống Pháp, chống Mỹ, chiến tranh bảo vệ Tổ quốc và làm nhiệm vụ quốc tế theo Quyết định số 49/2015/QĐ-TTg ngày 14 tháng 10 năm 2015; người có thành tích tham gia kháng chiến được tặng Bằng khen của Bộ trưởng, thủ trưởng cơ quan ngang bộ, thủ trưởng cơ quan thuộc Chính phủ, Bằng khen của Chủ tịch Ủy ban nhân dân cấp tỉnh theo Quyết định số 24/2016/QĐ-TTg ngày 14 tháng 6 năm 2016 của Thủ tướng Chính phủ.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "c) Người thuộc hộ có mức sống trung bình, thiếu hụt dịch vụ xã hội cơ bản về bảo hiểm y tế, trừ các trường hợp tham gia bảo hiểm y tế bắt buộc theo quy định, có thành viên thuộc một trong các đối tượng sau: Người trực tiếp tham gia kháng chiến chống Mỹ cứu nước nhưng chưa được hưởng chính sách của Đảng và Nhà nước theo Quyết định số 290/2005/QĐ-TTg ngày 08 tháng 11 năm 2005; quân nhân tham gia kháng chiến chống Mỹ cứu nước có dưới 20 năm công tác trong quân đội đã phục viên, xuất ngũ về địa phương theo Quyết định số 142/2008/QĐ-TTg ngày 27 tháng 10 năm 2008; cán bộ, chiến sĩ công an nhân dân t",
+          "source_start": 2561,
+          "source_end": 4134,
+          "text_sha256": "4e76a57d52e6fcf261b7b6cde16dd274e85cc735218e7aa01392ef16af73ec1e"
+        },
+        {
+          "document_number": "98/2025/TT-BQP",
+          "section_title": "5. Đối với đối tượng quy định tại khoản 4 Điều 2 Thông tư này",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "5. Đối với đối tượng quy định tại khoản 4 Điều 2 Thông tư này\n\nHằng năm, đơn vị trực tiếp quản lý học sinh, sinh viên thu tiền đóng bảo hiểm y tế phần trách nhiệm đóng của học sinh, sinh viên và nộp về đơn vị cấp trên trực tiếp đến đơn vị cấp trực thuộc Bộ Quốc phòng để nộp về Bảo hiểm xã hội Quân đội trong thời hạn 30 ngày kể từ ngày nhập học (đối với học sinh, sinh viên năm thứ nhất), chậm nhất ngày cuối cùng tháng đầu năm ngân sách (đối với các đối tượng học sinh, sinh viên còn lại).\n\nTrường hợp học sinh, sinh viên năm đầu của khóa học mà thẻ bảo hiểm y tế lớp 12 còn giá trị sử dụng: Thu ti",
+          "source_start": 10455,
+          "source_end": 11318,
+          "text_sha256": "72310b2b807693fd54fd0a09bf8621c48135dcbf32e2b978c94e0feb8d82ba38"
+        },
+        {
+          "document_number": "68/2025/NQ-HĐND",
+          "section_title": "",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "Xét Tờ trình số 8323/TTr-UBND ngày 02 tháng 12 năm 2025 của Ủy ban nhân dân tỉnh về dự thảo Nghị quyết quy định mức hỗ trợ đóng bảo hiểm y tế cho các đối tượng cao hơn mức hỗ trợ tối thiểu; đối tượng được hỗ trợ và mức hỗ trợ cùng chi trả chi phí khám bệnh, chữa bệnh bảo hiểm y tế cho người tham gia bảo hiểm y tế khi đi khám bệnh, chữa bệnh trên địa bàn tỉnh Lâm Đồng; Báo cáo tiếp thu, giải trình số 289/BC-UBND ngày 08 tháng 12 năm 2025 của UBND tỉnh; Báo cáo thẩm tra số 324/BC-BDT của Ban Dân tộc Hội đồng nhân dân tỉnh; ý kiến thảo luận của đại biểu Hội đồng nhân dân tại kỳ họp;\n\nHội đồng nhâ",
+          "source_start": 995,
+          "source_end": 1888,
+          "text_sha256": "1633e853a7608d2c652cf37feb854494f59462e782552bba4031dec79125e9ba"
+        },
+        {
+          "document_number": "233/2025/NĐ-CP",
+          "section_title": "7. Chi phí chi trả lương hưu, trợ cấp bảo hiểm xã hội, bảo hiểm thất nghiệp từ quỹ bảo hiểm xã hội, quỹ bảo hiểm thất nghiệp bằng 0,54% số tiền chi trả từ các quỹ thành phần: Bảo hiểm tai nạn lao động, bệnh nghề nghiệp, hưu trí và tử tuất (trừ các khoản chi: Phí khám giám định; dưỡng sức, phục hồi sức khỏe; hỗ trợ phòng ngừa, chia sẻ rủi ro về tai nạn lao động, bệnh nghề nghiệp; hỗ trợ chuyển đổi nghề nghiệp cho người bị tai nạn lao động, bệnh nghề nghiệp khi trở lại làm việc; đóng bảo hiểm y tế) và chi bảo hiểm thất nghiệp (trừ các khoản chi: Hỗ trợ tư vấn giới thiệu việc làm; hỗ trợ học nghề; hỗ trợ đào tạo duy trì việc làm; đóng bảo hiểm y tế) để chi tập huấn nghiệp vụ và thù lao của tổ chức hỗ trợ chi trả chế độ; cước tin nhắn thông báo đến người hưởng ủy quyền cho người khác nhận thay tiền chế độ bằng tiền mặt và qua tài khoản cá nhân; phí chuyển tiền vào tài khoản người hưởng; chi phí văn phòng phẩm, in mẫu biểu, chi phí chi trả tại nơi cư trú; khen thưởng tổ chức hỗ trợ chi trả chế độ; sơ kết, tổng kết công tác chi trả; xác minh thông tin người hưởng đủ điều kiện hưởng chế độ bảo hiểm xã hội.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "7. Chi phí chi trả lương hưu, trợ cấp bảo hiểm xã hội, bảo hiểm thất nghiệp từ quỹ bảo hiểm xã hội, quỹ bảo hiểm thất nghiệp bằng 0,54% số tiền chi trả từ các quỹ thành phần: Bảo hiểm tai nạn lao động, bệnh nghề nghiệp, hưu trí và tử tuất (trừ các khoản chi: Phí khám giám định; dưỡng sức, phục hồi sức khỏe; hỗ trợ phòng ngừa, chia sẻ rủi ro về tai nạn lao động, bệnh nghề nghiệp; hỗ trợ chuyển đổi nghề nghiệp cho người bị tai nạn lao động, bệnh nghề nghiệp khi trở lại làm việc; đóng bảo hiểm y tế) và chi bảo hiểm thất nghiệp (trừ các khoản chi: Hỗ trợ tư vấn giới thiệu việc làm; hỗ trợ học nghề",
+          "source_start": 60918,
+          "source_end": 62034,
+          "text_sha256": "6063c83be0c626bc257f6d9858f82c2c4ba2da5aebcb105eefede63a3b96803b"
+        },
+        {
+          "document_number": "14/2026/NQ-HĐND",
+          "section_title": "c) Nguyên tắc hỗ trợ",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "c) Nguyên tắc hỗ trợ\n\nĐối với nội dung hỗ trợ đột xuất đối với người lao động bị tai nạn lao động trong các vụ tai nạn lao động chết người xảy ra trên địa bàn thành phố Hà Nội (không phân biệt nơi cư trú của người lao động bị tai nạn lao động):\n\nChủ tịch Ủy ban nhân dân cấp xã nơi xảy ra tai nạn lao động có thẩm quyền quyết định hỗ trợ kịp thời theo định mức quy định tại Nghị quyết. Các trường hợp đã được Ủy ban nhân dân Thành phố hỗ trợ thì UBND cấp xã không hỗ trợ theo chính sách.\n\nMỗi người chỉ được hỗ trợ một lần cho mỗi vụ việc theo chính sách hỗ trợ từ nguồn ngân sách nhà nước quy định t",
+          "source_start": 28670,
+          "source_end": 29406,
+          "text_sha256": "75ba0597af2d7eb120ae80d8600ca43db122f4fc36b700682c6bb3c51c176016"
+        }
+      ],
+      "findings": {
+        "deterministic_status": "PASS",
+        "failures": [],
+        "abstained": false,
+        "public_document_numbers": [
+          "51/2024/QH15",
+          "116/2025/TT-BTC",
+          "04/VBHN-BYT",
+          "110/2025/NQ-HĐND",
+          "18/2024/NQ-HĐND",
+          "98/2025/TT-BQP",
+          "68/2025/NQ-HĐND",
+          "233/2025/NĐ-CP",
+          "14/2026/NQ-HĐND"
+        ],
+        "accepted_document_numbers_found": [
+          "51/2024/QH15"
+        ],
+        "required_facts_missing_for_reviewer": [],
+        "review_flags": [],
+        "citation_count": 10
+      }
+    },
+    {
+      "case_id": "critical-bhyt-04-referral-validity",
+      "question": "Giấy chuyển tuyến có thời hạn bao lâu, trường hợp nào phải xin lại?",
+      "status": "completed",
+      "latency_ms": 18032.18,
+      "answer": "- Nguồn được cung cấp **không quy định thời hạn cụ thể của giấy chuyển tuyến**.\n- Khi chuyển tuyến điều trị, người tham gia BHYT phải có **hồ sơ chuyển viện của cơ sở khám bệnh, chữa bệnh**.\n- Khi khám lại theo yêu cầu điều trị, phải có **giấy hẹn khám lại** của cơ sở khám bệnh, chữa bệnh.\n- Do nguồn không nêu thời hạn hiệu lực và các trường hợp phải xin lại giấy chuyển tuyến, **chưa đủ căn cứ để xác định cụ thể vấn đề này**.  \n  *(Điều 27 Luật Bảo hiểm y tế số 25/2008/QH12)*",
+      "answer_sha256": "6d1b70d6d630599e305b9dc13525068ac8bbca8157aae9aaa3606e54b8e3766c",
+      "citations": [
+        {
+          "document_number": "25/2008/QH12",
+          "title": "Luật Bảo hiểm y tế số 25/2008/QH12",
+          "section_title": "4. Trường hợp khám lại theo yêu cầu điều trị, người tham gia bảo hiểm y tế phải có giấy hẹn khám lại của cơ sở khám bệnh, chữa bệnh.",
+          "quote": "4. Trường hợp khám lại theo yêu cầu điều trị, người tham gia bảo hiểm y tế phải có giấy hẹn khám lại của cơ sở khám bệnh, chữa bệnh.",
+          "channels": [
+            "document_operatives"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 26640,
+          "source_end": 26772,
+          "text_sha256": "34e9769aa28bc629cb94308f8950ebaa39cc46b8a8da3fb0b9936ea23979bcc9",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "title": "Luật Bảo hiểm y tế số 25/2008/QH12",
+          "section_title": "3. Trường hợp chuyển tuyến điều trị, người tham gia bảo hiểm y tế phải có hồ sơ chuyển viện của cơ sở khám bệnh, chữa bệnh.",
+          "quote": "3. Trường hợp chuyển tuyến điều trị, người tham gia bảo hiểm y tế phải có hồ sơ chuyển viện của cơ sở khám bệnh, chữa bệnh.",
+          "channels": [
+            "document_operatives"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 26515,
+          "source_end": 26638,
+          "text_sha256": "54c8423e516619c79f6b704036424c44a5681e4d3ec720db17adf2622c845cec",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "title": "Luật Bảo hiểm y tế số 25/2008/QH12",
+          "section_title": "a) Thẻ đã hết thời hạn sử dụng;",
+          "quote": "4. Thẻ bảo hiểm y tế không có giá trị sử dụng trong các trường hợp sau đây: — a) Thẻ đã hết thời hạn sử dụng;",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "evidence_kind": "legal_unit",
+          "source_start": 17155,
+          "source_end": 17188,
+          "text_sha256": "edfb091b2dd94ff41ce1035bf1e59f81a45a4c3d3ac0cd276462ea518a420c69",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "title": "Luật Bảo hiểm y tế số 25/2008/QH12",
+          "section_title": "1. Đóng bảo hiểm y tế đầy đủ, đúng thời hạn.",
+          "quote": "Điều 37. Nghĩa vụ của người tham gia bảo hiểm y tế — 1. Đóng bảo hiểm y tế đầy đủ, đúng thời hạn.",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "evidence_kind": "legal_unit",
+          "source_start": 33034,
+          "source_end": 33080,
+          "text_sha256": "7479ade807a23fcfaa1ebdd9fc9d9d07e27fd0184c8053be1be9f9fe60a0cfbc",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "title": "Luật Bảo hiểm y tế số 25/2008/QH12",
+          "section_title": "d) Thời hạn hợp đồng;",
+          "quote": "2. Hợp đồng khám bệnh, chữa bệnh bảo hiểm y tế gồm các nội dung chủ yếu sau đây: — d) Thời hạn hợp đồng;",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "evidence_kind": "legal_unit",
+          "source_start": 24432,
+          "source_end": 24455,
+          "text_sha256": "5f4b0103dd0600e7a965d4126d34eda29b97633ec3a4ee80f15c20b9e556a94f",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "title": "Luật Bảo hiểm y tế số 25/2008/QH12",
+          "section_title": "a) Theo thời hạn ghi trên thẻ trong trường hợp thẻ ghi giá trị sử dụng đến ngày 31 tháng 12 năm 2009;",
+          "quote": "a) Theo thời hạn ghi trên thẻ trong trường hợp thẻ ghi giá trị sử dụng đến ngày 31 tháng 12 năm 2009;",
+          "channels": [
+            "document_operatives"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 41539,
+          "source_end": 41640,
+          "text_sha256": "4b20dd2a876b82c41e545828a1bbbcb393a6a813b55461d1c0bfadc8cf4a5cf8",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "title": "Luật Bảo hiểm y tế số 25/2008/QH12",
+          "section_title": "1. Thẻ bảo hiểm y tế được cấp lại trong trường hợp bị mất.",
+          "quote": "Điều 18. Cấp lại thẻ bảo hiểm y tế — 1. Thẻ bảo hiểm y tế được cấp lại trong trường hợp bị mất.",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "evidence_kind": "legal_unit",
+          "source_start": 18665,
+          "source_end": 18725,
+          "text_sha256": "3980cf94f4ab6ee0f1a672e7f82b9116f349796ee5aa41318869488e164d50fc",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "title": "Luật Bảo hiểm y tế số 25/2008/QH12",
+          "section_title": "1. Thẻ bảo hiểm y tế được cấp lại trong trường hợp bị mất.",
+          "quote": "1. Thẻ bảo hiểm y tế được cấp lại trong trường hợp bị mất.",
+          "channels": [
+            "document_operatives"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 18666,
+          "source_end": 18724,
+          "text_sha256": "3980cf94f4ab6ee0f1a672e7f82b9116f349796ee5aa41318869488e164d50fc",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "title": "Luật Bảo hiểm y tế số 25/2008/QH12",
+          "section_title": "Điều 27. Chuyển tuyến điều trị",
+          "quote": "Chương V — Điều 27. Chuyển tuyến điều trị",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "evidence_kind": "legal_unit",
+          "source_start": 25663,
+          "source_end": 25933,
+          "text_sha256": "38fefbdf57bc08ac65eabc139e81bdb1c4c0d838790c6268ae03890f7891d918",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "title": "Luật Bảo hiểm y tế số 25/2008/QH12",
+          "section_title": "2. Đóng bảo hiểm y tế đầy đủ, đúng thời hạn.",
+          "quote": "Điều 39. Trách nhiệm của tổ chức, cá nhân đóng bảo hiểm y tế — 2. Đóng bảo hiểm y tế đầy đủ, đúng thời hạn.",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "evidence_kind": "legal_unit",
+          "source_start": 33851,
+          "source_end": 33897,
+          "text_sha256": "e541929cbcae3d85f3bb62064c3c9b3e51dfce4f566bb9ee20c5f837003de637",
+          "provenance_verified": true
+        }
+      ],
+      "claims_count": 5,
+      "metadata": {
+        "trace_id": "d92332a1a4c54b979b0af3527b67d180",
+        "route_intent": "thematic",
+        "subquery_count": 1,
+        "retrieval_ms": 12666.64,
+        "candidate_count": 12,
+        "relation_count": 0,
+        "retrieval_channels": [
+          "document_operatives",
+          "page_index"
+        ],
+        "retrieval_trace": {
+          "trace_id": "77e544b59e714000b99e9ec68855bfc1",
+          "stages": [
+            {
+              "stage": "postgres:release_recall",
+              "duration_ms": 5388.74,
+              "outcome": "success",
+              "result_count": 0
+            },
+            {
+              "stage": "provider:embedding",
+              "duration_ms": 285.94,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 983.76,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 3138.07,
+              "outcome": "success"
+            },
+            {
+              "stage": "postgres:lexical",
+              "duration_ms": 3636.18,
+              "outcome": "success",
+              "result_count": 60
+            },
+            {
+              "stage": "retrieval:provider_fusion",
+              "duration_ms": 3636.28,
+              "outcome": "success",
+              "lexical_count": 60,
+              "semantic_count": 60
+            },
+            {
+              "stage": "retrieval_total",
+              "duration_ms": 12666.5,
+              "outcome": "success",
+              "evidence_count": 12
+            }
+          ]
+        },
+        "context_ms": 0.03,
+        "context_chars": 4546,
+        "context_tokens": 1137,
+        "verification_evidence_count": 12,
+        "verification_ms": 0.01,
+        "verification_failed": false,
+        "generation_ms": 5356.17,
+        "generation_trace": {
+          "stage": "generation",
+          "model": "gpt-5.6-luna",
+          "outcome": "success",
+          "usage": {
+            "input_tokens": 2996,
+            "output_tokens": 209,
+            "total_tokens": 3205
+          },
+          "duration_ms": 5356.07
+        },
+        "citation_count": 10,
+        "claim_count": 5,
+        "verified_claim_count": 4,
+        "guardrail_response_chars": 480,
+        "guardrail_ms": 3.99
+      },
+      "retrieved_evidence": [
+        {
+          "document_number": "25/2008/QH12",
+          "section_title": "4. Trường hợp khám lại theo yêu cầu điều trị, người tham gia bảo hiểm y tế phải có giấy hẹn khám lại của cơ sở khám bệnh, chữa bệnh.",
+          "channels": [
+            "document_operatives"
+          ],
+          "score": null,
+          "quote": "4. Trường hợp khám lại theo yêu cầu điều trị, người tham gia bảo hiểm y tế phải có giấy hẹn khám lại của cơ sở khám bệnh, chữa bệnh.",
+          "source_start": 26640,
+          "source_end": 26772,
+          "text_sha256": "34e9769aa28bc629cb94308f8950ebaa39cc46b8a8da3fb0b9936ea23979bcc9"
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "section_title": "3. Trường hợp chuyển tuyến điều trị, người tham gia bảo hiểm y tế phải có hồ sơ chuyển viện của cơ sở khám bệnh, chữa bệnh.",
+          "channels": [
+            "document_operatives"
+          ],
+          "score": null,
+          "quote": "3. Trường hợp chuyển tuyến điều trị, người tham gia bảo hiểm y tế phải có hồ sơ chuyển viện của cơ sở khám bệnh, chữa bệnh.",
+          "source_start": 26515,
+          "source_end": 26638,
+          "text_sha256": "54c8423e516619c79f6b704036424c44a5681e4d3ec720db17adf2622c845cec"
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "section_title": "a) Thẻ đã hết thời hạn sử dụng;",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "score": null,
+          "quote": "4. Thẻ bảo hiểm y tế không có giá trị sử dụng trong các trường hợp sau đây: — a) Thẻ đã hết thời hạn sử dụng;",
+          "source_start": 17155,
+          "source_end": 17188,
+          "text_sha256": "edfb091b2dd94ff41ce1035bf1e59f81a45a4c3d3ac0cd276462ea518a420c69"
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "section_title": "1. Đóng bảo hiểm y tế đầy đủ, đúng thời hạn.",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "score": null,
+          "quote": "Điều 37. Nghĩa vụ của người tham gia bảo hiểm y tế — 1. Đóng bảo hiểm y tế đầy đủ, đúng thời hạn.",
+          "source_start": 33034,
+          "source_end": 33080,
+          "text_sha256": "7479ade807a23fcfaa1ebdd9fc9d9d07e27fd0184c8053be1be9f9fe60a0cfbc"
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "section_title": "d) Thời hạn hợp đồng;",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "score": null,
+          "quote": "2. Hợp đồng khám bệnh, chữa bệnh bảo hiểm y tế gồm các nội dung chủ yếu sau đây: — d) Thời hạn hợp đồng;",
+          "source_start": 24432,
+          "source_end": 24455,
+          "text_sha256": "5f4b0103dd0600e7a965d4126d34eda29b97633ec3a4ee80f15c20b9e556a94f"
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "section_title": "a) Theo thời hạn ghi trên thẻ trong trường hợp thẻ ghi giá trị sử dụng đến ngày 31 tháng 12 năm 2009;",
+          "channels": [
+            "document_operatives"
+          ],
+          "score": null,
+          "quote": "a) Theo thời hạn ghi trên thẻ trong trường hợp thẻ ghi giá trị sử dụng đến ngày 31 tháng 12 năm 2009;",
+          "source_start": 41539,
+          "source_end": 41640,
+          "text_sha256": "4b20dd2a876b82c41e545828a1bbbcb393a6a813b55461d1c0bfadc8cf4a5cf8"
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "section_title": "1. Thẻ bảo hiểm y tế được cấp lại trong trường hợp bị mất.",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "score": null,
+          "quote": "Điều 18. Cấp lại thẻ bảo hiểm y tế — 1. Thẻ bảo hiểm y tế được cấp lại trong trường hợp bị mất.",
+          "source_start": 18665,
+          "source_end": 18725,
+          "text_sha256": "3980cf94f4ab6ee0f1a672e7f82b9116f349796ee5aa41318869488e164d50fc"
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "section_title": "1. Thẻ bảo hiểm y tế được cấp lại trong trường hợp bị mất.",
+          "channels": [
+            "document_operatives"
+          ],
+          "score": null,
+          "quote": "1. Thẻ bảo hiểm y tế được cấp lại trong trường hợp bị mất.",
+          "source_start": 18666,
+          "source_end": 18724,
+          "text_sha256": "3980cf94f4ab6ee0f1a672e7f82b9116f349796ee5aa41318869488e164d50fc"
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "section_title": "Điều 27. Chuyển tuyến điều trị",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "score": null,
+          "quote": "Chương V — Điều 27. Chuyển tuyến điều trị",
+          "source_start": 25663,
+          "source_end": 25933,
+          "text_sha256": "38fefbdf57bc08ac65eabc139e81bdb1c4c0d838790c6268ae03890f7891d918"
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "section_title": "2. Đóng bảo hiểm y tế đầy đủ, đúng thời hạn.",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "score": null,
+          "quote": "Điều 39. Trách nhiệm của tổ chức, cá nhân đóng bảo hiểm y tế — 2. Đóng bảo hiểm y tế đầy đủ, đúng thời hạn.",
+          "source_start": 33851,
+          "source_end": 33897,
+          "text_sha256": "e541929cbcae3d85f3bb62064c3c9b3e51dfce4f566bb9ee20c5f837003de637"
+        }
+      ],
+      "findings": {
+        "deterministic_status": "PASS",
+        "failures": [],
+        "abstained": false,
+        "public_document_numbers": [
+          "25/2008/QH12"
+        ],
+        "accepted_document_numbers_found": [],
+        "required_facts_missing_for_reviewer": [],
+        "review_flags": [],
+        "citation_count": 10
+      }
+    },
+    {
+      "case_id": "critical-bhyt-05-emergency-no-referral",
+      "question": "Tôi điều trị nội trú cấp cứu không có giấy chuyển tuyến thì có được hưởng BHYT không?",
+      "status": "completed",
+      "latency_ms": 14016.7,
+      "answer": "- 5. Người tham gia bảo hiểm y tế được hưởng 100% mức hưởng quy định tại khoản 1 Điều này khi khám bệnh, chữa bệnh tại bất kỳ cơ sở khám bệnh, chữa bệnh nào trong trường hợp cấp cứu.",
+      "answer_sha256": "2e9546cc576a7a14da93e8ade39e93360fd48f525ed4cf5cf619ac879adcc510",
+      "citations": [
+        {
+          "document_number": "51/2024/QH15",
+          "title": "Luật Bảo hiểm y tế sửa đổi 2024 số 51/2024/QH15",
+          "section_title": "5. Người tham gia bảo hiểm y tế được hưởng 100% mức hưởng quy định tại khoản 1 Điều này khi khám bệnh, chữa bệnh tại bất kỳ cơ sở khám bệnh, chữa bệnh nào trong trường hợp cấp cứu.",
+          "quote": "5. Người tham gia bảo hiểm y tế được hưởng 100% mức hưởng quy định tại khoản 1 Điều này khi khám bệnh, chữa bệnh tại bất kỳ cơ sở khám bệnh, chữa bệnh nào trong trường hợp cấp cứu.",
+          "channels": [
+            "document_operatives"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 30833,
+          "source_end": 31013,
+          "text_sha256": "8e2e115aeb70a18c64715f82ffa67d03fc83ef8052697943011e1c60481f5e0b",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "36/2021/TT-BYT",
+          "title": "Thông tư số 36/2021/TT-BYT quy định khám bệnh, chữa bệnh và thanh toán chi phí khám bệnh, chữa bệnh bảo hiểm y tế liên quan đến khám bệnh, chữa bệnh lao",
+          "section_title": "a) Nếu cơ sở khám bệnh, chữa bệnh nơi người bệnh đang điều trị nội trú là cơ sở điều trị có thuốc chống lao thì người bệnh được nhận để sử dụng thuốc chống lao tại cơ sở này. Người bệnh cần xuất trình sổ khám bệnh có ghi cụ thể phác đồ điều trị, số lượng thuốc chống lao đã cấp để làm cơ sở cho việc cấp thuốc tiếp theo. Bác sĩ khoa điều trị nội trú thực hiện kê đơn thuốc chống lao nếu đủ điều kiện kê đơn theo quy định tại các điểm a và b khoản 1 Điều 5 Thông tư này.",
+          "quote": "a) Nếu cơ sở khám bệnh, chữa bệnh nơi người bệnh đang điều trị nội trú là cơ sở điều trị có thuốc chống lao thì người bệnh được nhận để sử dụng thuốc chống lao tại cơ sở này. Người bệnh cần xuất trình sổ khám bệnh có ghi cụ thể phác đồ điều trị, số lượng thuốc chống lao đã cấp để làm cơ sở cho việc cấp thuốc tiếp theo. Bác sĩ khoa điều trị nội trú thực hiện kê đơn thuốc chống lao nếu đủ điều kiện kê đơn theo quy định tại các điểm a và b khoản 1 Điều 5 Thông tư này.\n\nTrường hợp bác sĩ khoa điều trị nội trú không đủ điều kiện kê đơn thuốc chống lao theo quy định tại các điểm a và b khoản 1 Điều ",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 9416,
+          "source_end": 10245,
+          "text_sha256": "4f0162a38a656babf0f7f51fae0f41f3460f6c04ae637691b58a2f63b053d2d6",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "37/2024/TT-BYT",
+          "title": "Thông tư 37/2024/TT-BYT quy định nguyên tắc, tiêu chí xây dựng, cập nhật, ghi thông tin, cấu trúc danh mục và hướng dẫn thanh toán đối với thuốc hóa dược, sinh phẩm, thuốc phóng xạ và chất đánh dấu thuộc phạm vi được hưởng của người tham gia bảo hiểm y tế do Bộ trưởng Bộ Y tế ban hành",
+          "section_title": "a) Trường hợp cơ sở y tế nơi người bệnh đang điều trị nội trú là cơ sở có phạm vi chuyên môn điều trị bệnh mạn tính mà người bệnh đang điều trị thì người bệnh có thể nhận thuốc tại cơ sở này.",
+          "quote": "a) Trường hợp cơ sở y tế nơi người bệnh đang điều trị nội trú là cơ sở có phạm vi chuyên môn điều trị bệnh mạn tính mà người bệnh đang điều trị thì người bệnh có thể nhận thuốc tại cơ sở này.\n\nNgười bệnh xuất trình số khám bệnh ghi rõ phác đồ điều trị, số lượng thuốc đã cấp để làm cơ sở cho việc cấp thuốc tiếp theo. Bác sĩ tại khoa điều trị nội trú kê đơn thuốc điều trị bệnh mạn tính nếu đủ điều kiện kê đơn. Trường hợp bác sĩ tại khoa điều trị nội trú không đủ điều kiện kê đơn bệnh mạn tính người bệnh đang điều trị thì hội chẩn với bác sĩ đủ điều kiện kê đơn thuốc điều trị bệnh mạn tính để kê ",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 30892,
+          "source_end": 31648,
+          "text_sha256": "ecfda8765e4fa3fede02ba7da19dd6e026428f358be55e7c10fcbf687b1a2e8a",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "99/2024/TT-BCA",
+          "title": "Thông tư số 99/2024/TT-BCA Quy định đăng ký khám bệnh, chữa bệnh bảo hiểm y tế ban đầu và chuyển người bệnh giữa các cơ sở khám bệnh, chữa bệnh thuộc Bộ Công an",
+          "section_title": "g) Trường hợp cấp cứu, sau giai đoạn điều trị cấp cứu, người bệnh được chuyển vào điều trị nội trú tại cơ sở khám bệnh, chữa bệnh nơi đã tiếp nhận cấp cứu người bệnh hoặc được chuyển đến cơ sở khám bệnh, chữa bệnh khác để tiếp tục điều trị theo yêu cầu chuyên môn hoặc được chuyển về nơi đăng ký khám bệnh, chữa bệnh ban đầu sau khi đã điều trị ổn định.",
+          "quote": "g) Trường hợp cấp cứu, sau giai đoạn điều trị cấp cứu, người bệnh được chuyển vào điều trị nội trú tại cơ sở khám bệnh, chữa bệnh nơi đã tiếp nhận cấp cứu người bệnh hoặc được chuyển đến cơ sở khám bệnh, chữa bệnh khác để tiếp tục điều trị theo yêu cầu chuyên môn hoặc được chuyển về nơi đăng ký khám bệnh, chữa bệnh ban đầu sau khi đã điều trị ổn định.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 7923,
+          "source_end": 8276,
+          "text_sha256": "4d562446a87dd2e0ec78cc5550ecc798877789440e577dd239be469279f56399",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "39/2024/TT-BYT",
+          "title": "Thông tư 39/2024/TT-BYT sửa đổi Thông tư 35/2016/TT-BYT về Danh mục và tỷ lệ, điều kiện thanh toán đối với dịch vụ kỹ thuật y tế thuộc phạm vi được hưởng của người tham gia bảo hiểm y tế do Bộ trưởng Bộ Y tế ban hành",
+          "section_title": "14. Trường hợp người bệnh đã có chỉ định phẫu thuật nhưng chưa đủ điều kiện phẫu thuật do phải điều trị trước phẫu thuật thì trong thời gian điều trị được áp dụng mức giá dịch vụ ngày giường bệnh nội khoa mà người bệnh điều trị tương ứng.",
+          "quote": "14. Trường hợp người bệnh đã có chỉ định phẫu thuật nhưng chưa đủ điều kiện phẫu thuật do phải điều trị trước phẫu thuật thì trong thời gian điều trị được áp dụng mức giá dịch vụ ngày giường bệnh nội khoa mà người bệnh điều trị tương ứng.\n\nVí dụ: Người bệnh bị gãy xương nằm tại khoa ngoại có chỉ định phẫu thuật kết hợp xương và mắc bệnh rối loạn đông máu nên cần phải điều trị bệnh rối loạn đông máu để đủ điều kiện phẫu thuật thì trong thời gian điều trị tại khoa ngoại được áp dụng mức giá dịch vụ ngày giường bệnh nội khoa của chuyên khoa huyết học.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 15811,
+          "source_end": 16365,
+          "text_sha256": "0b3107378ddff6a421b5840136c8183b7ce11b0da28ef56311192dc9a8b2053c",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "35/2016/TT-BYT",
+          "title": "Thông tư số 35/2016/TT-BYT ban hành Danh mục và tỷ lệ, điều kiện thanh toán đối với dịch vụ kỹ thuật y tế thuộc phạm vi được hưởng của người tham gia bảo hiểm y tế.",
+          "section_title": "Table 2, row 4",
+          "quote": "2. | Tắm điều trị bệnh nhân bỏng | Thực hiện tại bệnh viện chuyên khoa bỏng, hoặc bệnh viện hạng I, hạng đặc biệt có chuyên khoa bỏng có sử dụng hệ thống tắm điều trị, đảm bảo điều kiện tắm vô trùng, thanh toán 01 lần/đợt điều trị đối với Vết bỏng ô nhiễm; thanh toán tối đa 2 lần/tuần đối với Vết bỏng nhiễm khuẩn nặng trong các trường hợp: 1. Trẻ em có tổng diện tích bỏng từ 10% diện tích cơ thể ở 02 vùng chi thể trở lên; 2. Người lớn có tổng diện tích bỏng từ 20% diện tích cơ thể ở 03 vùng chi thể trở lên. Vùng chi thể xác định theo phương pháp chẩn đoán diện tích bỏng của Lê Thế Trung. | - T",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 11579,
+          "source_end": 22220,
+          "text_sha256": "38f3cd05904d6023da5bdd538fc954da0ece00497e93c11a33c7d9e278ab9819",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "22/2003/TTLT-BQP-BLĐTBXH-BYT-BTC",
+          "title": "Thông tư liên tịch số 22/2003/TTLT-BQP-BLĐTBXH-BYT-BTC hướng dẫn Nghị định 63/2002/NĐ-CP ngày 18 tháng 6 năm 2002 của Chính phủ quy định về khám bệnh, chữa bệnh cho thân nhân sĩ quan tại ngũ",
+          "section_title": "a) Đối với sĩ quan và thân nhân sĩ quan:",
+          "quote": "a) Đối với sĩ quan và thân nhân sĩ quan:\n\n- Sĩ quan làm bản khai ban đầu, đăng ký nơi khám bệnh, chữa bệnh cho thân nhân đủ điều kiện được hưởng chế độ BHYT (mẫu số 01); chuyển \"Giấy chứng nhận được hưởng chế độ BHYT\" do đơn vị cấp cho thân nhân để thân nhân nộp cho BCHQS xã.\n\nTrường hợp thân nhân có nhiều sĩ quan tại ngũ thực hiện theo quy định sau:\n\n+ Nếu thân nhân có nhiều con là sĩ quan, thì thân nhân ở với người con nào, người con đó được cấp và chuyển \"Giấy chứng nhận được hưởng chế độ BHYT\" về cho thân nhân; nếu không ở cùng thì theo thứ tự: con trai, con gái, con dâu, con rể; nếu có từ",
+          "channels": [
+            "document_recall_operatives",
+            "lexical",
+            "semantic"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 5941,
+          "source_end": 6754,
+          "text_sha256": "64f11fd94acc13b5e186df671b04a3c0ea41bc28f59c7e01fac81bdccf51d083",
+          "provenance_verified": true
+        },
+        {
+          "document_number": "14/2026/NQ-HĐND",
+          "title": "Nghị quyết số 14/2026/NQ-HĐND Nghị quyết quy định chính sách hỗ trợ an sinh xã hội cho người dân thủ đô",
+          "section_title": "4. Các cơ quan, tổ chức, đơn vị và cá nhân có liên quan.",
+          "quote": " Mức giá dịch vụ cấp cứu ngoại viện\n\nSTT\n\nTÊN DỊCH VỤ\n\nĐơn vị tính\n\nMức giá (đồng)\n\n1\n\nHoạt động thường trực cấp cứu tại các địa điểm tổ chức các sự kiện, hội nghị (Khi được yêu cầu)\n\nChuyến/ngày\n\n1.862.000\n\n2\n\nCấp cứu, xử trí tại nhà không vận chuyển người bệnh khoảng cách < 5km\n\nChuyến\n\n978.000\n\n3\n\nCấp cứu, xử trí tại nhà không vận chuyển người bệnh khoảng cách 5 - <10km\n\nChuyến\n\n1.025.000\n\n4\n\nCấp cứu, xử trí tại nhà không vận chuyển người bệnh khoảng cách 10 - <20km\n\nChuyến\n\n1.120.000\n\n5\n\nCấp cứu, xử trí tại nhà không vận chuyển người bệnh khoảng cách 20 - <30km\n\nChuyến\n\n1.215.000\n\n6\n\nCấp c",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 11204,
+          "source_end": 12836,
+          "text_sha256": "3526c4674dff8341b013e74c2f5bfde3311ca3251c49b977270400c9ba3fa721",
+          "provenance_verified": false
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "title": "Luật Bảo hiểm y tế số 25/2008/QH12",
+          "section_title": "7. Điều trị lác, cận thị và tật khúc xạ của mắt.",
+          "quote": "Điều 23. Các trường hợp không được hưởng bảo hiểm y tế — 7. Điều trị lác, cận thị và tật khúc xạ của mắt.",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "evidence_kind": "legal_unit",
+          "source_start": 22794,
+          "source_end": 22844,
+          "text_sha256": "97d5d9ce02fa7e80cd427b723056a5f5c0628957874ceb3e749f9c98916d9626",
+          "provenance_verified": true
+        }
+      ],
+      "claims_count": 2,
+      "metadata": {
+        "trace_id": "6321f1ea3b494aca85ec8b44d9e56358",
+        "route_intent": "thematic",
+        "subquery_count": 1,
+        "retrieval_ms": 14007.82,
+        "candidate_count": 9,
+        "relation_count": 0,
+        "retrieval_channels": [
+          "document_operatives",
+          "document_recall_operatives",
+          "lexical",
+          "page_index",
+          "semantic"
+        ],
+        "retrieval_trace": {
+          "trace_id": "d1acc4a20cb342d6a3ded332a8e04811",
+          "stages": [
+            {
+              "stage": "postgres:release_recall",
+              "duration_ms": 5625.59,
+              "outcome": "success",
+              "result_count": 0
+            },
+            {
+              "stage": "provider:embedding",
+              "duration_ms": 575.44,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 963.12,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 963.64,
+              "outcome": "success"
+            },
+            {
+              "stage": "postgres:lexical",
+              "duration_ms": 4371.88,
+              "outcome": "success",
+              "result_count": 60
+            },
+            {
+              "stage": "retrieval:provider_fusion",
+              "duration_ms": 4372.04,
+              "outcome": "success",
+              "lexical_count": 60,
+              "semantic_count": 60
+            },
+            {
+              "stage": "postgres:hydrate_rank",
+              "duration_ms": 3958.26,
+              "outcome": "success",
+              "hydrated_count": 60,
+              "operative_count": 271
+            },
+            {
+              "stage": "retrieval:rerank_select",
+              "duration_ms": 4008.32,
+              "outcome": "success",
+              "selected_count": 9,
+              "channel_count": 5
+            },
+            {
+              "stage": "retrieval_total",
+              "duration_ms": 14007.64,
+              "outcome": "success",
+              "evidence_count": 9
+            }
+          ]
+        },
+        "context_ms": 0.06,
+        "context_chars": 10585,
+        "context_tokens": 2647,
+        "verification_evidence_count": 9,
+        "verification_ms": 0.03,
+        "verification_failed": false,
+        "generation_ms": 0.09,
+        "generation_trace": {
+          "stage": "generation",
+          "outcome": "skipped"
+        },
+        "citation_count": 9,
+        "claim_count": 2,
+        "verified_claim_count": 1,
+        "guardrail_response_chars": 182,
+        "guardrail_ms": 2.61
+      },
+      "retrieved_evidence": [
+        {
+          "document_number": "51/2024/QH15",
+          "section_title": "5. Người tham gia bảo hiểm y tế được hưởng 100% mức hưởng quy định tại khoản 1 Điều này khi khám bệnh, chữa bệnh tại bất kỳ cơ sở khám bệnh, chữa bệnh nào trong trường hợp cấp cứu.",
+          "channels": [
+            "document_operatives"
+          ],
+          "score": null,
+          "quote": "5. Người tham gia bảo hiểm y tế được hưởng 100% mức hưởng quy định tại khoản 1 Điều này khi khám bệnh, chữa bệnh tại bất kỳ cơ sở khám bệnh, chữa bệnh nào trong trường hợp cấp cứu.",
+          "source_start": 30833,
+          "source_end": 31013,
+          "text_sha256": "8e2e115aeb70a18c64715f82ffa67d03fc83ef8052697943011e1c60481f5e0b"
+        },
+        {
+          "document_number": "36/2021/TT-BYT",
+          "section_title": "a) Nếu cơ sở khám bệnh, chữa bệnh nơi người bệnh đang điều trị nội trú là cơ sở điều trị có thuốc chống lao thì người bệnh được nhận để sử dụng thuốc chống lao tại cơ sở này. Người bệnh cần xuất trình sổ khám bệnh có ghi cụ thể phác đồ điều trị, số lượng thuốc chống lao đã cấp để làm cơ sở cho việc cấp thuốc tiếp theo. Bác sĩ khoa điều trị nội trú thực hiện kê đơn thuốc chống lao nếu đủ điều kiện kê đơn theo quy định tại các điểm a và b khoản 1 Điều 5 Thông tư này.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "a) Nếu cơ sở khám bệnh, chữa bệnh nơi người bệnh đang điều trị nội trú là cơ sở điều trị có thuốc chống lao thì người bệnh được nhận để sử dụng thuốc chống lao tại cơ sở này. Người bệnh cần xuất trình sổ khám bệnh có ghi cụ thể phác đồ điều trị, số lượng thuốc chống lao đã cấp để làm cơ sở cho việc cấp thuốc tiếp theo. Bác sĩ khoa điều trị nội trú thực hiện kê đơn thuốc chống lao nếu đủ điều kiện kê đơn theo quy định tại các điểm a và b khoản 1 Điều 5 Thông tư này.\n\nTrường hợp bác sĩ khoa điều trị nội trú không đủ điều kiện kê đơn thuốc chống lao theo quy định tại các điểm a và b khoản 1 Điều ",
+          "source_start": 9416,
+          "source_end": 10245,
+          "text_sha256": "4f0162a38a656babf0f7f51fae0f41f3460f6c04ae637691b58a2f63b053d2d6"
+        },
+        {
+          "document_number": "37/2024/TT-BYT",
+          "section_title": "a) Trường hợp cơ sở y tế nơi người bệnh đang điều trị nội trú là cơ sở có phạm vi chuyên môn điều trị bệnh mạn tính mà người bệnh đang điều trị thì người bệnh có thể nhận thuốc tại cơ sở này.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "a) Trường hợp cơ sở y tế nơi người bệnh đang điều trị nội trú là cơ sở có phạm vi chuyên môn điều trị bệnh mạn tính mà người bệnh đang điều trị thì người bệnh có thể nhận thuốc tại cơ sở này.\n\nNgười bệnh xuất trình số khám bệnh ghi rõ phác đồ điều trị, số lượng thuốc đã cấp để làm cơ sở cho việc cấp thuốc tiếp theo. Bác sĩ tại khoa điều trị nội trú kê đơn thuốc điều trị bệnh mạn tính nếu đủ điều kiện kê đơn. Trường hợp bác sĩ tại khoa điều trị nội trú không đủ điều kiện kê đơn bệnh mạn tính người bệnh đang điều trị thì hội chẩn với bác sĩ đủ điều kiện kê đơn thuốc điều trị bệnh mạn tính để kê ",
+          "source_start": 30892,
+          "source_end": 31648,
+          "text_sha256": "ecfda8765e4fa3fede02ba7da19dd6e026428f358be55e7c10fcbf687b1a2e8a"
+        },
+        {
+          "document_number": "99/2024/TT-BCA",
+          "section_title": "g) Trường hợp cấp cứu, sau giai đoạn điều trị cấp cứu, người bệnh được chuyển vào điều trị nội trú tại cơ sở khám bệnh, chữa bệnh nơi đã tiếp nhận cấp cứu người bệnh hoặc được chuyển đến cơ sở khám bệnh, chữa bệnh khác để tiếp tục điều trị theo yêu cầu chuyên môn hoặc được chuyển về nơi đăng ký khám bệnh, chữa bệnh ban đầu sau khi đã điều trị ổn định.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "g) Trường hợp cấp cứu, sau giai đoạn điều trị cấp cứu, người bệnh được chuyển vào điều trị nội trú tại cơ sở khám bệnh, chữa bệnh nơi đã tiếp nhận cấp cứu người bệnh hoặc được chuyển đến cơ sở khám bệnh, chữa bệnh khác để tiếp tục điều trị theo yêu cầu chuyên môn hoặc được chuyển về nơi đăng ký khám bệnh, chữa bệnh ban đầu sau khi đã điều trị ổn định.",
+          "source_start": 7923,
+          "source_end": 8276,
+          "text_sha256": "4d562446a87dd2e0ec78cc5550ecc798877789440e577dd239be469279f56399"
+        },
+        {
+          "document_number": "39/2024/TT-BYT",
+          "section_title": "14. Trường hợp người bệnh đã có chỉ định phẫu thuật nhưng chưa đủ điều kiện phẫu thuật do phải điều trị trước phẫu thuật thì trong thời gian điều trị được áp dụng mức giá dịch vụ ngày giường bệnh nội khoa mà người bệnh điều trị tương ứng.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "14. Trường hợp người bệnh đã có chỉ định phẫu thuật nhưng chưa đủ điều kiện phẫu thuật do phải điều trị trước phẫu thuật thì trong thời gian điều trị được áp dụng mức giá dịch vụ ngày giường bệnh nội khoa mà người bệnh điều trị tương ứng.\n\nVí dụ: Người bệnh bị gãy xương nằm tại khoa ngoại có chỉ định phẫu thuật kết hợp xương và mắc bệnh rối loạn đông máu nên cần phải điều trị bệnh rối loạn đông máu để đủ điều kiện phẫu thuật thì trong thời gian điều trị tại khoa ngoại được áp dụng mức giá dịch vụ ngày giường bệnh nội khoa của chuyên khoa huyết học.",
+          "source_start": 15811,
+          "source_end": 16365,
+          "text_sha256": "0b3107378ddff6a421b5840136c8183b7ce11b0da28ef56311192dc9a8b2053c"
+        },
+        {
+          "document_number": "35/2016/TT-BYT",
+          "section_title": "Table 2, row 4",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "2. | Tắm điều trị bệnh nhân bỏng | Thực hiện tại bệnh viện chuyên khoa bỏng, hoặc bệnh viện hạng I, hạng đặc biệt có chuyên khoa bỏng có sử dụng hệ thống tắm điều trị, đảm bảo điều kiện tắm vô trùng, thanh toán 01 lần/đợt điều trị đối với Vết bỏng ô nhiễm; thanh toán tối đa 2 lần/tuần đối với Vết bỏng nhiễm khuẩn nặng trong các trường hợp: 1. Trẻ em có tổng diện tích bỏng từ 10% diện tích cơ thể ở 02 vùng chi thể trở lên; 2. Người lớn có tổng diện tích bỏng từ 20% diện tích cơ thể ở 03 vùng chi thể trở lên. Vùng chi thể xác định theo phương pháp chẩn đoán diện tích bỏng của Lê Thế Trung. | - T",
+          "source_start": 11579,
+          "source_end": 22220,
+          "text_sha256": "38f3cd05904d6023da5bdd538fc954da0ece00497e93c11a33c7d9e278ab9819"
+        },
+        {
+          "document_number": "22/2003/TTLT-BQP-BLĐTBXH-BYT-BTC",
+          "section_title": "a) Đối với sĩ quan và thân nhân sĩ quan:",
+          "channels": [
+            "document_recall_operatives",
+            "lexical",
+            "semantic"
+          ],
+          "score": null,
+          "quote": "a) Đối với sĩ quan và thân nhân sĩ quan:\n\n- Sĩ quan làm bản khai ban đầu, đăng ký nơi khám bệnh, chữa bệnh cho thân nhân đủ điều kiện được hưởng chế độ BHYT (mẫu số 01); chuyển \"Giấy chứng nhận được hưởng chế độ BHYT\" do đơn vị cấp cho thân nhân để thân nhân nộp cho BCHQS xã.\n\nTrường hợp thân nhân có nhiều sĩ quan tại ngũ thực hiện theo quy định sau:\n\n+ Nếu thân nhân có nhiều con là sĩ quan, thì thân nhân ở với người con nào, người con đó được cấp và chuyển \"Giấy chứng nhận được hưởng chế độ BHYT\" về cho thân nhân; nếu không ở cùng thì theo thứ tự: con trai, con gái, con dâu, con rể; nếu có từ",
+          "source_start": 5941,
+          "source_end": 6754,
+          "text_sha256": "64f11fd94acc13b5e186df671b04a3c0ea41bc28f59c7e01fac81bdccf51d083"
+        },
+        {
+          "document_number": "14/2026/NQ-HĐND",
+          "section_title": "4. Các cơ quan, tổ chức, đơn vị và cá nhân có liên quan.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": " Mức giá dịch vụ cấp cứu ngoại viện\n\nSTT\n\nTÊN DỊCH VỤ\n\nĐơn vị tính\n\nMức giá (đồng)\n\n1\n\nHoạt động thường trực cấp cứu tại các địa điểm tổ chức các sự kiện, hội nghị (Khi được yêu cầu)\n\nChuyến/ngày\n\n1.862.000\n\n2\n\nCấp cứu, xử trí tại nhà không vận chuyển người bệnh khoảng cách < 5km\n\nChuyến\n\n978.000\n\n3\n\nCấp cứu, xử trí tại nhà không vận chuyển người bệnh khoảng cách 5 - <10km\n\nChuyến\n\n1.025.000\n\n4\n\nCấp cứu, xử trí tại nhà không vận chuyển người bệnh khoảng cách 10 - <20km\n\nChuyến\n\n1.120.000\n\n5\n\nCấp cứu, xử trí tại nhà không vận chuyển người bệnh khoảng cách 20 - <30km\n\nChuyến\n\n1.215.000\n\n6\n\nCấp c",
+          "source_start": 11204,
+          "source_end": 12836,
+          "text_sha256": "3526c4674dff8341b013e74c2f5bfde3311ca3251c49b977270400c9ba3fa721"
+        },
+        {
+          "document_number": "25/2008/QH12",
+          "section_title": "7. Điều trị lác, cận thị và tật khúc xạ của mắt.",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "score": null,
+          "quote": "Điều 23. Các trường hợp không được hưởng bảo hiểm y tế — 7. Điều trị lác, cận thị và tật khúc xạ của mắt.",
+          "source_start": 22794,
+          "source_end": 22844,
+          "text_sha256": "97d5d9ce02fa7e80cd427b723056a5f5c0628957874ceb3e749f9c98916d9626"
+        }
+      ],
+      "findings": {
+        "deterministic_status": "PASS",
+        "failures": [],
+        "abstained": false,
+        "public_document_numbers": [
+          "51/2024/QH15",
+          "36/2021/TT-BYT",
+          "37/2024/TT-BYT",
+          "99/2024/TT-BCA",
+          "39/2024/TT-BYT",
+          "35/2016/TT-BYT",
+          "22/2003/TTLT-BQP-BLĐTBXH-BYT-BTC",
+          "14/2026/NQ-HĐND",
+          "25/2008/QH12"
+        ],
+        "accepted_document_numbers_found": [
+          "51/2024/QH15"
+        ],
+        "required_facts_missing_for_reviewer": [
+          "bất kỳ cơ sở khám bệnh chữa bệnh"
+        ],
+        "review_flags": [
+          "required_fact_review"
+        ],
+        "citation_count": 9
+      }
+    },
+    {
+      "case_id": "critical-bhyt-06-cosmetic-service",
+      "question": "Theo luật hiện hành, BHYT có chi trả dịch vụ thẩm mỹ không? Hãy nêu căn cứ pháp lý.",
+      "status": "completed",
+      "latency_ms": 20034.08,
+      "answer": "- Sử dụng dịch vụ thẩm mỹ.\n- thuộc trường hợp không được hưởng BHYT.\n- Căn cứ Điều 23 khoản 6.",
+      "answer_sha256": "3bf3d1ee10090abee81fcafe6f85f41e559dfe4845f7b2955a8e2e6c6057ac6c",
+      "citations": [
+        {
+          "document_number": "25/2008/QH12",
+          "title": "Luật Bảo hiểm y tế số 25/2008/QH12",
+          "section_title": "6. Sử dụng dịch vụ thẩm mỹ.",
+          "quote": "Điều 23. Các trường hợp không được hưởng bảo hiểm y tế — 6. Sử dụng dịch vụ thẩm mỹ.",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "evidence_kind": "legal_unit",
+          "source_start": 22765,
+          "source_end": 22794,
+          "text_sha256": "951c440d15e4f8fd68e01b3b8900f8ad606cfc3e14294dd4560885b71d487105",
+          "provenance_verified": true
+        }
+      ],
+      "claims_count": 3,
+      "metadata": {
+        "trace_id": "f198ae166eaf4345bd808d1ddee77e6c",
+        "route_intent": "temporal",
+        "subquery_count": 1,
+        "retrieval_ms": 20024.72,
+        "candidate_count": 16,
+        "relation_count": 0,
+        "retrieval_channels": [
+          "document_operatives",
+          "document_recall_operatives",
+          "document_recall_semantic",
+          "lexical",
+          "page_index"
+        ],
+        "retrieval_trace": {
+          "trace_id": "c0123702a3cd42e2a714b96ce82542b7",
+          "stages": [
+            {
+              "stage": "postgres:release_recall",
+              "duration_ms": 5641.08,
+              "outcome": "success",
+              "result_count": 0
+            },
+            {
+              "stage": "provider:embedding",
+              "duration_ms": 268.53,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 978.99,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 987.57,
+              "outcome": "success"
+            },
+            {
+              "stage": "postgres:lexical",
+              "duration_ms": 5249.35,
+              "outcome": "success",
+              "result_count": 60
+            },
+            {
+              "stage": "retrieval:provider_fusion",
+              "duration_ms": 5249.46,
+              "outcome": "success",
+              "lexical_count": 60,
+              "semantic_count": 60
+            },
+            {
+              "stage": "postgres:hydrate_rank",
+              "duration_ms": 9071.05,
+              "outcome": "success",
+              "hydrated_count": 60,
+              "operative_count": 308
+            },
+            {
+              "stage": "retrieval:rerank_select",
+              "duration_ms": 9132.22,
+              "outcome": "success",
+              "selected_count": 16,
+              "channel_count": 4
+            },
+            {
+              "stage": "retrieval_total",
+              "duration_ms": 20024.62,
+              "outcome": "success",
+              "evidence_count": 16
+            }
+          ]
+        },
+        "context_ms": 0.07,
+        "context_chars": 21196,
+        "context_tokens": 5299,
+        "verification_evidence_count": 16,
+        "verification_ms": 0.03,
+        "verification_failed": false,
+        "generation_ms": 0.41,
+        "generation_trace": {
+          "stage": "generation",
+          "outcome": "skipped"
+        },
+        "citation_count": 1,
+        "claim_count": 3,
+        "verified_claim_count": 3,
+        "guardrail_response_chars": 94,
+        "guardrail_ms": 4.16
+      },
+      "retrieved_evidence": [
+        {
+          "document_number": "25/2008/QH12",
+          "section_title": "6. Sử dụng dịch vụ thẩm mỹ.",
+          "channels": [
+            "document_operatives",
+            "page_index"
+          ],
+          "score": null,
+          "quote": "Điều 23. Các trường hợp không được hưởng bảo hiểm y tế — 6. Sử dụng dịch vụ thẩm mỹ.",
+          "source_start": 22765,
+          "source_end": 22794,
+          "text_sha256": "951c440d15e4f8fd68e01b3b8900f8ad606cfc3e14294dd4560885b71d487105"
+        }
+      ],
+      "findings": {
+        "deterministic_status": "PASS",
+        "failures": [],
+        "abstained": false,
+        "public_document_numbers": [
+          "25/2008/QH12"
+        ],
+        "accepted_document_numbers_found": [
+          "25/2008/QH12"
+        ],
+        "required_facts_missing_for_reviewer": [],
+        "review_flags": [],
+        "citation_count": 1
+      }
+    },
+    {
+      "case_id": "critical-bhyt-07-historical-2005",
+      "question": "Thông tư nào năm 2005 quy định mức hưởng BHYT hiện nay?",
+      "status": "completed",
+      "latency_ms": 15184.3,
+      "answer": "Tôi chưa thể xác minh nội dung này từ nguồn chính thức có trích dẫn hợp lệ; vì vậy chưa thể đưa ra kết luận pháp lý.",
+      "answer_sha256": "92d843cddd2d8cd7cda3a8d84d99d23114708b43a4ac893adac9cfb16551bb44",
+      "citations": [
+        {
+          "document_number": "188/2025/NĐ-CP",
+          "title": "Nghị định số 188/2025/NĐ-CP hướng dẫn Luật Bảo hiểm y tế",
+          "section_title": "2. Trường hợp chuyển đổi mức hưởng bảo hiểm y tế thì mức hưởng bảo hiểm y tế mới được tính từ thời điểm thẻ bảo hiểm y tế mới có giá trị sử dụng. Người bệnh có thẻ bảo hiểm y tế khi đang trong quá trình điều trị nội trú mà có thay đổi về mức hưởng bảo hiểm y tế có trách nhiệm cung cấp thông tin về thẻ liên quan đến việc thay đổi mức hưởng. Cơ sở khám bệnh, chữa bệnh có trách nhiệm kiểm tra quyền lợi, mức hưởng của người tham gia bảo hiểm y tế trước khi kết thúc lượt khám bệnh, chữa bệnh, ra viện.",
+          "quote": "2. Trường hợp chuyển đổi mức hưởng bảo hiểm y tế thì mức hưởng bảo hiểm y tế mới được tính từ thời điểm thẻ bảo hiểm y tế mới có giá trị sử dụng. Người bệnh có thẻ bảo hiểm y tế khi đang trong quá trình điều trị nội trú mà có thay đổi về mức hưởng bảo hiểm y tế có trách nhiệm cung cấp thông tin về thẻ liên quan đến việc thay đổi mức hưởng. Cơ sở khám bệnh, chữa bệnh có trách nhiệm kiểm tra quyền lợi, mức hưởng của người tham gia bảo hiểm y tế trước khi kết thúc lượt khám bệnh, chữa bệnh, ra viện.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "evidence_kind": "passage",
+          "source_start": 50806,
+          "source_end": 51307,
+          "text_sha256": "f1e15833605732c9a266c6596f47e334027002876164b79f714ff244711b52d9",
+          "provenance_verified": false
+        }
+      ],
+      "claims_count": 1,
+      "metadata": {
+        "trace_id": "c3103d38e4e74e87a76fa5da543b7498",
+        "route_intent": "temporal",
+        "subquery_count": 1,
+        "retrieval_ms": 15178.21,
+        "candidate_count": 8,
+        "relation_count": 0,
+        "retrieval_channels": [
+          "document_recall_operatives",
+          "lexical"
+        ],
+        "retrieval_trace": {
+          "trace_id": "1eb3707dca4b4e8a97cbbb4841e0d091",
+          "stages": [
+            {
+              "stage": "postgres:release_recall",
+              "duration_ms": 8821.28,
+              "outcome": "success",
+              "result_count": 0
+            },
+            {
+              "stage": "provider:embedding",
+              "duration_ms": 814.92,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 988.01,
+              "outcome": "success"
+            },
+            {
+              "stage": "provider:qdrant",
+              "duration_ms": 1206.66,
+              "outcome": "success"
+            },
+            {
+              "stage": "postgres:lexical",
+              "duration_ms": 3780.08,
+              "outcome": "success",
+              "result_count": 60
+            },
+            {
+              "stage": "retrieval:provider_fusion",
+              "duration_ms": 3780.25,
+              "outcome": "success",
+              "lexical_count": 60,
+              "semantic_count": 60
+            },
+            {
+              "stage": "postgres:hydrate_rank",
+              "duration_ms": 2559.66,
+              "outcome": "success",
+              "hydrated_count": 60,
+              "operative_count": 92
+            },
+            {
+              "stage": "retrieval:rerank_select",
+              "duration_ms": 2575.61,
+              "outcome": "success",
+              "selected_count": 8,
+              "channel_count": 4
+            },
+            {
+              "stage": "retrieval_total",
+              "duration_ms": 15178.13,
+              "outcome": "success",
+              "evidence_count": 8
+            }
+          ]
+        },
+        "context_ms": 0.04,
+        "context_chars": 10865,
+        "context_tokens": 2717,
+        "verification_evidence_count": 8,
+        "verification_ms": 0.06,
+        "verification_failed_reason": "historical_currentness_unverified",
+        "verification_failed": true,
+        "generation_ms": 0.0,
+        "generation_trace": {
+          "stage": "generation",
+          "outcome": "skipped"
+        },
+        "citation_count": 1,
+        "claim_count": 1,
+        "verified_claim_count": 1,
+        "guardrail_response_chars": 116,
+        "guardrail_ms": 1.58
+      },
+      "retrieved_evidence": [
+        {
+          "document_number": "188/2025/NĐ-CP",
+          "section_title": "2. Trường hợp chuyển đổi mức hưởng bảo hiểm y tế thì mức hưởng bảo hiểm y tế mới được tính từ thời điểm thẻ bảo hiểm y tế mới có giá trị sử dụng. Người bệnh có thẻ bảo hiểm y tế khi đang trong quá trình điều trị nội trú mà có thay đổi về mức hưởng bảo hiểm y tế có trách nhiệm cung cấp thông tin về thẻ liên quan đến việc thay đổi mức hưởng. Cơ sở khám bệnh, chữa bệnh có trách nhiệm kiểm tra quyền lợi, mức hưởng của người tham gia bảo hiểm y tế trước khi kết thúc lượt khám bệnh, chữa bệnh, ra viện.",
+          "channels": [
+            "document_recall_operatives",
+            "lexical"
+          ],
+          "score": null,
+          "quote": "2. Trường hợp chuyển đổi mức hưởng bảo hiểm y tế thì mức hưởng bảo hiểm y tế mới được tính từ thời điểm thẻ bảo hiểm y tế mới có giá trị sử dụng. Người bệnh có thẻ bảo hiểm y tế khi đang trong quá trình điều trị nội trú mà có thay đổi về mức hưởng bảo hiểm y tế có trách nhiệm cung cấp thông tin về thẻ liên quan đến việc thay đổi mức hưởng. Cơ sở khám bệnh, chữa bệnh có trách nhiệm kiểm tra quyền lợi, mức hưởng của người tham gia bảo hiểm y tế trước khi kết thúc lượt khám bệnh, chữa bệnh, ra viện.",
+          "source_start": 50806,
+          "source_end": 51307,
+          "text_sha256": "f1e15833605732c9a266c6596f47e334027002876164b79f714ff244711b52d9"
+        }
+      ],
+      "findings": {
+        "deterministic_status": "PASS",
+        "failures": [],
+        "abstained": true,
+        "public_document_numbers": [
+          "188/2025/NĐ-CP"
+        ],
+        "accepted_document_numbers_found": [],
+        "required_facts_missing_for_reviewer": [
+          "không coi thông tư năm 2005 là căn cứ hiện hành nếu không có chứng cứ hiệu lực",
+          "nêu căn cứ hiện hành hoặc abstain có giải thích"
+        ],
+        "review_flags": [
+          "required_fact_review"
+        ],
+        "citation_count": 1
+      }
+    }
+  ]
+}

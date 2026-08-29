@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import psycopg
+from dotenv import dotenv_values
 
 MIGRATION_NAME = re.compile(r"^\d+_[a-z0-9_]+\.sql$")
 LOCK_KEY = "medipay:postgres:migrations:v1"
@@ -105,14 +106,19 @@ def apply(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, default=Path(__file__).parent)
-    parser.add_argument("--database-url", default=os.getenv("MIGRATION_DATABASE_URL") or os.getenv("DATABASE_URL", ""))
+    parser.add_argument("--database-url", default="")
+    parser.add_argument("--env-file", type=Path, default=None, help="Read MIGRATION_DATABASE_URL/DATABASE_URL from a dotenv file")
     parser.add_argument("--baseline", action="store_true", help="Record reviewed existing migrations without executing SQL")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    if not args.database_url:
+    database_url = args.database_url or os.getenv("MIGRATION_DATABASE_URL") or os.getenv("DATABASE_URL", "")
+    if args.env_file is not None:
+        values = dotenv_values(args.env_file)
+        database_url = str(values.get("MIGRATION_DATABASE_URL") or values.get("DATABASE_URL") or database_url)
+    if not database_url:
         parser.error("MIGRATION_DATABASE_URL or DATABASE_URL is required")
     migrations = migration_files(args.directory)
-    with psycopg.connect(sync_database_url(args.database_url), autocommit=False) as connection:
+    with psycopg.connect(sync_database_url(database_url), autocommit=False) as connection:
         connection.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (LOCK_KEY,))
         actions = apply(connection, migrations, baseline=args.baseline, dry_run=args.dry_run)
         if args.dry_run:

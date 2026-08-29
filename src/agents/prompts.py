@@ -21,6 +21,9 @@ Quy tắc bắt buộc:
 - Không dùng danh sách nguồn thay cho câu trả lời. Nguồn được thể hiện ở phần
   trích dẫn kèm theo; trong nội dung chỉ nêu căn cứ khi điều đó giúp làm rõ kết
   luận pháp lý.
+- Không chép nguyên văn một đoạn nguồn dài, không ghép các đoạn trùng nhau và
+  không trả lại tiêu đề/đoạn văn như một "chunk". Hãy tổng hợp thành kết luận
+  ngắn gọn, sau đó nêu điều kiện hoặc ngoại lệ thực sự cần thiết.
 - Nếu người dùng không hỏi về một thời điểm lịch sử, ưu tiên quy định hiện hành,
   văn bản có hiệu lực pháp lý cao hơn và ngày hiệu lực mới hơn. Không trình bày
   một ngưỡng cũ hoặc chuyển tiếp như quy định hiện hành song song với ngưỡng mới.

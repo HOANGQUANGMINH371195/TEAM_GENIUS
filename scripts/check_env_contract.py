@@ -63,6 +63,7 @@ def main() -> int:
             "DATABASE_URL",
             "QDRANT_URL",
             "QDRANT_API_KEY",
+            "QDRANT_COLLECTION",
             "NEO4J_URI",
             "NEO4J_PASSWORD",
             "OPENAI_API_KEY",

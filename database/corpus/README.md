@@ -90,9 +90,59 @@ Quy trình kiểm soát:
    embedding-input SHA-256 khớp; input mới phải được embed lại.
 2. `offload_staging_embeddings.py` chỉ dọn staging vector metadata sau khi
    artifact local khớp dataset ID, row count, dimensions và toàn bộ vector hữu hạn.
-3. `verify_live_corpus_parity.py --external-embedding-artifact ...` đối chiếu
+3. `verify_live_corpus_parity.py --release-lock docs/data/release-lock-...json
+   --pipeline-root <exact-builder>/database/pipeline
+   --external-embedding-artifact ...` đối chiếu
    source, Supabase, Neo4j và artifact theo từng passage/edge trước khi báo pass.
+
+`verify_live_corpus_parity.py` cũng kiểm tra `snapshot_id`/fingerprint và các
+đếm canonical trước khi đối chiếu database. Không được dùng lại một
+`dataset_id` cũ cho thư mục clean đã được rebuild bằng parser/chunker khác:
+hãy cung cấp đúng source manifest của release hoặc tạo release mới rồi parity
+ở cả PostgreSQL, Qdrant và Neo4j. Báo cáo sẽ ghi rõ `source_snapshot` và vẫn
+fail an toàn nếu embedding artifact không khớp, thay vì coi file
+`live_parity.json` cũ là bằng chứng hiện tại.
 
 Artifact và candidate nằm dưới `data/clean/` nên không được commit. Không xóa
 `data/clean/embeddings-reused/snapshot-c439751724ab7f10/` trước khi import và
 verify Qdrant.
+
+## Typed-fact review boundary
+
+Facts extracted by an annotator or an offline model must pass the immutable
+review boundary before they can affect Neo4j. `stage_reviewed_facts.py` checks
+the release ID, ontology predicate, reviewer decision/note, canonical
+document/unit source span and SHA-256, then inserts idempotently into
+`public.legal_facts`. A conflicting replay of an existing `fact_id` fails
+closed; a same-content replay is counted and skipped. Pending rows may be
+staged for review, but only `accepted` rows are exported to Neo4j or exposed
+through the active-release read policy.
+
+```bash
+make typed-facts-stage \
+  RELEASE_ID=snapshot-c439751724ab7f10 \
+  FACTS_FILE=/tmp/reviewed-facts.jsonl \
+  ENV_FILE=/absolute/path/to/.env
+```
+
+The command performs no LLM extraction and never mutates canonical text. Run
+`typed-facts-check`/the Neo4j importer only after staging and independent
+review; an empty export is an explicit safe state, not a failed import.
+
+## Curated community/global index
+
+Global and DRIFT-style retrieval is intentionally asynchronous and opt-in. A
+reviewed annotation JSONL can be compiled into a release-scoped summary index:
+
+```bash
+uv run python database/corpus/build_community_index.py \
+  /absolute/path/community-passages.jsonl \
+  --release-id snapshot-c439751724ab7f10 \
+  --output /absolute/path/community-index.jsonl
+```
+
+The input must supply `community_id`, `document_id`, `passage_id`, and
+canonical passage `text`. The builder only concatenates bounded source text
+and records a source hash; it does not infer clusters or call an LLM. Online
+code may use the index to choose document IDs, but must hydrate and verify the
+canonical PostgreSQL passages before generation or citation.

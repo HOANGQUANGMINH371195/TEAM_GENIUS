@@ -1,47 +1,46 @@
-# Deploy runbook — Render API / Vercel web
+# Production deploy runbook — AWS backend + Vercel web
 
-This runbook is intentionally provider-agnostic until the external projects,
-region and secret owners are recorded. Never paste secret values into a shell
-transcript or CI log.
+AWS EC2 + Docker Compose + Nginx is the backend production target. Vercel hosts
+the Next.js frontend; Render is not used. Use
+[aws-single-host.md](aws-single-host.md) for the AWS backend path. Never paste
+secret values into a shell transcript or CI log.
 
 ## External prerequisites
 
 The Firebase service-account JSON previously shared during development is
 compromised. Revoke that key in Firebase/Google Cloud IAM, generate a new key,
-and install it only in the backend secret store. Prefer a Render secret file
-with `GOOGLE_APPLICATION_CREDENTIALS`; if an environment variable is used,
-set the new single-line JSON as `FIREBASE_SERVICE_ACCOUNT_JSON`. Never put it
-in Vercel, the browser bundle, Git, or this runbook.
+and install it only in the AWS backend secret store (Ansible Vault or an
+ignored host `.env`). If an environment variable is used, set the new
+single-line JSON as `FIREBASE_SERVICE_ACCOUNT_JSON`. Never put it in Vercel,
+the browser bundle, Git, or this runbook.
 
-Generate the backend metrics bearer token locally and paste it directly into
-the Render secret field (do not commit or send it here):
+Generate the backend metrics bearer token locally and install it directly in
+the AWS secret store (do not commit or send it here):
 
 ```bash
 python -c 'import secrets; print(secrets.token_urlsafe(32))'
 ```
 
-Render access is created in Dashboard → Account Settings → API Keys. Store the
-new value outside the repository as `RENDER_API_KEY`; the Render CLI/API uses
-it as a bearer credential. Vercel access is created in the Personal Account →
-Settings → Account Tokens page; store it outside the repository as
-`VERCEL_TOKEN`. Then create/import the project with root directory `web`,
-framework `nextjs`, and separate Development/Preview/Production variables.
+Only the Vercel project token (if using CLI) belongs in the operator's local
+credential store; it is not an application runtime variable.
 
 These are operator credentials, not application runtime variables. Do not add
 them to `.env.example` or pass them as Docker build arguments.
 
 1. Verify `ops.active_release` generation and the release fingerprint; all
-   three projection rows must be `ready` with exact counts.
+   three projection rows must be `ready`. Qdrant keeps an exact point-count
+   check; Neo4j readiness requires connectivity and at least the contracted
+   node/approved-edge counts, while exact parity remains a separate audit.
 2. Create PostgreSQL and Neo4j backups and retain active plus previous release.
 3. Build migration, API and web images from a clean checkout; inspect context,
    SBOM and non-root/read-only settings.
 4. Run the migration job once with `MIGRATION_DATABASE_URL`; never give that
    credential to API replicas.
-5. Deploy Render with the injected `$PORT`, `/health` liveness and `/ready`
-   readiness. Wait for dependency health before traffic.
-6. Set Vercel Development/Preview/Production variables separately. Only public
-   Firebase client variables may enter the browser bundle; Admin JSON belongs
-   only in the backend secret store.
+5. Provision the AWS EC2 host, install Docker/Compose and Nginx, and load the
+   vaulted runtime secrets.
+6. Start the Compose stack behind Nginx with `/health` liveness and `/ready`
+   readiness. Only public Firebase client variables may enter the browser
+   bundle; Admin JSON belongs only in the backend secret store.
 7. Set the protected `METRICS_TOKEN` and configure the dashboard scraper with
    an Authorization bearer header; never expose `/metrics` publicly in
    production.
@@ -50,5 +49,6 @@ them to `.env.example` or pass them as Docker build arguments.
 9. Promote only if quality, latency, cost and security gates pass. Keep the
    previous service/image/projections until the observation window ends.
 
-Rollback: stop promotion, restore the previous API image and release pointer,
-restore matching Qdrant/Neo4j projections, verify parity, then re-enable traffic.
+Rollback: stop promotion, restore the previous API/web images and release
+pointer, restore matching Qdrant/Neo4j projections, verify parity, then
+re-enable Nginx traffic. See `aws-single-host.md` and `rollback.md`.

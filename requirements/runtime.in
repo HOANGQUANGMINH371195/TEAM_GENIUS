@@ -11,6 +11,9 @@ langchain-openai>=1.1.14,<2
 langchain-text-splitters>=0.3.0,<2
 langgraph>=0.2.0,<2
 langfuse>=3.6.0,<5
+opentelemetry-api>=1.44.0,<2
+opentelemetry-sdk>=1.44.0,<2
+opentelemetry-exporter-otlp-proto-http>=1.44.0,<2
 sqlalchemy>=2.0.36,<3
 asyncpg>=0.30.0,<1
 neo4j>=5.28.0,<6
@@ -18,3 +21,5 @@ openai>=2.26.0,<3
 qdrant-client==1.19.0
 redis>=5.0.0,<6
 tiktoken>=0.7.0,<1
+httpx
+playwright

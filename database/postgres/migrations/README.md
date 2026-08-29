@@ -14,6 +14,11 @@ For a protected one-shot job, build `Dockerfile.migrate` and provide only
 `MIGRATION_DATABASE_URL` to that container. The API image and Render web
 service do not run this command at startup.
 
+From a developer checkout, `make migrate ENV_FILE=/absolute/path/.env` invokes
+the same runner and reads the database URL without printing it. The runner
+holds the migration advisory lock and verifies every previously applied
+checksum before applying a new file.
+
 Before a production migration:
 
 1. take a PostgreSQL and Neo4j backup and record the active release;
@@ -44,3 +49,13 @@ failed or count-mismatched Qdrant/Neo4j row.
 with matching fingerprint/counts, records `previous_dataset_id` and advances
 a monotonic generation under an advisory lock. The physical previous
 projections must still exist before an operator uses it for rollback.
+
+`20260835_idempotency.sql` adds the owner/endpoint/key ledger used by the chat
+retry boundary. It stores only a request hash and bounded public response;
+expired rows may be pruned by a scheduled maintenance command outside the API
+request path.
+
+`20260837_retrieval_document_indexes.sql` adds the missing legal-unit document
+locator for bounded operative expansion; chunks already have a unique
+`(dataset_id, document_id, chunk_order)` access path. It changes only query
+access paths and does not rewrite corpus data or move the active release pointer.
