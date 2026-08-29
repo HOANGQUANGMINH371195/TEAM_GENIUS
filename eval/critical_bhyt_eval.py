@@ -191,6 +191,9 @@ async def _run_cases(
     # immutable release to resolve; it never changes the database's active
     # release record.
     runtime._active_release = (dataset_id, 0, time.monotonic())
+    # Mirror the production lifespan hook so the first measured case does not
+    # include avoidable DNS/connection/provider discovery cold-start work.
+    await runtime.prewarm(release_id=dataset_id)
     agent = get_agent()
     records: list[dict[str, Any]] = []
     semaphore = asyncio.Semaphore(max(1, concurrency))
@@ -205,16 +208,16 @@ async def _run_cases(
                 output = await asyncio.wait_for(
                     agent.ainvoke({"query": case["question"]}), timeout=120
                 )
-            return started, output, None
+            return time.perf_counter() - started, output, None
         except BaseException as exc:
-            return started, None, exc
+            return time.perf_counter() - started, None, exc
 
     # Live evaluation is allowed to exercise the same bounded concurrency as
     # production. Each request still has isolated owner-less context and the
     # final answer generation is never batched across users.
     invocations = await asyncio.gather(*(invoke(case) for case in cases))
     for position, case in enumerate(cases, start=1):
-        started, prefetched_output, prefetched_error = invocations[position - 1]
+        elapsed, prefetched_output, prefetched_error = invocations[position - 1]
         try:
             if prefetched_error is not None:
                 raise prefetched_error
@@ -276,7 +279,7 @@ async def _run_cases(
                     "case_id": case["case_id"],
                     "question": case["question"],
                     "status": "completed" if answer else "invalid_output",
-                    "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+                    "latency_ms": round(elapsed * 1000, 2),
                     "answer": _safe_answer_for_report(answer, _private_ids(output)),
                     "answer_sha256": hashlib.sha256(answer.encode("utf-8")).hexdigest(),
                     "citations": public_citations,
@@ -293,7 +296,7 @@ async def _run_cases(
                     "case_id": case["case_id"],
                     "question": case["question"],
                     "status": "agent_error",
-                    "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+                    "latency_ms": round(elapsed * 1000, 2),
                     "answer": "",
                     "answer_sha256": None,
                     "citations": [],
@@ -338,11 +341,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if "snapshot-" not in args.qdrant_collection:
         raise SystemExit("qdrant-collection must be a physical snapshot collection")
 
-    # The developer .env is intentionally one directory above the deployable
-    # application. Loading it here avoids copying credentials into P-151.
+    # Prefer the deployable checkout's .env, then fall back to the legacy
+    # sibling location used by older workspaces.  The evaluator must resolve
+    # the same provider/database configuration regardless of the caller's cwd.
     from dotenv import load_dotenv
 
-    load_dotenv(PROJECT_ROOT.parent / ".env", override=False)
+    env_candidates = (PROJECT_ROOT / ".env", PROJECT_ROOT.parent / ".env")
+    for env_path in env_candidates:
+        if env_path.is_file():
+            load_dotenv(env_path, override=False)
+            break
     os.environ["QDRANT_COLLECTION"] = args.qdrant_collection
     from src.config import get_settings
 

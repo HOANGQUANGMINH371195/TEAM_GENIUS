@@ -57,9 +57,15 @@ def deploy_render(path: Path) -> int:
 
 
 def deploy_vercel(path: Path) -> int:
-    token = _required(path, "VERCEL_TOKEN")
+    # Vercel CLI credentials may be stored in its local credential store.  A
+    # long-lived VERCEL_TOKEN is optional; when absent we verify the existing
+    # CLI session instead of forcing developers to duplicate credentials in
+    # .env.  The deploy still requires an explicit project binding so `--yes`
+    # can never silently create/deploy an unintended personal project.
+    token = _dotenv_value(path, "VERCEL_TOKEN")
     env = os.environ.copy()
-    env["VERCEL_TOKEN"] = token
+    if token:
+        env["VERCEL_TOKEN"] = token
     # The local dotenv names deliberately avoid the reserved VERCEL_* prefix.
     # Translate them only in the child process that invokes the Vercel CLI.
     for dotenv_name, vercel_name in (
@@ -69,7 +75,26 @@ def deploy_vercel(path: Path) -> int:
         value = _dotenv_value(path, dotenv_name)
         if value:
             env[vercel_name] = value
+    project = _dotenv_value(path, "DEPLOY_VERCEL_PROJECT_ID")
+    linked_project_files = (Path("web/.vercel/project.json"), Path(".vercel/project.json"))
+    if not project and not any(item.is_file() for item in linked_project_files):
+        raise SystemExit(
+            "Set DEPLOY_VERCEL_PROJECT_ID (project name/ID) or run `vercel link` in web/ "
+            "before deploying."
+        )
+    if not token:
+        probe = subprocess.run(
+            ["npx", "--yes", "vercel", "whoami", "--cwd", "web"],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if probe.returncode != 0:
+            raise SystemExit("No Vercel CLI session found; run `vercel login` or set VERCEL_TOKEN.")
     command = ["npx", "--yes", "vercel", "deploy", "--prod", "--cwd", "web", "--yes"]
+    if project:
+        command.extend(["--project", project])
     print("Starting Vercel production deploy for web/...")
     completed = subprocess.run(command, env=env, check=False)
     return completed.returncode

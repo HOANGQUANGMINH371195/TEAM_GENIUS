@@ -172,11 +172,11 @@ async def test_eligibility_checklist_persists_owner_scoped_facts_and_invalidates
         facts={"emergency": True},
         dataset_id="snapshot-release",
     )
-    cache.invalidate.assert_awaited_once_with(
-        owner_uid="test-user",
-        conversation_id=conversation_id,
-        release_id="snapshot-release",
-    )
+    cache.invalidate.assert_awaited_once()
+    assert cache.invalidate.await_args.kwargs["owner_uid"] == "test-user"
+    assert cache.invalidate.await_args.kwargs["conversation_id"] == conversation_id
+    assert cache.invalidate.await_args.kwargs["release_id"] == "snapshot-release"
+    assert cache.invalidate.await_args.kwargs["prompt_version"].startswith("local:")
 
 
 @pytest.mark.asyncio
@@ -214,6 +214,17 @@ async def test_chat_success(client):
 
 
 @pytest.mark.asyncio
+async def test_chat_requires_idempotency_key_in_production(client):
+    settings = SimpleNamespace(app_env="production")
+    with patch("src.api.routes.get_settings", return_value=settings):
+        response = await client.post("/api/v1/chat", json={"message": "Tôi cần hỗ trợ"})
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "invalid_request"
+    assert "Idempotency-Key" in response.json()["message"]
+
+
+@pytest.mark.asyncio
 async def test_chat_stream_emits_only_verified_final_event(client):
     async def events(*_args, **_kwargs):
         yield {"event": "on_chain_start", "name": "retrieve_vectors", "data": {}}
@@ -247,6 +258,8 @@ async def test_chat_stream_emits_only_verified_final_event(client):
 
     assert response.status_code == 200
     assert "event: status" in response.text
+    ids = [int(line.split(":", 1)[1]) for line in response.text.splitlines() if line.startswith("id:")]
+    assert ids == sorted(ids) and ids == list(range(1, len(ids) + 1))
     assert '"response": "Đã kiểm chứng"' in response.text
     assert '"document_number": "01/2026/QH15"' in response.text
     assert '"route": "temporal"' in response.text

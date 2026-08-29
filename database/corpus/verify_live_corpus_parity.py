@@ -17,7 +17,7 @@ import numpy as np
 import psycopg
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
-from qdrant_client import QdrantClient, models
+from qdrant_client import QdrantClient
 
 load_dotenv()
 
@@ -83,6 +83,48 @@ def verify_external_embedding_artifact(
         "dimensions": dimensions,
         "model": manifest.get("model", ""),
     }
+
+
+def resolve_qdrant_release_collection(
+    client: QdrantClient,
+    *,
+    dataset_id: str,
+    expected_points: int,
+    preferred: str,
+) -> tuple[str | None, int | None]:
+    """Find the immutable physical collection for a release without mutation.
+
+    Older projection rows may contain the logical alias used by the first
+    deployment, while the actual release is stored in a suffixed collection.
+    Parity verification must follow the same bounded, exact-count discovery as
+    the runtime adapter; otherwise it reports a false Qdrant failure even when
+    the correct physical collection is healthy.
+    """
+    from qdrant_client import models
+
+    release_filter = models.Filter(
+        must=[models.FieldCondition(key="dataset_id", match=models.MatchValue(value=dataset_id))]
+    )
+    candidates: list[str] = []
+    for value in (preferred, os.getenv("QDRANT_COLLECTION", "medical_legal_active")):
+        if value and "<" not in value:
+            candidates.append(str(value).strip())
+    try:
+        candidates.extend(str(item.name) for item in client.get_collections().collections)
+    except Exception:
+        pass
+    for collection in list(dict.fromkeys(candidates))[:32]:
+        try:
+            if not client.collection_exists(collection):
+                continue
+            count = int(
+                client.count(collection, count_filter=release_filter, exact=True, timeout=30).count
+            )
+            if count == expected_points:
+                return collection, count
+        except Exception:
+            continue
+    return None, None
 
 
 def main() -> int:
@@ -269,28 +311,24 @@ def main() -> int:
                 errors.append(f"{kind} projection expected/actual counts differ")
 
     qdrant_point_count: int | None = None
+    qdrant_collection: str | None = None
     if os.getenv("QDRANT_URL") and os.getenv("QDRANT_API_KEY"):
         qdrant = QdrantClient(
             url=os.environ["QDRANT_URL"], api_key=os.environ["QDRANT_API_KEY"], timeout=30,
         )
         try:
-            collection = os.getenv("QDRANT_COLLECTION", "medical_legal_active")
-            if not qdrant.collection_exists(collection):
-                errors.append(f"Qdrant collection missing: {collection}")
-            else:
-                qdrant_point_count = int(qdrant.count(
-                    collection,
-                    count_filter=models.Filter(must=[
-                        models.FieldCondition(key="dataset_id", match=models.MatchValue(value=args.dataset_id))
-                    ]),
-                    exact=True,
-                ).count)
-                qdrant_row = projection_rows.get("qdrant")
-                if qdrant_row is None or qdrant_point_count != int(qdrant_row["expected_count"]):
-                    errors.append(
-                        f"Qdrant point count {qdrant_point_count} does not match registry "
-                        f"{qdrant_row['expected_count'] if qdrant_row else 'missing'}"
-                    )
+            qdrant_row = projection_rows.get("qdrant")
+            qdrant_collection, qdrant_point_count = resolve_qdrant_release_collection(
+                qdrant,
+                dataset_id=args.dataset_id,
+                expected_points=int(qdrant_row["expected_count"]) if qdrant_row else -1,
+                preferred=str(qdrant_row["locator"]) if qdrant_row else "",
+            )
+            if qdrant_collection is None:
+                errors.append(
+                    "Qdrant release collection with exact point count not found; "
+                    f"registry={qdrant_row['expected_count'] if qdrant_row else 'missing'}"
+                )
         finally:
             qdrant.close()
 
@@ -421,6 +459,7 @@ def main() -> int:
                 for kind, row in projection_rows.items()
             },
             "qdrant_actual_points": qdrant_point_count,
+            "qdrant_resolved_collection": qdrant_collection,
             "chunks": int(chunk_counts["chunks"]),
             "semantic_chunks": int(chunk_counts["semantic_chunks"]),
             "missing_semantic_embeddings": int(chunk_counts["missing_embeddings"]),

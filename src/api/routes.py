@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 from datetime import date
 from html import escape
@@ -12,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.agents.graph import get_agent
+from src.agents.prompts import SYSTEM_PROMPT
 from src.api.auth import get_current_user
 from src.api.public_contract import public_citations
 from src.application.adapters import LangGraphAgentAdapter
@@ -20,7 +22,7 @@ from src.config import get_settings
 from src.db.repositories import GraphRepository
 from src.db.session import session_scope
 from src.domain.route_plan import build_route_plan
-from src.integrations.langfuse import configure_langfuse, trace_span, tracing_enabled
+from src.integrations.langfuse import configure_langfuse, resolve_prompt, trace_span, tracing_enabled
 from src.models.schemas import (
     AgentStatusResponse,
     AnalyzeRequest,
@@ -46,7 +48,9 @@ from src.services.conversation_context import (
 from src.services.conversations import ConversationStoreError, get_conversation_store
 from src.services.document_viewer import sanitize_document_html
 from src.services.eligibility_checklist import ChecklistInputError, build_eligibility_checklist
+from src.services.idempotency import IdempotencyDecision, get_idempotency_store
 from src.services.legal_timeline import assemble_public_timeline
+from src.services.metrics import metrics
 from src.services.research_jobs import (
     RedisResearchJobQueue,
     ResearchJobQueue,
@@ -57,6 +61,67 @@ from src.services.research_jobs import (
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent"])
 _research_queue: ResearchJobQueue | RedisResearchJobQueue | None = None
+
+
+def _request_id(request: Request) -> str:
+    return getattr(request.state, "request_id", "") or ""
+
+
+def _idempotency_key(request: Request) -> str:
+    return request.headers.get("Idempotency-Key", "").strip()
+
+
+def _request_hash(*, owner_uid: str, endpoint: str, payload: object) -> str:
+    canonical = json.dumps(
+        {"owner_uid": owner_uid, "endpoint": endpoint, "payload": payload},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+async def _begin_idempotency(
+    request: Request,
+    *,
+    owner_uid: str,
+    endpoint: str,
+    payload: object,
+) -> tuple[str, IdempotencyDecision]:
+    key = _idempotency_key(request)
+    settings = get_settings()
+    if not key:
+        if settings.app_env == "production":
+            raise HTTPException(
+                status_code=400,
+                detail="Idempotency-Key header is required for this operation",
+            )
+        return "", IdempotencyDecision("disabled", request_id=_request_id(request))
+    request.state.idempotency_key = key
+    decision = await get_idempotency_store().begin(
+        owner_uid=owner_uid,
+        endpoint=endpoint,
+        key=key,
+        request_hash=_request_hash(owner_uid=owner_uid, endpoint=endpoint, payload=payload),
+        request_id=_request_id(request),
+    )
+    if decision.state == "conflict":
+        raise HTTPException(status_code=409, detail="Idempotency key conflicts with another request")
+    if decision.state == "in_progress":
+        raise HTTPException(status_code=409, detail="A request with this idempotency key is still processing")
+    return key, decision
+
+
+async def _replay_stream(response: dict) -> AsyncIterator[str]:
+    event_id = 0
+    for event_type, payload in (
+        ("status", {"stage": "replay"}),
+        ("final", response),
+        ("done", {"ok": True, "replayed": True}),
+    ):
+        event_id += 1
+        yield _sse_event(event_type, payload, event_id=event_id)
 
 
 def _get_research_queue() -> ResearchJobQueue | RedisResearchJobQueue:
@@ -82,6 +147,7 @@ def _trace_stage_metrics(result: dict) -> dict[str, object]:
         "route_intent", "retrieval_ms", "planner_ms", "verification_ms",
         "guardrail_ms", "generation_ms", "context_ms", "candidate_count",
         "relation_count", "planner_followup_count", "planner_followup_outcome",
+        "model_version", "prompt_version", "release_id",
     )
     return {key: metadata[key] for key in allowed if key in metadata}
 
@@ -110,12 +176,18 @@ async def _context_release_id() -> str:
         return ""
 
 
+def _context_prompt_version() -> str:
+    return resolve_prompt(SYSTEM_PROMPT)[1]
+
+
 async def _recent_turns_for_request(*, owner_uid: str, conversation_id: str) -> list[dict]:
     release_id = await _context_release_id()
+    prompt_version = _context_prompt_version()
     return await get_conversation_cache().get_or_load(
         owner_uid=owner_uid,
         conversation_id=conversation_id,
         release_id=release_id,
+        prompt_version=prompt_version,
         loader=lambda: get_conversation_store().recent_turns(
             owner_uid=owner_uid,
             conversation_id=conversation_id,
@@ -275,6 +347,7 @@ async def eligibility_checklist(
                     owner_uid=owner_uid,
                     conversation_id=request.conversation_id,
                     release_id=release_id,
+                    prompt_version=_context_prompt_version(),
                 )
         except ConversationStoreError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -408,6 +481,8 @@ async def _invoke_agent(
                 "feature": feature,
                 "conversation_id": conversation_id or "",
                 "turn_id": turn_id or "",
+                "model_version": settings.model_name,
+                "prompt_registry": settings.prompt_registry_name,
             },
         ):
             result = await _answer_use_case().execute(resolved_message)
@@ -424,8 +499,9 @@ async def _invoke_agent(
         return result
 
 
-def _sse_event(event_type: str, payload: dict) -> str:
-    return f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+def _sse_event(event_type: str, payload: dict, *, event_id: int | None = None) -> str:
+    identifier = f"id: {event_id}\n" if event_id is not None else ""
+    return f"{identifier}event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 async def _persist_chat_turn(
@@ -454,6 +530,7 @@ async def _persist_chat_turn(
         await get_conversation_cache().invalidate(
             owner_uid=owner_uid, conversation_id=request.conversation_id,
             release_id=await _context_release_id(),
+            prompt_version=_context_prompt_version(),
         )
     except ConversationStoreError as exc:
         logger.warning("Conversation turn rejected", extra={"reason": str(exc), "request_id": request_id})
@@ -469,6 +546,8 @@ async def _stream_agent(
     turn_id: str = "",
     owner_uid: str = "",
     http_request: Request,
+    idempotency_key: str = "",
+    idempotency_endpoint: str = "/api/v1/chat/stream",
 ) -> AsyncIterator[str]:
     """Stream safe lifecycle/final events from the verified LangGraph run.
 
@@ -490,9 +569,22 @@ async def _stream_agent(
     # Stable IDs are passed through to persistence; stream tracing remains a
     # separate contract until provider token callbacks are wired.
     final: dict | None = None
+    event_id = 0
+
+    def emit(event_type: str, payload: dict) -> str:
+        nonlocal event_id
+        event_id += 1
+        return _sse_event(event_type, payload, event_id=event_id)
+
     stream_use_case = StreamLegalQuestion(LangGraphAgentAdapter(_langgraph_provider))
     try:
-        yield _sse_event("status", {"stage": "started"})
+        stream_started = time.perf_counter()
+        yield emit("status", {"stage": "started"})
+        metrics.observe(
+            "stream_first_event_seconds",
+            time.perf_counter() - stream_started,
+            outcome="status",
+        )
         async with trace_span(
             "chat-stream",
             as_type="span",
@@ -502,21 +594,23 @@ async def _stream_agent(
                 "conversation_id": conversation_id,
                 "turn_id": turn_id,
                 "feature": "chat-stream",
+                "model_version": get_settings().model_name,
+                "prompt_registry": get_settings().prompt_registry_name,
             },
         ) as stream_span:
             event_stream = stream_use_case.execute(resolved_message)
             try:
-                async for event in event_stream:
+                async for chain_event in event_stream:
                     if await http_request.is_disconnected():
                         return
-                    event_name = str(event.get("name") or "")
-                    event_type = str(event.get("event") or "")
+                    event_name = str(chain_event.get("name") or "")
+                    event_type = str(chain_event.get("event") or "")
                     if event_type == "on_chain_start" and event_name in {
                         "retrieve_vectors", "assemble_context", "verify_evidence", "generate", "guardrail"
                     }:
-                        yield _sse_event("status", {"stage": event_name})
+                        yield emit("status", {"stage": event_name})
                     if event_type == "on_chain_end" and event_name == "guardrail":
-                        output = event.get("data", {}).get("output")
+                        output = chain_event.get("data", {}).get("output")
                         if isinstance(output, dict):
                             final = output
             finally:
@@ -540,11 +634,22 @@ async def _stream_agent(
         final_payload = {
             "response": response.strip(),
             "citations": [citation.model_dump() for citation in browser_citations],
+            "request_id": request_id or "",
+            "conversation_id": conversation_id,
+            "turn_id": turn_id,
         }
         route = _public_route(final)
         if route:
             final_payload["route"] = route
-        yield _sse_event("final", final_payload)
+        yield emit("final", final_payload)
+        if idempotency_key:
+            await get_idempotency_store().complete(
+                owner_uid=owner_uid,
+                endpoint=idempotency_endpoint,
+                key=idempotency_key,
+                request_id=request_id or "",
+                response=final_payload,
+            )
         await _persist_chat_turn(
             owner_uid=owner_uid,
             request=ChatRequest(message=message, conversation_id=conversation_id, turn_id=turn_id),
@@ -553,11 +658,17 @@ async def _stream_agent(
             claims=final.get("claims") or [],
             request_id=request_id or "",
         )
-        yield _sse_event("done", {"ok": True})
+        yield emit("done", {"ok": True})
     except Exception as exc:
         logger.exception("Agent stream failure")
+        if idempotency_key:
+            await get_idempotency_store().abort(
+                owner_uid=owner_uid,
+                endpoint=idempotency_endpoint,
+                key=idempotency_key,
+            )
         del exc
-        yield _sse_event("error", {"code": "stream_unavailable", "message": "Chat stream unavailable"})
+        yield emit("error", {"code": "stream_unavailable", "message": "Chat stream unavailable"})
 
 
 @router.post(
@@ -582,35 +693,65 @@ async def chat(
     http_request: Request,
     user: dict = Depends(get_current_user),
 ) -> ChatResponse:
-    result = await run_agent(
-        request.message,
-        feature="chat",
-        request_id=getattr(http_request.state, "request_id", None),
-        conversation_id=request.conversation_id,
-        turn_id=request.turn_id,
-        owner_uid=str(user.get("uid") or ""),
+    owner_uid = str(user.get("uid") or "")
+    endpoint = "/api/v1/chat"
+    key, decision = await _begin_idempotency(
+        http_request,
+        owner_uid=owner_uid,
+        endpoint=endpoint,
+        payload=request.model_dump(mode="json"),
     )
-    response = result.get("response")
-    if not isinstance(response, str) or not response.strip():
-        logger.error("Agent returned empty response")
-        raise HTTPException(status_code=502, detail="Chat provider returned an empty response")
+    if decision.state == "replay" and decision.response:
+        return ChatResponse(**decision.response)
+    try:
+        result = await run_agent(
+            request.message,
+            feature="chat",
+            request_id=_request_id(http_request),
+            conversation_id=request.conversation_id,
+            turn_id=request.turn_id,
+            owner_uid=owner_uid,
+        )
+        response = result.get("response")
+        if not isinstance(response, str) or not response.strip():
+            logger.error("Agent returned empty response")
+            raise HTTPException(status_code=502, detail="Chat provider returned an empty response")
 
-    internal_citations = [
-        citation for citation in result.get("citations", []) if isinstance(citation, dict)
-    ]
-    internal_claims = [
-        claim for claim in result.get("claims", []) if isinstance(claim, dict)
-    ]
-    citations = public_citations(internal_citations)
-    await _persist_chat_turn(
-        owner_uid=str(user.get("uid") or ""),
-        request=request,
-        response=response.strip(),
-        citations=internal_citations,
-        claims=internal_claims,
-        request_id=getattr(http_request.state, "request_id", "") or "",
-    )
-    return ChatResponse(response=response.strip(), citations=citations)
+        internal_citations = [
+            citation for citation in result.get("citations", []) if isinstance(citation, dict)
+        ]
+        internal_claims = [
+            claim for claim in result.get("claims", []) if isinstance(claim, dict)
+        ]
+        citations = public_citations(internal_citations)
+        await _persist_chat_turn(
+            owner_uid=owner_uid,
+            request=request,
+            response=response.strip(),
+            citations=internal_citations,
+            claims=internal_claims,
+            request_id=_request_id(http_request),
+        )
+        public_response = ChatResponse(
+            response=response.strip(),
+            citations=citations,
+            request_id=_request_id(http_request),
+            conversation_id=request.conversation_id,
+            turn_id=request.turn_id,
+        )
+        if key:
+            await get_idempotency_store().complete(
+                owner_uid=owner_uid,
+                endpoint=endpoint,
+                key=key,
+                request_id=public_response.request_id,
+                response=public_response.model_dump(mode="json"),
+            )
+        return public_response
+    except Exception:
+        if key:
+            await get_idempotency_store().abort(owner_uid=owner_uid, endpoint=endpoint, key=key)
+        raise
 
 
 @router.post(
@@ -624,14 +765,34 @@ async def chat_stream(
     http_request: Request,
     user: dict = Depends(get_current_user),
 ) -> StreamingResponse:
+    owner_uid = str(user.get("uid") or "")
+    endpoint = "/api/v1/chat/stream"
+    key, decision = await _begin_idempotency(
+        http_request,
+        owner_uid=owner_uid,
+        endpoint=endpoint,
+        payload=request.model_dump(mode="json"),
+    )
+    if decision.state == "replay" and decision.response:
+        return StreamingResponse(
+            _replay_stream(decision.response),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
     return StreamingResponse(
         _stream_agent(
             request.message,
             request_id=getattr(http_request.state, "request_id", None),
             conversation_id=request.conversation_id,
             turn_id=request.turn_id,
-            owner_uid=str(user.get("uid") or ""),
+            owner_uid=owner_uid,
             http_request=http_request,
+            idempotency_key=key,
+            idempotency_endpoint=endpoint,
         ),
         media_type="text/event-stream",
         headers={

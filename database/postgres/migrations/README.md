@@ -49,3 +49,13 @@ failed or count-mismatched Qdrant/Neo4j row.
 with matching fingerprint/counts, records `previous_dataset_id` and advances
 a monotonic generation under an advisory lock. The physical previous
 projections must still exist before an operator uses it for rollback.
+
+`20260835_idempotency.sql` adds the owner/endpoint/key ledger used by the chat
+retry boundary. It stores only a request hash and bounded public response;
+expired rows may be pruned by a scheduled maintenance command outside the API
+request path.
+
+`20260837_retrieval_document_indexes.sql` adds the missing legal-unit document
+locator for bounded operative expansion; chunks already have a unique
+`(dataset_id, document_id, chunk_order)` access path. It changes only query
+access paths and does not rewrite corpus data or move the active release pointer.

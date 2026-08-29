@@ -45,6 +45,27 @@ def test_cache_is_release_scoped():
     asyncio.run(scenario())
 
 
+def test_cache_is_prompt_scoped():
+    async def scenario():
+        cache = ConversationContextCache(ttl_seconds=60, max_turns=2)
+
+        async def loader():
+            return [{"turn_id": "prompt-a"}]
+
+        await cache.get_or_load(
+            owner_uid="u", conversation_id="c", release_id="r",
+            prompt_version="prompt-a", loader=loader,
+        )
+        assert await cache.get(
+            owner_uid="u", conversation_id="c", release_id="r", prompt_version="prompt-a"
+        ) == [{"turn_id": "prompt-a"}]
+        assert await cache.get(
+            owner_uid="u", conversation_id="c", release_id="r", prompt_version="prompt-b"
+        ) is None
+
+    asyncio.run(scenario())
+
+
 def test_redis_failure_falls_back_to_private_memory_without_data_loss():
     class BrokenRedis:
         async def get(self, _key):

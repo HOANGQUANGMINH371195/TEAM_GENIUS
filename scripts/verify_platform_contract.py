@@ -47,8 +47,9 @@ def main() -> int:
         "research_worker_dockerfile_exists": worker_dockerfile_path.is_file(),
         "research_worker_has_no_http_healthcheck": "HEALTHCHECK" not in worker_dockerfile,
         "research_worker_cmd_is_module": 'CMD ["-m", "src.research_worker"]' in worker_dockerfile,
-        "research_worker_is_non_root": "distroless/python3-debian12:nonroot" in worker_dockerfile
-        and "USER 65532:65532" in worker_dockerfile,
+        "research_worker_is_non_root": "FROM python:3.11-slim-bookworm" in worker_dockerfile
+        and "USER 10001:10001" in worker_dockerfile
+        and "apt-get dist-upgrade -y" in worker_dockerfile,
         "research_worker_requires_redis": any(
             item.get("key") == "RESEARCH_QUEUE_BACKEND" and item.get("value") == "redis"
             for item in worker.get("envVars") or []
@@ -82,7 +83,8 @@ def main() -> int:
             f"LANGFUSE_{name}:" in compose
             for name in ("PUBLIC_KEY", "SECRET_KEY", "HOST", "BASE_URL")
         ),
-        "backend_runtime_is_non_root": "distroless/python3-debian12:nonroot" in dockerfile,
+        "backend_runtime_is_non_root": "USER 10001:10001" in dockerfile
+        and "apt-get dist-upgrade -y" in dockerfile,
         "web_runtime_is_non_root": "cgr.dev/chainguard/node" in web_dockerfile,
         "vercel_is_nextjs": vercel.get("framework") == "nextjs",
         "vercel_has_security_headers": "Content-Security-Policy" in vercel_text

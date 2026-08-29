@@ -24,7 +24,7 @@ services:
       - key: QDRANT_API_KEY
         sync: false
       - key: QDRANT_COLLECTION
-        value: medical_legal_active
+        sync: false
       - key: NEO4J_URI
         sync: false
       - key: NEO4J_USERNAME
@@ -43,6 +43,22 @@ services:
         sync: false
       - key: LANGFUSE_BASE_URL
         sync: false
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_HEADERS
+        sync: false
+      - key: OTEL_SERVICE_NAME
+        value: medipay-api
+      - key: OTEL_SAMPLING_RATIO
+        value: "0.1"
+      - key: OTEL_MAX_QUEUE_SIZE
+        value: "2048"
+      - key: OTEL_MAX_EXPORT_BATCH_SIZE
+        value: "256"
+      - key: OTEL_SCHEDULE_DELAY_MILLIS
+        value: "5000"
+      - key: OTEL_EXPORT_TIMEOUT_SECONDS
+        value: "5"
       - key: MODEL_NAME
         sync: false
       - key: LLM_MAX_OUTPUT_TOKENS

@@ -1,11 +1,12 @@
 # Neo4j knowledge graph
 
 Neo4j là nơi duy nhất lưu knowledge graph: document nodes và các relationship
-từ release authority đã qualify. Release hiện tại được dựng từ
-`data/clean/medical_active_v31_fully_reviewed/relationships.csv`.
+từ release authority đã qualify. Import phải dùng đúng source archive và release
+lock tương ứng; thư mục `data/clean/` trong checkout có thể không chứa đủ source
+CSV để tái dựng active release.
 Supabase/PostgreSQL chỉ lưu canonical document, alias resolution, chunk và
-table; không lưu relationship hoặc reference-only stub. Vector của release
-Free-tier hiện tại được giữ ngoài PostgreSQL để chờ chuyển Qdrant.
+table; không lưu relationship hoặc reference-only stub. Vector derived được giữ
+ở Qdrant, không đưa trở lại PostgreSQL Free-tier.
 
 ## Local development
 
@@ -37,17 +38,13 @@ import vào Neo4j. Online expansion và endpoint relationships phải bổ sung
 `r.serving_status = 'approved_evidence'`; các cạnh audit-only không được dùng
 để tạo câu trả lời hay cảnh báo hiệu lực.
 
-Báo cáo ngày 2026-08-18 từng ghi `snapshot-c439751724ab7f10` parity-pass với
-1.901 nodes (682 canonical, 1.211 reference-only, 8 alias), 5.808 legal
-relationships và 8 `ALIAS_OF` edges. Ngày 2026-08-27, sau khi chạy đúng
-builder `source_commit=1b98f44`, fingerprint/count/hash của PostgreSQL, Qdrant
-và Neo4j đã khớp release lock. Snapshot cũ
-`snapshot-c94d7b75195a67fa` đã được backup rồi xoá có kiểm soát; active release
-được giữ nguyên (1.901 nodes, 5.816 relationships sau cleanup). Backup JSON
-được lưu trong `.cache/` và bị git-ignore để điều tra/khôi phục thủ công khi
-cần. Không dùng file `live_parity.json` cũ để quyết định deploy; mọi query
-graph online vẫn phải lấy `dataset_id` active từ Supabase. Supabase vẫn giữ
-text/chunk lexical; 14.393 vector 1536 chiều được offload vào artifact local.
+Các báo cáo parity cũ chỉ là lịch sử, không phải bằng chứng deploy hiện tại.
+Preflight live ngày 2026-08-28 xác nhận Neo4j kết nối được nhưng đang có
+1.914 nodes và 197 cạnh `approved_evidence`, trong khi release lock yêu cầu
+1.901 và 187. Vì vậy readiness Neo4j vẫn fail. Phải backup, chạy parity report
+và chỉ reconcile release được chỉ định; không xóa active release hoặc dùng file
+`live_parity.json` cũ để vượt gate. Supabase vẫn giữ text/chunk lexical; Qdrant
+đang giữ 14.393 vector 1536 chiều ở collection vật lý theo release.
 
 Typed facts có một bước export riêng để bảo đảm Neo4j chỉ nhận các dòng đã
 được reviewer duyệt trong `public.legal_facts`:

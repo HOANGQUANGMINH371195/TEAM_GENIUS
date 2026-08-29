@@ -133,18 +133,18 @@ def main() -> int:
                 "medipay-api-local:latest",
                 "medipay-web-local:latest",
                 "medipay-migrate:latest",
-                "medipay-corpus-worker:latest",
+                "medipay-research-worker:latest",
             )
         },
         "volumes": volume_sizes("local-full"),
         "tracked_secret_pattern_hits": secret_hits,
         "sbom_reports": {
             image: str(ROOT / f"eval/results/sbom-{image}.json")
-            for image in ("api", "web", "migrate", "pipeline")
+            for image in ("api", "web", "migrate", "research-worker")
         },
         "high_critical_cve_reports": {
             image: sarif_result_count(ROOT / f"eval/results/cves-{image}-high-critical.sarif")
-            for image in ("api", "web", "migrate", "pipeline")
+            for image in ("api", "web", "migrate", "research-worker")
         },
     }
     report["security_gate_pass"] = all(

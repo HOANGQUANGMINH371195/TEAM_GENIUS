@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import date
@@ -134,6 +135,54 @@ def extract_query_terms(query: str, *, limit: int = 24) -> list[str]:
             if len(token) > 2 and token.casefold() not in _RETRIEVAL_STOPWORDS
         )
     )[: max(0, limit)]
+
+
+def filter_relations_by_query(query: str, relations: Sequence[object]) -> list[object]:
+    """Keep graph relations whose typed label matches the user's request.
+
+    This is ontology-driven, not a question-to-document mapping.  Relation
+    labels are compared to query-derived terms and generic label words are
+    removed by selectivity across the returned graph set.  If no informative
+    label matches, the complete bounded set is retained for recall.
+    """
+    items = list(relations)
+    if len(items) <= 1:
+        return items
+    def fold(term: str) -> str:
+        # Graph relationship slugs are often ASCII (``Sửa`` -> ``Sua``) while
+        # user text keeps Vietnamese diacritics.  Compare both forms without
+        # maintaining a question-to-answer vocabulary.
+        value = term.replace("đ", "d").replace("Đ", "D")
+        return "".join(
+            char for char in unicodedata.normalize("NFD", value)
+            if unicodedata.category(char) != "Mn"
+        ).casefold()
+
+    query_terms = {fold(term) for term in extract_query_terms(query)}
+    if not query_terms:
+        return items
+    label_terms = [
+        set(
+            fold(term)
+            for term in extract_query_terms(
+                str(getattr(item, "relation_type", "")).replace("_", " ")
+            )
+        )
+        for item in items
+    ]
+    frequencies: dict[str, int] = defaultdict(int)
+    for terms in label_terms:
+        for term in terms:
+            frequencies[term] += 1
+    informative = {
+        term for term, frequency in frequencies.items()
+        if frequency <= max(1, len(items) // 2)
+    }
+    matched = [
+        item for item, terms in zip(items, label_terms)
+        if query_terms & terms & informative
+    ]
+    return matched or items
 
 
 def exclude_unverified_legacy_subordinate_sources(
@@ -587,6 +636,17 @@ def rerank_legal_candidates(
         recency_bonus = 0.0
         if not historical_query and publication_year:
             recency_bonus = 0.20 * max(0.0, min(1.0, (publication_year - 1990) / 40))
+        # Effective-date proximity is a stronger current-regime signal than
+        # publication wording alone. It is derived from each document's
+        # metadata, so a current primary instrument can outrank an older
+        # reproduction without a question-to-document mapping.
+        effective_years = re.findall(r"\b(?:19|20)\d{2}\b", item.effective_from)
+        effective_year = max((int(value) for value in effective_years), default=0)
+        if not historical_query and effective_year:
+            if effective_year >= current_year - 2:
+                recency_bonus += 0.20
+            elif asks_current and effective_year < current_year - 5:
+                recency_bonus -= 0.08
         # For a question explicitly about the current regime, an old document
         # whose status cannot be tied to an official source is still useful
         # historical context, but cannot compete with an official current

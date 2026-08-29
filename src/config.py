@@ -118,6 +118,24 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = ""
     langfuse_host: str = ""
     langfuse_base_url: str = ""
+    # Langfuse Prompt Registry lineage.  The local prompt remains a safe
+    # fallback for tests/offline operation; production records the selected
+    # registry version in every generation trace.
+    prompt_registry_name: str = "medipay-system"
+    prompt_registry_label: str = "production"
+    prompt_registry_cache_ttl_seconds: int = Field(default=300, ge=30, le=86_400)
+
+    # Optional OTLP/HTTP exporter. Empty endpoint deliberately keeps local
+    # development dependency-free while production can point at Langfuse or a
+    # self-hosted collector without changing the request path.
+    otel_exporter_otlp_endpoint: str = ""
+    otel_exporter_otlp_headers: str = ""
+    otel_service_name: str = "medipay-api"
+    otel_sampling_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
+    otel_max_queue_size: int = Field(default=2048, ge=128, le=20_000)
+    otel_max_export_batch_size: int = Field(default=256, ge=32, le=2_048)
+    otel_schedule_delay_millis: int = Field(default=5_000, ge=100, le=60_000)
+    otel_export_timeout_seconds: float = Field(default=5.0, gt=0.1, le=30.0)
 
     # Explicit kill switches for staged rollout and rollback.
     feature_planner_enabled: bool = True

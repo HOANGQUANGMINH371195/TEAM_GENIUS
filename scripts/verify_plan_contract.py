@@ -115,10 +115,11 @@ def main() -> int:
     checks["dedicated_worker_container_contract"] = all(
         marker in worker_dockerfile
         for marker in (
-            "distroless/python3-debian12:nonroot",
-            'ENTRYPOINT ["/usr/bin/python3.11"]',
+            "FROM python:3.11-slim-bookworm",
+            'ENTRYPOINT ["/usr/local/bin/python3.11"]',
             'CMD ["-m", "src.research_worker"]',
-            "USER 65532:65532",
+            "USER 10001:10001",
+            "apt-get dist-upgrade -y",
         )
     ) and "HEALTHCHECK" not in worker_dockerfile and "dockerfilePath: ./Dockerfile.worker" in worker_blueprint
 

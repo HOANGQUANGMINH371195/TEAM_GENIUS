@@ -2,7 +2,10 @@ SHELL := /usr/bin/env bash
 
 COMPOSE ?= docker compose
 UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
-PYTHON ?= UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python
+# Keep every developer command self-contained: a fresh clone may not have a
+# pre-created .venv yet, so resolve the locked development environment through
+# uv instead of relying on whichever interpreter happens to be on PATH.
+PYTHON ?= UV_CACHE_DIR=$(UV_CACHE_DIR) uv run --python 3.11 --with-requirements requirements/dev.lock python
 WEB_NPM ?= npm --prefix web
 ENV_FILE ?= .env
 LOCAL_PROFILE ?= local-full
@@ -11,7 +14,10 @@ RELEASE_ROOT ?= .
 .DEFAULT_GOAL := help
 .PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation verify-release-artifacts typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker collect-production-evidence migrate plan-completion \
 	build up dev down restart logs health deploy-contract render-validate \
-	build-worker deploy-render deploy-vercel clean
+	build-worker deploy-render deploy-vercel aws-config aws-up aws-migrate ansible-bootstrap promptfoo clean
+
+PROD_COMPOSE ?= ops/compose/production.yml
+ANSIBLE_INVENTORY ?= ops/ansible/inventory.ini
 
 help:
 	@echo "MediPay developer commands"
@@ -38,6 +44,11 @@ help:
 	@echo "  make render-validate    Validate render.yaml (CLI if installed, structural fallback otherwise)"
 	@echo "  make deploy-render      Trigger an existing Render service deploy"
 	@echo "  make deploy-vercel      Deploy web/ through Vercel CLI (requires VERCEL_TOKEN)"
+	@echo "  make aws-config        Validate the immutable AWS Compose profile"
+	@echo "  make aws-up            Start the AWS single-host Compose profile"
+	@echo "  make aws-migrate       Run the pinned one-shot migration image"
+	@echo "  make ansible-bootstrap Bootstrap EC2 with ops/ansible (vars are external)"
+	@echo "  make promptfoo         Run offline Promptfoo red-team checks"
 	@echo "  make typed-facts-export Export reviewed legal_facts for Neo4j (FACTS_FILE/RELEASE_ID)"
 	@echo "  make migrate           Apply ordered PostgreSQL migrations with advisory lock (ENV_FILE)"
 	@echo "  make clean              Remove only reproducible caches/build output"
@@ -161,6 +172,24 @@ render-validate:
 		echo "Render CLI unavailable or unauthenticated; running repository structural contract"; \
 		$(PYTHON) scripts/verify_platform_contract.py; \
 	fi
+
+aws-config:
+	@test -n "$(API_IMAGE)" -a -n "$(WEB_IMAGE)" -a -n "$(MIGRATION_IMAGE)" -a -n "$(MEDIPAY_DOMAIN)" || { echo "Set API_IMAGE, WEB_IMAGE, MIGRATION_IMAGE and MEDIPAY_DOMAIN"; exit 2; }
+	docker compose -f $(PROD_COMPOSE) --profile monitoring config --quiet
+
+aws-up: aws-config
+	docker compose -f $(PROD_COMPOSE) --profile monitoring up -d --remove-orphans
+
+aws-migrate:
+	@test -n "$(MIGRATION_IMAGE)" || { echo "Set MIGRATION_IMAGE to an immutable migration digest"; exit 2; }
+	docker compose -f $(PROD_COMPOSE) --profile migration run --rm migrate
+
+ansible-bootstrap:
+	@test -f "$(ANSIBLE_INVENTORY)" || { echo "Copy ops/ansible/inventory.ini.example to $(ANSIBLE_INVENTORY)"; exit 2; }
+	ansible-playbook -i "$(ANSIBLE_INVENTORY)" ops/ansible/site.yml --ask-become-pass --extra-vars @vault-production.yml
+
+promptfoo:
+	npx --yes promptfoo@latest eval -c eval/promptfoo.yaml --no-cache
 
 deploy-render: env-check-production render-validate
 	$(PYTHON) scripts/deploy.py render --env-file $(ENV_FILE)

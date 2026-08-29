@@ -18,23 +18,10 @@ make verify-plan
 All three commands must pass. `implementation-gate` only proves that the code
 paths and focused contracts exist; it does not prove production readiness.
 
-For the local durable-worker preflight (no provider call is made), verify the
-image and process contract before requesting managed infrastructure:
+The research worker is optional tooling and is not part of the AWS request path;
+do not block API promotion on that service.
 
-```bash
-docker compose --profile local-full --profile research-worker build research-worker
-docker image inspect medipay-research-worker:latest \
-  --format 'user={{.Config.User}} cmd={{json .Config.Cmd}} health={{json .Config.Healthcheck}}'
-docker compose --profile local-full --profile research-worker up -d research-worker
-docker compose --profile local-full --profile research-worker ps research-worker
-docker compose --profile local-full --profile research-worker stop research-worker
-```
-
-The expected image invariants are non-root user `65532:65532`, command
-`-m src.research_worker`, and a null healthcheck. This local proof does not
-close the managed worker/Redis promotion gate.
-
-## 2. Produce the five outstanding evidence artifacts
+## 2. Produce the mandatory production evidence artifacts
 
 | PLAN item | Required artifact | Who/where it comes from | Closing command |
 |---|---|---|---|
@@ -42,7 +29,7 @@ close the managed worker/Redis promotion gate.
 | Independent reranker comparison | Reviewed ablation JSON with pinned model/config | Reproducible run plus two-person review of the comparison | Attach to the production attestation; do not infer from unit tests |
 | Abstention/clarification calibration | `human-legal-review-v1` labels and calibrator artifact | At least two independent legal reviewers | `make calibrate-claims LABELS_FILE=... OUTPUT=...` |
 | Dense/document-graph/live trace comparison | Paired trace report with route, latency and quality deltas | Same release and fixture, independently inspected | Include hashes and paired-run metadata in attestation |
-| Durable research worker | Managed Redis + Render worker deployment and parity report | Operator with permission to incur managed-service cost | Validate Render blueprint, run worker drill, then attach rollback/outage evidence |
+| AWS host/deploy/recovery | Ansible transcript, TLS/readiness, rollback and restore report | Operator with the AWS account and the active release | Run the single-host drill; attach logs and image/release digests |
 
 The human review packet must be built from redacted answers:
 
@@ -73,18 +60,29 @@ been executed. A green deterministic test suite alone is insufficient.
 ## 4. Current known external prerequisites
 
 The repository cannot create these without explicit operator authorization;
-they are **deferred and non-blocking** for the current accuracy × latency ×
-feature release:
+they are **optional** and are not part of the AWS production request path:
 
-- a non-suspended durable Redis instance and a Render research-worker service;
-- accepted, provenance-hashed typed BHYT facts for the active release;
+- a managed durable Redis instance or a separate research-worker service;
+- accepted, provenance-hashed typed BHYT facts for a future fact-graph release;
 - provider batch receipts reconciled to the cost ledger.
 
 The following remain blocking because they directly measure the chosen release
 axes:
 
-- authenticated Render/Vercel cold, warm, concurrency, outage and rollback runs;
-- independent legal review of accuracy and citation support.
+- authenticated AWS endpoint cold, warm, concurrency, outage and rollback runs;
+- independent legal review of accuracy and citation support;
+- Qdrant active-collection configuration and Neo4j release parity evidence.
+
+For the current release, resolve the data-plane blockers in this order:
+
+1. Read `active_dataset_id` and its Qdrant projection locator from PostgreSQL;
+   set the host `QDRANT_COLLECTION` to that locator and re-run `/ready`.
+2. Run `database/corpus/verify_live_corpus_parity.py` in read-only mode against
+   the pinned source/release lock. If Neo4j differs, create a backup and use
+   `database/neo4j/scripts/cleanup_stale_release.py --dry-run`; never delete the
+   active release or repair counts by hand.
+3. Repeat `/ready`, one authenticated `/chat`, one `/chat/stream`, and the
+   rollback drill. Attach the raw JSON reports to the attestation.
 
 Until those artifacts exist, `PLAN.md` must retain unchecked boxes and the
 system must not be described as production-ready or SOTA.

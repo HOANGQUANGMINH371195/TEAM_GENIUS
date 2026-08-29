@@ -7,6 +7,9 @@ from src.db.repositories import GraphRepository
 
 
 class _Result:
+    def scalar(self):
+        return True
+
     def __iter__(self):
         return iter(
             [
@@ -58,4 +61,4 @@ async def test_table_fact_retrieval_returns_canonical_unit_text_and_hash():
     assert result.source_start == 100
     assert result.source_end == 160
     assert "u.text_sha256 <> ''" in session.statement
-    assert "f.review_status = 'accepted'" in session.statement
+    assert "f.payload ->> 'review_status'" in session.statement

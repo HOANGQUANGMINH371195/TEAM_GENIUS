@@ -18,10 +18,30 @@ def test_high_risk_temporal_route_is_bounded_and_graph_optional():
     assert plan.max_candidates <= 30
 
 
-def test_table_route_requires_postgres_and_qdrant_is_not_needed_for_arithmetic():
+def test_open_currentness_question_does_not_pay_for_graph_hop():
+    plan = build_route_plan(
+        "Theo luật hiện hành, văn bản nào còn hiệu lực?",
+        settings=Settings(feature_graph_enabled=True),
+    )
+    assert plan.route == "temporal"
+    assert plan.providers == ("postgres", "qdrant")
+
+
+def test_table_route_keeps_dense_fallback_when_no_typed_fact_exists():
     plan = build_route_plan("BHYT thanh toán bao nhiêu phần trăm chi phí?", settings=Settings())
     assert plan.route == "table"
-    assert plan.providers == ("postgres",)
+    assert plan.providers == ("postgres", "qdrant")
+
+
+def test_identifier_relationship_route_keeps_bounded_graphrag():
+    plan = build_route_plan(
+        "Văn bản 51/2024/QH15 sửa đổi văn bản nào và quan hệ thay thế ra sao?",
+        settings=Settings(feature_graph_enabled=True),
+    )
+    # “thay thế” is both a temporal-status and relationship signal; the
+    # temporal route still carries Neo4j so the bounded GraphRAG path is used.
+    assert plan.route == "temporal"
+    assert plan.providers == ("postgres", "qdrant", "neo4j")
 
 
 def test_deep_route_is_reserved_for_explicit_multi_source_analysis():

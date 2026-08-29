@@ -10,6 +10,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_promptfoo:
+        description: "Run offline Promptfoo regression/red-team suite"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   deterministic-release-gates:
@@ -72,7 +77,10 @@ jobs:
       QDRANT_URL: ${{ secrets.QDRANT_URL }}
       QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
       QDRANT_COLLECTION: medical_legal_active
-      MODEL_NAME: gpt-4.1-mini
+      MODEL_NAME: ${{ secrets.MODEL_NAME || 'gpt-5.6-luna' }}
+      EVAL_MODEL_NAME: ${{ secrets.EVAL_MODEL_NAME || 'gpt-4o-mini' }}
+      PROMPT_REGISTRY_NAME: medipay-system
+      PROMPT_REGISTRY_LABEL: production
       EVAL_AGENT_MODE: read_only
     steps:
       - uses: actions/checkout@v4
@@ -86,9 +94,23 @@ jobs:
       - name: Run full read-only RAGAS evaluation
         run: >-
           python eval/golden_eval.py live --source-dir data/raw --out eval/results/nightly-ragas
-          --count 30 --ragas-python .eval-ragas-venv/bin/python --evaluator-model gpt-4o-mini
+          --count 30 --ragas-python .eval-ragas-venv/bin/python
+          --evaluator-model "${EVAL_MODEL_NAME:-gpt-4o-mini}"
           --embedding-model text-embedding-3-small --concurrency 3 --threshold 0.60
       - uses: actions/upload-artifact@v4
         with:
           name: nightly-ragas
           path: eval/results/nightly-ragas
+
+  promptfoo-redteam:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_promptfoo
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run Promptfoo regression and red-team checks
+        run: npx --yes promptfoo@latest eval -c eval/promptfoo.yaml --no-cache

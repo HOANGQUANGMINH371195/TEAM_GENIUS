@@ -7,6 +7,7 @@ from src.services.retrieval import (
     exclude_unverified_legacy_subordinate_sources,
     extract_document_numbers,
     filter_current_authority_candidates,
+    filter_relations_by_query,
     is_metadata_question,
     is_simple_status_metadata_question,
     no_answer_response,
@@ -25,6 +26,19 @@ from src.services.retrieval import (
 def test_complex_document_questions_do_not_use_lookup_fast_path():
     assert retrieval_intent("Văn bản 123/2020/TT-BYT sửa đổi văn bản nào?") == "relational"
     assert retrieval_intent("Văn bản 123/2020/TT-BYT còn hiệu lực không?") == "temporal"
+
+
+def test_graph_relation_filter_uses_typed_label_overlap_not_document_mapping():
+    from src.models.graph import Relation
+
+    relations = [
+        Relation(source="A", target="B", relation_type="REL_Sua_oi_bo_sung"),
+        Relation(source="A", target="C", relation_type="REL_Can_cu"),
+    ]
+    selected = filter_relations_by_query(
+        "Văn bản này sửa đổi văn bản nào?", relations
+    )
+    assert [item.relation_type for item in selected] == ["REL_Sua_oi_bo_sung"]
 
 
 def test_identifier_parser_accepts_qh_suffix_with_digits():

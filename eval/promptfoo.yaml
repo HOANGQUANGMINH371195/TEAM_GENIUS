@@ -1,0 +1,15 @@
+description: MediPay offline prompt-injection and leakage regression
+
+# This suite is intentionally outside the request path.  Replace the provider
+# with the release-candidate adapter before a live run; this default smoke
+# provider is never included in production containers.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    config:
+      temperature: 0
+      max_tokens: 500
+
+prompts:
+  - file://prompts/grounded-answer.txt
+
+tests: file://redteam/cases.yaml

@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
 from src.config import get_settings
+from src.integrations.otel import otel_span
 
 logger = logging.getLogger(__name__)
 
 _configured = False
 _runtime_available: bool | None = None
+_prompt_cache: tuple[str, str, float] | None = None
 
 
 def tracing_enabled() -> bool:
@@ -80,6 +83,63 @@ def llm_invoke_config() -> dict[str, Any]:
     return {"callbacks": [handler]}
 
 
+def resolve_prompt(default_prompt: str) -> tuple[str, str]:
+    """Resolve the production prompt from Langfuse with a bounded local cache.
+
+    Prompt retrieval is fail-open for local/offline operation, but the
+    returned version is always explicit (registry version or content hash),
+    allowing a benchmark and a live trace to be reproduced exactly.
+    """
+    global _prompt_cache
+    settings = get_settings()
+    fallback_version = "local:" + __import__("hashlib").sha256(
+        default_prompt.encode("utf-8")
+    ).hexdigest()[:16]
+    now = time.monotonic()
+    if _prompt_cache and now - _prompt_cache[2] < settings.prompt_registry_cache_ttl_seconds:
+        return _prompt_cache[0], _prompt_cache[1]
+    if not tracing_enabled() or not settings.prompt_registry_name.strip():
+        _prompt_cache = (default_prompt, fallback_version, now)
+        return default_prompt, fallback_version
+    try:
+        configure_langfuse()
+        from langfuse import get_client
+
+        client = get_client()
+        try:
+            prompt = client.get_prompt(
+                settings.prompt_registry_name,
+                label=settings.prompt_registry_label or None,
+                cache_ttl_seconds=settings.prompt_registry_cache_ttl_seconds,
+            )
+        except TypeError:
+            # Older Langfuse SDKs do not expose cache_ttl_seconds.
+            prompt = client.get_prompt(
+                settings.prompt_registry_name,
+                label=settings.prompt_registry_label or None,
+            )
+        text = getattr(prompt, "prompt", None)
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("Langfuse prompt is empty")
+        version = getattr(prompt, "version", None)
+        version_text = f"langfuse:{settings.prompt_registry_name}:{version}" if version is not None else (
+            "langfuse:" + settings.prompt_registry_name
+        )
+        _prompt_cache = (text, version_text, now)
+        return text, version_text
+    except Exception:
+        # A telemetry/control-plane outage must not make a healthy model
+        # unusable.  The local hash still gives operators a precise lineage.
+        logger.warning("Langfuse Prompt Registry unavailable; using local prompt", exc_info=True)
+        _prompt_cache = (default_prompt, fallback_version, now)
+        return default_prompt, fallback_version
+
+
+def reset_prompt_cache() -> None:
+    global _prompt_cache
+    _prompt_cache = None
+
+
 @asynccontextmanager
 async def trace_span(
     name: str,
@@ -90,7 +150,8 @@ async def trace_span(
 ):
     global _runtime_available
     if not tracing_enabled() or _runtime_available is False:
-        yield None
+        with otel_span(name, metadata=metadata) as observation:
+            yield observation
         return
     try:
         configure_langfuse()
@@ -102,18 +163,20 @@ async def trace_span(
         # retrieval request into a user-visible outage.
         _runtime_available = False
         logger.warning("Langfuse trace unavailable; continuing without tracing")
-        yield None
+        with otel_span(name, metadata=metadata) as observation:
+            yield observation
         return
 
-    with observation_context as observation:
-        updates: dict[str, Any] = {}
-        if input is not None:
-            updates["input"] = input
-        if metadata:
-            updates["metadata"] = dict(metadata)
-        if updates:
-            observation.update(**updates)
-        yield observation
+    with otel_span(name, metadata=metadata) as otel_observation:
+        with observation_context as observation:
+            updates: dict[str, Any] = {}
+            if input is not None:
+                updates["input"] = input
+            if metadata:
+                updates["metadata"] = dict(metadata)
+            if updates:
+                observation.update(**updates)
+            yield observation if observation is not None else otel_observation
 
 
 def flush_langfuse() -> None:

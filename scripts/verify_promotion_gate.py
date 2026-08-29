@@ -14,28 +14,46 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _status_rows(plan: str) -> list[dict[str, str]]:
+    """Parse either the current Vietnamese status ledger or legacy English one."""
     rows: list[dict[str, str]] = []
     in_ledger = False
+    status_index = 2
     for line in plan.splitlines():
         if line.startswith("| Area | Current evidence | Status |"):
             in_ledger = True
+            status_index = 2
             continue
-        if in_ledger and line.startswith("Do not run"):
+        if line.startswith("| Hạng mục | Trạng thái | Điều kiện đóng |"):
+            in_ledger = True
+            status_index = 1
+            continue
+        if in_ledger and (line.startswith("Do not run") or not line.startswith("|")):
+            if line.strip() and not line.lstrip().startswith("|"):
+                in_ledger = False
             break
         if not in_ledger or not line.startswith("|"):
             continue
         columns = [value.strip() for value in line.strip("|").split("|")]
-        if len(columns) != 3 or columns[0] == "---":
+        if len(columns) != 3 or columns[0] == "---" or set(columns) == {"---"}:
             continue
-        rows.append({"area": columns[0], "evidence": columns[1], "status": columns[2]})
+        if status_index == 2:
+            rows.append({"area": columns[0], "evidence": columns[1], "status": columns[2]})
+        else:
+            rows.append({"area": columns[0], "evidence": "", "status": columns[1]})
     return rows
 
 
 def main() -> int:
     rows = _status_rows((ROOT / "PLAN.md").read_text(encoding="utf-8"))
+    # The authoritative PLAN is Vietnamese; retain the legacy English tokens
+    # for older branches but treat explicit negative status words as blockers.
+    blocker_markers = (
+        "partial", "not implemented", "not passed", "pending", "chưa", "đang fail",
+        "lệch", "thiếu", "chưa đạt", "chưa được",
+    )
     production_blockers = [
         row for row in rows
-        if any(marker in row["status"].casefold() for marker in ("partial", "not implemented", "not passed", "pending"))
+        if any(marker in row["status"].casefold() for marker in blocker_markers)
     ]
     implementation_blockers = [
         row for row in rows

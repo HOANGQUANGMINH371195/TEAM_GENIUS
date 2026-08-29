@@ -168,8 +168,10 @@ phải gọi lại API, dùng Git LFS, Supabase Storage hoặc object storage ri
 Chunker v5 dùng legal unit → paragraph/sentence → gom tối đa 320 approximate
 tokens, bỏ structural-only chunks và tạo table-row passages có header context.
 Release active `snapshot-c439751724ab7f10` có 682 documents, 37.170 passages,
-28.285 legal units và 5.808 legal relationships; 14.393 passages cần embedding
-và đang chờ upload vào Qdrant.
+28.285 legal units và 5.808 legal relationships; 14.393 semantic passages đã
+được giữ ở Qdrant physical release collection. Runtime tự đối chiếu collection
+theo `dataset_id` và exact point count, nhưng locator trong release metadata
+phải được chuẩn hóa trước khi đóng parity gate.
 
 ## Supabase Free
 

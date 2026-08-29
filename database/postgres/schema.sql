@@ -130,6 +130,23 @@ create index if not exists conversations_owner_updated_idx
 create index if not exists conversation_turns_owner_created_idx
     on public.conversation_turns(owner_uid, conversation_id, created_at desc);
 
+create table if not exists public.idempotency_records (
+    owner_uid text not null references public.users(uid) on delete cascade,
+    endpoint text not null,
+    idempotency_key text not null,
+    request_hash text not null,
+    status text not null check (status in ('processing', 'completed')),
+    request_id text not null default '',
+    response jsonb,
+    created_at timestamptz not null default now(),
+    expires_at timestamptz not null default (now() + interval '24 hours'),
+    primary key (owner_uid, endpoint, idempotency_key),
+    constraint idempotency_key_length check (char_length(idempotency_key) between 8 and 128),
+    constraint idempotency_hash_length check (char_length(request_hash) = 64),
+    constraint idempotency_completed_response check (status = 'processing' or response is not null)
+);
+create index if not exists idempotency_expiry_idx on public.idempotency_records(expires_at);
+
 create table if not exists public.review_queue_items (
     review_id text primary key,
     domain text not null check (domain in ('legal_document', 'hospital_fee_ocr')),
@@ -315,6 +332,9 @@ create index if not exists table_cell_facts_value_idx
     on table_cell_facts(dataset_id, value_normalized);
 create index if not exists table_cell_facts_document_unit_idx
     on table_cell_facts(dataset_id, document_id, legal_unit_id);
+create index if not exists table_cell_facts_accepted_dataset_idx
+    on table_cell_facts(dataset_id)
+    where payload ->> 'review_status' = 'accepted';
 
 -- Typed facts are a reviewed projection.  Canonical text and provenance remain
 -- in documents/legal_units; pending or rejected rows are never public.
@@ -393,6 +413,11 @@ create index if not exists dataset_documents_lexical_idx
     on documents using gin (document_search_vector);
 create index if not exists dataset_chunks_search_idx
     on chunks using gin (search_vector);
+-- Document-bounded operative expansion already uses the existing unique
+-- `(dataset_id, document_id, chunk_order)` index on chunks. Keep the extra
+-- index surface small because Supabase storage is constrained.
+create index if not exists dataset_legal_units_document_idx
+    on legal_units (dataset_id, document_id, source_start, unit_id);
 
 create or replace view active_document_nodes WITH (security_invoker = true) AS
 select n.*, r.fingerprint as dataset_version

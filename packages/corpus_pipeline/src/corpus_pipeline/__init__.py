@@ -1,5 +1,10 @@
-"""Stable offline corpus-pipeline import boundary."""
+"""Stable offline corpus-pipeline import boundary.
 
-from .canonical import *  # noqa: F401,F403
+The package exposes its four pipeline modules explicitly.  Keeping module
+imports here avoids wildcard exports and makes the public surface predictable
+for both the CLI and downstream jobs.
+"""
+
+from . import canonical, page_index, retrieval, tables
 
 __all__ = ["canonical", "page_index", "retrieval", "tables"]

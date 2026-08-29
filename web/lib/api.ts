@@ -20,6 +20,9 @@ export type ChatCitation = {
 export type ChatResponse = {
   response: string;
   citations: ChatCitation[];
+  request_id?: string;
+  conversation_id?: string;
+  turn_id?: string;
 };
 
 export type ReviewQueueItem = {
@@ -42,7 +45,7 @@ export type ReviewQueueItem = {
 
 export type ChatStreamEvent =
   | { type: "status"; stage: string }
-  | { type: "final"; response: string; citations: ChatCitation[] }
+  | { type: "final"; response: string; citations: ChatCitation[]; request_id?: string; conversation_id?: string; turn_id?: string }
   | { type: "done"; ok: boolean }
   | { type: "error"; code: string; message: string };
 
@@ -50,6 +53,11 @@ export type ChatTurnContext = {
   conversationId?: string;
   turnId?: string;
 };
+
+function idempotencyKey(context: ChatTurnContext): string {
+  if (context.turnId && context.turnId.length >= 8) return `turn-${context.turnId}`;
+  return globalThis.crypto?.randomUUID?.() ?? `turn-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 type ApiError = {
   code?: string;
@@ -200,9 +208,10 @@ export async function sendChatMessage(
   signal?: AbortSignal,
 ): Promise<ChatResponse> {
   const authHeaders = await authorizationHeaders();
+  const requestIdempotencyKey = idempotencyKey(context);
   let response = await fetch(`${apiUrl}/api/v1/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders },
+    headers: { "Content-Type": "application/json", "Idempotency-Key": requestIdempotencyKey, ...authHeaders },
     body: JSON.stringify({ message, conversation_id: context.conversationId ?? "", turn_id: context.turnId ?? "" }),
     signal,
   });
@@ -210,7 +219,7 @@ export async function sendChatMessage(
     const refreshedHeaders = await authorizationHeaders(true);
     response = await fetch(`${apiUrl}/api/v1/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...refreshedHeaders },
+      headers: { "Content-Type": "application/json", "Idempotency-Key": requestIdempotencyKey, ...refreshedHeaders },
       body: JSON.stringify({ message, conversation_id: context.conversationId ?? "", turn_id: context.turnId ?? "" }),
       signal,
     });
@@ -236,9 +245,15 @@ export async function sendChatMessageStream(
   signal?: AbortSignal,
 ): Promise<ChatResponse> {
   const authHeaders = await authorizationHeaders();
+  const requestIdempotencyKey = idempotencyKey(context);
   let response = await fetch(`${apiUrl}/api/v1/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...authHeaders },
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      "Idempotency-Key": requestIdempotencyKey,
+      ...authHeaders,
+    },
     body: JSON.stringify({ message, conversation_id: context.conversationId ?? "", turn_id: context.turnId ?? "" }),
     signal,
   });
@@ -246,7 +261,12 @@ export async function sendChatMessageStream(
     const refreshedHeaders = await authorizationHeaders(true);
     response = await fetch(`${apiUrl}/api/v1/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...refreshedHeaders },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+        "Idempotency-Key": requestIdempotencyKey,
+        ...refreshedHeaders,
+      },
       body: JSON.stringify({ message, conversation_id: context.conversationId ?? "", turn_id: context.turnId ?? "" }),
       signal,
     });
@@ -290,7 +310,13 @@ export async function sendChatMessageStream(
     }
     onEvent(payload);
     if (payload.type === "final") {
-      final = { response: payload.response, citations: payload.citations };
+      final = {
+        response: payload.response,
+        citations: payload.citations,
+        request_id: payload.request_id,
+        conversation_id: payload.conversation_id,
+        turn_id: payload.turn_id,
+      };
     }
     if (payload.type === "error") throw new Error(payload.message);
   };

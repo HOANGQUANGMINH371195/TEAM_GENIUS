@@ -17,7 +17,7 @@ from typing import Any
 from src.config import get_settings
 from src.services.metrics import metrics
 
-CONTEXT_SCHEMA_VERSION = "v2"
+CONTEXT_SCHEMA_VERSION = "v3"
 
 
 class ConversationContextCache:
@@ -36,17 +36,23 @@ class ConversationContextCache:
                 self._redis = None
 
     @staticmethod
-    def _key(owner_uid: str, conversation_id: str, release_id: str = "") -> str:
+    def _key(
+        owner_uid: str,
+        conversation_id: str,
+        release_id: str = "",
+        prompt_version: str = "",
+    ) -> str:
         """Build an owner- and release-scoped key.
 
         A release is part of the identity even though the cached rows are only
         navigation context.  This prevents a conversation cache hit from
         carrying anchors from a retired corpus into a newly activated release.
-        ``release_id`` is optional for backwards-compatible local callers; the
-        API supplies it whenever the active-release pointer is available.
+        ``release_id`` and ``prompt_version`` are optional for backwards-
+        compatible local callers; the API supplies both whenever available.
         """
         digest = hashlib.sha256(
-            f"{CONTEXT_SCHEMA_VERSION}\x00{owner_uid}\x00{conversation_id}\x00{release_id}".encode()
+            f"{CONTEXT_SCHEMA_VERSION}\x00{owner_uid}\x00{conversation_id}\x00"
+            f"{release_id}\x00{prompt_version}".encode()
         ).hexdigest()
         return f"medipay:conversation-context:{digest}"
 
@@ -59,9 +65,14 @@ class ConversationContextCache:
         return [facts, *ordinary] if facts is not None else ordinary
 
     async def get(
-        self, *, owner_uid: str, conversation_id: str, release_id: str = ""
+        self,
+        *,
+        owner_uid: str,
+        conversation_id: str,
+        release_id: str = "",
+        prompt_version: str = "",
     ) -> list[dict[str, Any]] | None:
-        key = self._key(owner_uid, conversation_id, release_id)
+        key = self._key(owner_uid, conversation_id, release_id, prompt_version)
         if self._redis is not None:
             try:
                 raw = await self._redis.get(key)
@@ -84,8 +95,9 @@ class ConversationContextCache:
         conversation_id: str,
         turns: list[dict[str, Any]],
         release_id: str = "",
+        prompt_version: str = "",
     ) -> None:
-        key = self._key(owner_uid, conversation_id, release_id)
+        key = self._key(owner_uid, conversation_id, release_id, prompt_version)
         bounded = self._bounded(turns)
         if self._redis is not None:
             try:
@@ -104,15 +116,17 @@ class ConversationContextCache:
         conversation_id: str,
         loader: Callable[[], Awaitable[list[dict[str, Any]]]],
         release_id: str = "",
+        prompt_version: str = "",
     ) -> list[dict[str, Any]]:
         """Single-flight a cache miss so a new conversation cannot stampede SQL."""
-        key = self._key(owner_uid, conversation_id, release_id)
+        key = self._key(owner_uid, conversation_id, release_id, prompt_version)
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
             cached = await self.get(
                 owner_uid=owner_uid,
                 conversation_id=conversation_id,
                 release_id=release_id,
+                prompt_version=prompt_version,
             )
             if cached is not None:
                 return cached
@@ -122,13 +136,19 @@ class ConversationContextCache:
                 conversation_id=conversation_id,
                 turns=turns,
                 release_id=release_id,
+                prompt_version=prompt_version,
             )
             return self._bounded(turns)
 
     async def invalidate(
-        self, *, owner_uid: str, conversation_id: str, release_id: str = ""
+        self,
+        *,
+        owner_uid: str,
+        conversation_id: str,
+        release_id: str = "",
+        prompt_version: str = "",
     ) -> None:
-        key = self._key(owner_uid, conversation_id, release_id)
+        key = self._key(owner_uid, conversation_id, release_id, prompt_version)
         self._memory.pop(key, None)
         self._locks.pop(key, None)
         if self._redis is not None:

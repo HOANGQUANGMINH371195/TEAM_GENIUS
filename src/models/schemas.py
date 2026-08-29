@@ -10,6 +10,34 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class GroundedAnswer(ApiModel):
+    """Strict model-facing answer contract.
+
+    Provenance is deliberately owned by the retrieval/guardrail pipeline;
+    the model can only supply bounded prose fields.  This prevents fabricated
+    document identifiers or citations from becoming part of the public API.
+    """
+
+    conclusion: str = Field(..., min_length=1, max_length=4000)
+    conditions: list[str] = Field(default_factory=list, max_length=8)
+    exceptions: list[str] = Field(default_factory=list, max_length=8)
+    uncertainty: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("conditions", "exceptions")
+    @classmethod
+    def normalize_items(cls, values: list[str]) -> list[str]:
+        cleaned = [" ".join(value.split()) for value in values if value and value.strip()]
+        return cleaned[:8]
+
+    @field_validator("uncertainty")
+    @classmethod
+    def normalize_uncertainty(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        return normalized or None
+
+
 class ChatRequest(ApiModel):
     message: str = Field(
         ...,
@@ -62,6 +90,9 @@ class ChatResponse(ApiModel):
         default_factory=list,
         description="Các nguồn pháp lý công khai hỗ trợ câu trả lời.",
     )
+    request_id: str = Field(default="", max_length=128)
+    conversation_id: str = Field(default="", max_length=128)
+    turn_id: str = Field(default="", max_length=128)
 
 
 class AnalyzeResponse(ApiModel):
@@ -213,6 +244,7 @@ class ErrorResponse(ApiModel):
     code: str = Field(..., description="Mã lỗi ổn định cho client.")
     message: str = Field(..., description="Thông báo lỗi an toàn cho người dùng.")
     request_id: str = Field(..., description="ID dùng để tra log server-side.")
+    retryable: bool = Field(default=False, description="Client có thể retry với cùng idempotency key.")
 
 
 class ReadinessResponse(ApiModel):

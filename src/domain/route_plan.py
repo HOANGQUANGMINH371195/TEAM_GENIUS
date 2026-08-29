@@ -90,14 +90,24 @@ def build_route_plan(query: str, *, settings) -> RoutePlan:
         route = "deep"
     elif global_shape:
         route = "global"
-    elif extract_document_numbers(query) or intent == "lookup":
-        route: Route = "exact"
-    elif any(token in normalized for token in ("bao nhiêu tiền", "bao nhiêu %", "phần trăm", "tính", "chi phí")):
-        route = "table"
+    # An identifier does not make every request a plain lookup.  Relationship
+    # and temporal qualifiers must retain their specialized retrieval path so
+    # Neo4j can contribute bounded, typed edges before evidence is rehydrated
+    # from the authoritative stores.
     elif intent == "temporal":
         route = "temporal"
     elif intent == "relational":
         route = "relational"
+    elif extract_document_numbers(query) or intent == "lookup":
+        route = "exact"
+    elif any(
+        token in normalized
+        for token in (
+            "bao nhiêu", "phần trăm", "tỷ lệ", "mức đóng", "mức hỗ trợ",
+            "giá trị", "số tiền", "tính", "chi phí",
+        )
+    ):
+        route = "table"
     else:
         route = "topical"
 
@@ -106,15 +116,22 @@ def build_route_plan(query: str, *, settings) -> RoutePlan:
         for token in (
             "được hưởng", "được chi trả", "thanh toán", "mức hưởng", "hiệu lực",
             "bãi bỏ", "thay thế", "không được hưởng", "có được",
+            "bao nhiêu", "phần trăm", "tỷ lệ", "mức đóng", "mức hỗ trợ",
         )
     )
     risk: Literal["low", "medium", "high"] = "high" if high_risk else "medium"
     providers: list[str] = ["postgres"]
-    if route in {"topical", "temporal", "relational", "global", "deep"}:
+    # Numeric/percentage questions are table-shaped, but a corpus may not yet
+    # have a reviewed typed fact for every provision.  Keep dense recall as a
+    # bounded fallback instead of abstaining on an irrelevant lexical head.
+    if route in {"table", "topical", "temporal", "relational", "global", "deep"}:
         providers.append("qdrant")
     if route == "global" and getattr(settings, "feature_global_search_enabled", False):
         providers.append("community")
-    if route in {"temporal", "relational"} and getattr(settings, "feature_graph_enabled", True):
+    if (
+        getattr(settings, "feature_graph_enabled", True)
+        and (route == "relational" or (route == "temporal" and extract_document_numbers(query)))
+    ):
         providers.append("neo4j")
     required_facts = ("authority", "conditions", "exceptions", "effective_interval") if risk == "high" else ("authority",)
     return RoutePlan(
@@ -122,7 +139,16 @@ def build_route_plan(query: str, *, settings) -> RoutePlan:
         risk=risk,
         required_facts=required_facts,
         providers=tuple(providers),
-        retrieval_budget_ms=15_000 if route in {"temporal", "relational", "global", "deep"} else 8_000,
+        # High-risk entitlement/payment questions need the document-bounded
+        # rescue and currentness checks before a safe synthesis.  Giving that
+        # bounded cascade the same 15s ceiling as temporal/relational routes
+        # avoids an empty lexical fallback when a managed Postgres connection
+        # is cold; low-risk topical lookups retain the 8s fast path.
+        retrieval_budget_ms=(
+            15_000
+            if route in {"temporal", "relational", "global", "deep"} or risk == "high"
+            else 8_000
+        ),
         generation_budget_ms=int(float(settings.llm_timeout_seconds) * 1000),
         max_candidates=min(int(settings.retrieval_candidate_k), 30 if route != "exact" else 12),
         context_budget=min(int(settings.max_context_chars), 100_000),

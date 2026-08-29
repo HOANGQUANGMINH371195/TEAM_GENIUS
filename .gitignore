@@ -62,6 +62,13 @@ coverage.xml
 
 # Docker
 docker-compose.override.yml
+ops/compose/.env
+ops/nginx/medipay.conf
+ops/letsencrypt/
+ops/metrics-token
+ops/grafana-admin-password
+vault-production.yml
+.vault-pass
 
 # Node (frontend)
 node_modules/

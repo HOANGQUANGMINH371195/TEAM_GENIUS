@@ -16,7 +16,16 @@ RUN python -m venv "${VIRTUAL_ENV}" \
         "${VIRTUAL_ENV}/lib/python3.11/site-packages"/setuptools* \
         "${VIRTUAL_ENV}/lib/python3.11/site-packages"/wheel*
 
-FROM gcr.io/distroless/python3-debian12:nonroot
+FROM python:3.11-slim-bookworm
+
+RUN apt-get update \
+    && apt-get dist-upgrade -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+        /usr/local/lib/python3.11/site-packages/pip* \
+        /usr/local/lib/python3.11/site-packages/setuptools* \
+        /usr/local/lib/python3.11/site-packages/wheel* \
+    && useradd --create-home --uid 10001 --shell /usr/sbin/nologin appuser
 
 WORKDIR /app
 ENV PYTHONPATH="/opt/venv/lib/python3.11/site-packages" \
@@ -24,10 +33,10 @@ ENV PYTHONPATH="/opt/venv/lib/python3.11/site-packages" \
     PYTHONUNBUFFERED=1 \
     HOME=/tmp
 
-COPY --from=builder --chown=65532:65532 \
+COPY --from=builder --chown=10001:10001 \
     /opt/venv/lib/python3.11/site-packages /opt/venv/lib/python3.11/site-packages
-COPY --chown=65532:65532 src ./src
+COPY --chown=10001:10001 src ./src
 
-USER 65532:65532
-ENTRYPOINT ["/usr/bin/python3.11"]
+USER 10001:10001
+ENTRYPOINT ["/usr/local/bin/python3.11"]
 CMD ["-m", "src.research_worker"]

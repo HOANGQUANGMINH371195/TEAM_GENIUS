@@ -8,16 +8,18 @@ from datetime import date
 from functools import lru_cache
 from uuid import uuid4
 
-from src.agents.prompts import NO_EVIDENCE_RESPONSE
+from src.agents.prompts import NO_EVIDENCE_RESPONSE, SYSTEM_PROMPT
 from src.agents.state import AgentState
 from src.config import get_settings
 from src.domain.route_plan import build_route_plan
+from src.integrations.langfuse import resolve_prompt
 from src.models.graph import Citation, Entity, Relation, RetrievalResult
 from src.services.chat import get_runtime
 from src.services.claims import build_legal_claim, claim_dict
 from src.services.planner import evidence_gap_plan, followup_queries
 from src.services.retrieval import (
     decompose_query,
+    extract_query_terms,
     no_answer_response,
     requires_evidence_verification,
     rerank_legal_candidates,
@@ -393,9 +395,22 @@ async def generate_node(state: AgentState) -> dict:
         if generation_timeout is not None:
             metadata["generation_budget_ms"] = round(generation_timeout * 1000, 2)
         runtime = get_runtime()
+        _, prompt_version = resolve_prompt(SYSTEM_PROMPT)
+        metadata.setdefault("model_version", get_settings().model_name)
+        metadata.setdefault("prompt_version", prompt_version)
+        metadata.setdefault(
+            "release_id",
+            next(
+                (item.dataset_id for item in state.get("retrieved_evidence", []) if item.dataset_id),
+                (runtime._active_release[0] if runtime._active_release else ""),
+            ),
+        )
         trace_value = runtime.generation_trace() if hasattr(runtime, "generation_trace") else None
         if isinstance(trace_value, dict) and trace_value:
             metadata["generation_trace"] = trace_value
+            for key in ("model_version", "prompt_version", "release_id"):
+                if trace_value.get(key):
+                    metadata[key] = trace_value[key]
         else:
             metadata["generation_trace"] = {
                 "stage": "generation",
@@ -586,6 +601,82 @@ def _deduplicate_response_lines(value: str) -> str:
             seen.add(normalized)
         kept.append(line.rstrip())
     return "\n".join(kept).strip()
+
+
+def _ensure_numeric_coverage(
+    response: str, query: str, evidence: Sequence[RetrievalResult]
+) -> tuple[str, bool]:
+    """Keep a source-backed percentage visible in a numeric answer."""
+    if build_route_plan(query, settings=get_settings()).route != "table":
+        return response, False
+    if re.search(r"\d+(?:[.,]\d+)?\s*%", response):
+        return response, False
+    query_tokens = {
+        token.casefold()
+        for token in _CLAIM_TOKEN.findall(query)
+        if len(token) > 2 and token.casefold() not in _CLAIM_STOPWORDS
+    }
+    candidates: list[tuple[int, int, str]] = []
+    for item in evidence:
+        source = " ".join((item.section_title, item.content)).strip()
+        for sentence in re.split(r"(?<=[.!?。！？;])\s+|\n+", source):
+            sentence = " ".join(sentence.split())
+            if not re.search(r"\d+(?:[.,]\d+)?\s*%", sentence) or len(sentence) < 12:
+                continue
+            tokens = {token.casefold() for token in _CLAIM_TOKEN.findall(sentence)}
+            overlap = len(query_tokens & tokens)
+            if overlap >= 2:
+                candidates.append((overlap, -len(sentence), sentence[:480]))
+    if not candidates:
+        return response, False
+    _, _, sentence = max(candidates)
+    return f"{response}\n- Mức phần trăm được nguồn xác nhận: {sentence}".strip(), True
+
+
+def _source_backed_fallback(
+    query: str, evidence: Sequence[RetrievalResult]
+) -> str:
+    """Render a compact source excerpt when synthesis returns empty.
+
+    The fallback is extractive and query-derived: it never supplies a missing
+    amount or legal conclusion. It only keeps a citation-bearing answer when
+    a model emits the generic empty-result sentence despite valid evidence.
+    """
+    terms = extract_query_terms(query, limit=16)
+    if not terms:
+        return ""
+    candidates: list[tuple[int, int, int, str]] = []
+    for item in evidence:
+        source = " ".join((item.section_title, item.content)).strip()
+        if not source:
+            continue
+        segments = [
+            " ".join(segment.split())
+            for segment in re.split(r"\n+|(?<=[.!?;])\s+", source)
+            if segment.strip()
+        ]
+        for segment in segments:
+            overlap = sum(term in segment.casefold() for term in terms)
+            if overlap < 2:
+                continue
+            has_value = bool(
+                re.search(
+                    r"\d+(?:[.,]\d+)?\s*%|\b\d+\s*(?:đồng|năm|tháng|ngày)\b",
+                    segment.casefold(),
+                )
+            )
+            # Keep the safety fallback clearly shorter than a raw passage;
+            # the normal model/renderer path remains responsible for synthesis.
+            excerpt = segment[:180].rstrip()
+            candidates.append((2 if has_value else 1, overlap, -len(segment), excerpt))
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda row: (-row[0], -row[1], row[2], row[3]))
+    return (
+        "Nguồn pháp lý hiện có ghi nhận: "
+        + candidates[0][3]
+        + "\nGiới hạn thông tin: nguồn được cung cấp chưa đủ dữ liệu để khẳng định mọi điều kiện hoặc số tiền cụ thể."
+    )
 
 
 def _citations_from_evidence(
@@ -830,11 +921,20 @@ async def guardrail_node(state: AgentState) -> dict:
     )
     if not response:
         response = NO_EVIDENCE_RESPONSE
+    if response == NO_EVIDENCE_RESPONSE and evidence:
+        # Keep a source-derived excerpt when a provider/model emits the
+        # generic empty-result sentence after successful retrieval.
+        fallback = _source_backed_fallback(state.get("query", ""), evidence)
+        if fallback:
+            response = fallback
     if _looks_like_raw_evidence(response, evidence):
         # Never expose an un-synthesized retrieval chunk.  The generation node
         # normally prevents this path; this second check protects against
         # stale caches/provider regressions and fails closed.
         response = no_answer_response(state.get("query", ""), reason="unverified")
+    response, numeric_coverage_added = _ensure_numeric_coverage(
+        response, state.get("query", ""), evidence
+    )
     # Extractive/deterministic responses are built from the final evidence
     # list. A direct-citation shortcut may belong to an earlier document
     # anchor and causes the claim auditor to discard the correct sentence
@@ -881,6 +981,7 @@ async def guardrail_node(state: AgentState) -> dict:
                 claim.get("verification") == "entailed" for claim in claims
             ),
             "guardrail_response_chars": len(response),
+            "numeric_coverage_added": numeric_coverage_added,
             "guardrail_ms": round((time.perf_counter() - started) * 1000, 2),
         }
     )

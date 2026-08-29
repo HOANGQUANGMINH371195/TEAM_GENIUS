@@ -1,0 +1,5 @@
+[medipay]
+api ansible_host=YOUR_EC2_PUBLIC_IP ansible_user=ubuntu
+
+[medipay:vars]
+ansible_python_interpreter=/usr/bin/python3
