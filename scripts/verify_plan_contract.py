@@ -41,7 +41,6 @@ def main() -> int:
         "outage_runbook": ROOT / "ops/runbooks/provider-outage.md",
         "retention_runbook": ROOT / "ops/runbooks/supabase-retention.md",
         "research_worker_runbook": ROOT / "ops/runbooks/research-worker.md",
-        "research_worker_blueprint": ROOT / "render-research-worker.yaml",
         "research_worker_dockerfile": ROOT / "Dockerfile.worker",
         "plan_suite_compiler": ROOT / "eval/prepare_plan_suite.py",
         "implementation_gate": ROOT / "scripts/verify_implementation_gate.py",
@@ -111,7 +110,6 @@ def main() -> int:
         marker in routes_text for marker in ("/research/jobs", "ResearchQueueFullError", "close_research_queue")
     )
     worker_dockerfile = required["research_worker_dockerfile"].read_text(encoding="utf-8")
-    worker_blueprint = required["research_worker_blueprint"].read_text(encoding="utf-8")
     checks["dedicated_worker_container_contract"] = all(
         marker in worker_dockerfile
         for marker in (
@@ -121,7 +119,7 @@ def main() -> int:
             "USER 10001:10001",
             "apt-get dist-upgrade -y",
         )
-    ) and "HEALTHCHECK" not in worker_dockerfile and "dockerfilePath: ./Dockerfile.worker" in worker_blueprint
+    ) and "HEALTHCHECK" not in worker_dockerfile
 
     report = {
         "repository_contract_pass": all(checks.values()),

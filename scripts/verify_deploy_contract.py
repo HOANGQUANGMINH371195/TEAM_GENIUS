@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Verify the reproducible local Docker/deploy contract and emit a JSON report.
 
-This is a structural gate, not a substitute for managed Render/Vercel smoke or
-load testing. It intentionally reports sizes and booleans only, never env values.
+This is a structural gate, not a substitute for AWS/Vercel smoke or load
+testing. It intentionally reports sizes and booleans only, never env values.
 """
 
 from __future__ import annotations

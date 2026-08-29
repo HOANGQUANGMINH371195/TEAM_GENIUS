@@ -28,8 +28,8 @@ services:
     profiles: [managed-production]
     environment:
       # The managed-production profile must never inherit a developer .env
-      # value such as APP_ENV=development. Render sets the equivalent value
-      # explicitly in render.yaml; local production smoke can still override
+      # value such as APP_ENV=development. Production Compose sets the value
+      # explicitly; local production smoke can still override
       # the external URLs/secrets without weakening this invariant.
       APP_ENV: production
       APP_HOST: 0.0.0.0

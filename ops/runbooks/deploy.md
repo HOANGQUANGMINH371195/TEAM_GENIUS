@@ -1,10 +1,9 @@
-# Legacy deploy runbook — Render API / Vercel web
+# Production deploy runbook — AWS backend + Vercel web
 
-AWS EC2 + Docker Compose + Nginx is the sole production deployment target.
-Render and Vercel are retained only for backwards-compatible migration or
-temporary preview; neither is required for an AWS release and neither is
-production evidence. Use [aws-single-host.md](aws-single-host.md) for the
-active path. Never paste secret values into a shell transcript or CI log.
+AWS EC2 + Docker Compose + Nginx is the backend production target. Vercel hosts
+the Next.js frontend; Render is not used. Use
+[aws-single-host.md](aws-single-host.md) for the AWS backend path. Never paste
+secret values into a shell transcript or CI log.
 
 ## External prerequisites
 
@@ -22,9 +21,8 @@ the AWS secret store (do not commit or send it here):
 python -c 'import secrets; print(secrets.token_urlsafe(32))'
 ```
 
-Render/Vercel credentials are not needed for the AWS production path. If a
-legacy migration preview is explicitly requested, keep those credentials
-outside the repository and never reuse them as application runtime variables.
+Only the Vercel project token (if using CLI) belongs in the operator's local
+credential store; it is not an application runtime variable.
 
 These are operator credentials, not application runtime variables. Do not add
 them to `.env.example` or pass them as Docker build arguments.

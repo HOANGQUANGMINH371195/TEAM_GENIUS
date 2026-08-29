@@ -49,19 +49,18 @@ PostgreSQL/Qdrant/Neo4j/Redis/migrate/API/web healthy, `/health` và `/ready`
 Readiness load 20 request đồng thời đạt 20/20 (P50 ~309 ms, P95 ~312 ms),
 nhưng không được dùng thay cho live chat/provider SLO.
 External preflight cùng ngày xác nhận AWS credential hợp lệ nhưng chưa có EC2,
-SSM-managed instance hoặc Lightsail instance. AWS EC2 + Compose là production
-target duy nhất; Vercel/Render đã tồn tại chỉ là platform legacy và không phải
-promotion prerequisite. Vercel project còn khoảng 80 env vars, trong đó có
-backend/database secrets; không dùng chúng cho AWS và không đưa secret backend
-vào frontend.
+SSM-managed instance hoặc Lightsail instance. Đã provision 1 EC2 Graviton
+`t4g.small` và SSM online, nhưng Compose chưa được deploy. AWS EC2 + Compose là
+production target cho backend/data; Vercel là frontend production chính. Render đã được
+loại bỏ khỏi repository và deployment path. Vercel project còn khoảng 80 env
+vars, trong đó có backend/database secrets; chỉ đưa các biến `NEXT_PUBLIC_*`
+cần thiết vào Vercel, không đưa secret backend vào frontend.
 Live Langfuse probe xác nhận label `medipay-system:production` hiện chưa tồn tại;
 resolver fail-open về local hash trong giới hạn 2 giây và cache kết quả, nhưng
 prompt production thật phải được tạo/pin trước khi promote.
-Render service legacy đang chạy commit `b416129`, trước bounded
-release-collection resolver. Trạng thái đó không ảnh hưởng AWS production và
-không cần sửa để đóng AWS gate. Khi dựng AWS, phải dùng source hiện tại, khai
-báo đủ `QDRANT_COLLECTION`/`NEO4J_DATABASE`, sau đó xác minh parity; không
-hardcode collection hay bỏ qua readiness.
+Khi dựng AWS, phải dùng source hiện tại, khai báo đủ
+`QDRANT_COLLECTION`/`NEO4J_DATABASE`, sau đó xác minh parity; không hardcode
+collection hay bỏ qua readiness.
 
 Verifier promotion đã được đồng bộ với status ledger tiếng Việt của PLAN và
 không còn báo false-positive; trạng thái production hiện là `false` khi còn

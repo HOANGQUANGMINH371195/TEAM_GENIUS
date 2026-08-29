@@ -19,7 +19,6 @@ def main() -> int:
         "memory_queue": ROOT / "src/services/research_jobs.py",
         "durable_worker": ROOT / "src/research_worker.py",
         "worker_dockerfile": ROOT / "Dockerfile.worker",
-        "worker_blueprint": ROOT / "render-research-worker.yaml",
         "legal_timeline": ROOT / "src/services/legal_timeline.py",
         "eligibility_checklist": ROOT / "src/services/eligibility_checklist.py",
         "conversation_facts_migration": ROOT / "database/postgres/migrations/20260834_conversation_facts.sql",

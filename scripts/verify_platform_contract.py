@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Verify legacy platform contracts without contacting Render or Vercel.
+"""Verify AWS backend and Vercel frontend contracts without network calls.
 
-This is intentionally a structural gate.  It proves that the repository has a
-backwards-compatible Render/Vercel contract for migration tooling; AWS EC2
-Compose is the production target and its authenticated host attestation remains
-an external check.
+This is intentionally a structural gate. AWS EC2/Compose is the backend
+production target and Vercel hosts the Next.js frontend; authenticated host,
+DNS and browser smoke remain external checks.
 """
 
 from __future__ import annotations
@@ -14,8 +13,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -24,59 +21,28 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=Path("eval/results/platform-contract-current.json"))
     args = parser.parse_args()
 
-    render = yaml.safe_load((ROOT / "render.yaml").read_text(encoding="utf-8"))
-    worker_render = yaml.safe_load((ROOT / "render-research-worker.yaml").read_text(encoding="utf-8"))
-    services = render.get("services") or []
-    api = next((item for item in services if item.get("name") == "medipay-api"), {})
-    worker = next(
-        (item for item in (worker_render.get("services") or []) if item.get("name") == "medipay-research-worker"),
-        {},
-    )
-    env_vars = {str(item.get("key")): item for item in api.get("envVars") or []}
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    worker_dockerfile_path = ROOT / str(worker.get("dockerfilePath") or "")
-    worker_dockerfile = worker_dockerfile_path.read_text(encoding="utf-8") if worker_dockerfile_path.is_file() else ""
+    worker_dockerfile = (ROOT / "Dockerfile.worker").read_text(encoding="utf-8")
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     web_dockerfile = (ROOT / "web/Dockerfile").read_text(encoding="utf-8")
     vercel = json.loads((ROOT / "web/vercel.json").read_text(encoding="utf-8"))
     vercel_text = json.dumps(vercel, ensure_ascii=False)
 
     checks: dict[str, bool] = {
-        "render_service_is_docker": api.get("runtime") == "docker",
-        "render_branch_is_main": api.get("branch") == "main",
-        "research_worker_blueprint_is_main": worker.get("branch") == "main",
-        "research_worker_dockerfile_exists": worker_dockerfile_path.is_file(),
+        "research_worker_dockerfile_exists": bool(worker_dockerfile),
         "research_worker_has_no_http_healthcheck": "HEALTHCHECK" not in worker_dockerfile,
         "research_worker_cmd_is_module": 'CMD ["-m", "src.research_worker"]' in worker_dockerfile,
         "research_worker_is_non_root": "FROM python:3.11-slim-bookworm" in worker_dockerfile
         and "USER 10001:10001" in worker_dockerfile
         and "apt-get dist-upgrade -y" in worker_dockerfile,
-        "research_worker_requires_redis": any(
-            item.get("key") == "RESEARCH_QUEUE_BACKEND" and item.get("value") == "redis"
-            for item in worker.get("envVars") or []
-        ),
+        "compose_worker_requires_redis": "RESEARCH_QUEUE_BACKEND: redis" in compose,
         "compose_declares_research_worker_profile": "research-worker:" in compose
         and "profiles: [research-worker]" in compose,
         "compose_worker_uses_internal_redis": "RESEARCH_QUEUE_REDIS_URL: redis://redis:6379/1" in compose,
         "compose_worker_depends_on_redis": compose.count("service_healthy") >= 4
         and "research-worker" in compose,
-        "render_health_check_is_liveness": api.get("healthCheckPath") == "/health",
         "managed_profile_forces_production": "APP_ENV: production" in compose,
-        "render_port_is_injected": all(item.get("key") != "PORT" for item in api.get("envVars") or []),
-        "render_backend_secret_vars_are_sync_false": all(
-            env_vars.get(key, {}).get("sync") is False
-            for key in (
-                "DATABASE_URL",
-                "RUNTIME_DATABASE_URL",
-                "QDRANT_API_KEY",
-                "NEO4J_PASSWORD",
-                "OPENAI_API_KEY",
-                "LANGFUSE_SECRET_KEY",
-                "FIREBASE_SERVICE_ACCOUNT_JSON",
-                "METRICS_TOKEN",
-            )
-        ),
-        "backend_reads_render_port": 'os.environ.get("PORT", "8000")' in dockerfile
+        "backend_reads_port": 'os.environ.get("PORT", "8000")' in dockerfile
         or 'os.environ.get("PORT", "8000")' in (ROOT / "src/runtime_entrypoint.py").read_text(encoding="utf-8"),
         "backend_binds_all_interfaces": 'host="0.0.0.0"' in (ROOT / "src/runtime_entrypoint.py").read_text(encoding="utf-8"),
         "backend_healthcheck_uses_port": "os.getenv('PORT', '8000')" in dockerfile,

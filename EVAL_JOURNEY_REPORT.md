@@ -90,7 +90,7 @@ không có answer nên coverage là `N/A`, không phải 0%.
 ## Lịch sử và quãng đường
 
 - **Khởi tạo release:** P-151 được tạo và đóng gói thành repository riêng.
-- **Nền tảng deploy:** Docker, Render/Vercel contract, auth, SSE và health
+- **Nền tảng deploy:** Docker, AWS backend/Vercel frontend contract, auth, SSE và health
   checks được bổ sung; đây là operational readiness, không phải legal quality.
 - **Dữ liệu:** PostgreSQL/Qdrant/Neo4j, release pointer, parity và corpus
   intake được chuẩn hóa; các projection gate giúp phát hiện drift nhưng không
@@ -122,4 +122,3 @@ không có answer nên coverage là `N/A`, không phải 0%.
 5. Chỉ đưa lên slide các số có denominator và nhãn rõ: `retrieval hit@k`,
    `policy safety pass`, `parity`, `human legal accuracy`. Không dùng “100%”
    chung chung.
-

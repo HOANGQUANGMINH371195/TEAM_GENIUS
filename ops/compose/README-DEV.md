@@ -1,7 +1,7 @@
 # Production Compose (developer)
 
 `production.yml` is the single-host AWS profile. Set `API_IMAGE`, `WEB_IMAGE`
-and `MIGRATION_IMAGE` to immutable GHCR digests and place `.env`, the rendered Nginx vhost and
+and `MIGRATION_IMAGE` to immutable registry digests and place `.env`, the generated Nginx vhost and
 monitoring secrets under `/opt/medipay` before starting it.
 
 ```bash

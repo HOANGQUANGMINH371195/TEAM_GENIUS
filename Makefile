@@ -14,7 +14,7 @@ RELEASE_ROOT ?= .
 .DEFAULT_GOAL := help
 .PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation verify-release-artifacts typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker collect-production-evidence migrate plan-completion \
 	build up dev down restart logs health deploy-contract render-validate \
-	build-worker deploy-render deploy-vercel aws-config aws-up aws-migrate ansible-bootstrap promptfoo clean
+	build-worker deploy-vercel aws-config aws-up aws-migrate ansible-bootstrap promptfoo clean
 
 PROD_COMPOSE ?= ops/compose/production.yml
 ANSIBLE_INVENTORY ?= ops/ansible/inventory.ini
@@ -28,7 +28,7 @@ help:
 	@echo "  make check              Run backend, database, frontend and contract gates"
 	@echo "  make build              Build all deployable images and frontend"
 	@echo "  make build-worker       Build the dedicated Redis research worker image"
-	@echo "  make deploy-contract    Verify AWS/Docker contracts (legacy Render/Vercel compatibility included)"
+	@echo "  make deploy-contract    Verify AWS/Docker contracts and Vercel frontend"
 	@echo "  make verify-plan        Verify forward-plan delivery contracts"
 	@echo "  make implementation-gate Verify all PLAN capabilities exist before benchmark"
 	@echo "  make promotion-gate     Report benchmark readiness vs production promotion blockers"
@@ -41,9 +41,7 @@ help:
 	@echo "  make research-worker    Run the durable Redis research worker (RESEARCH_QUEUE_BACKEND=redis)"
 	@echo "  make up-research-worker Start the local worker container profile"
 	@echo "  make collect-production-evidence Collect live SSE latency/TTFT evidence (ENDPOINT/FIXTURE/OUTPUT)"
-	@echo "  make render-validate    Validate legacy render.yaml only (not production)"
-	@echo "  make deploy-render      Legacy migration deploy; AWS is the production target"
-	@echo "  make deploy-vercel      Legacy web deploy; AWS Nginx serves production web"
+	@echo "  make deploy-vercel      Deploy the Next.js frontend to the linked Vercel project"
 	@echo "  make aws-config        Validate the immutable AWS Compose profile"
 	@echo "  make aws-up            Start the AWS single-host Compose profile"
 	@echo "  make aws-migrate       Run the pinned one-shot migration image"
@@ -165,14 +163,6 @@ typed-facts-export:
 migrate:
 	$(PYTHON) database/postgres/migrations/runner.py --env-file "$(ENV_FILE)"
 
-render-validate:
-	@if command -v render >/dev/null 2>&1 && render whoami --output json >/dev/null 2>&1; then \
-		render blueprints validate render.yaml && render blueprints validate render-research-worker.yaml; \
-	else \
-		echo "Render CLI unavailable or unauthenticated; running repository structural contract"; \
-		$(PYTHON) scripts/verify_platform_contract.py; \
-	fi
-
 aws-config:
 	@test -n "$(API_IMAGE)" -a -n "$(WEB_IMAGE)" -a -n "$(MIGRATION_IMAGE)" -a -n "$(MEDIPAY_DOMAIN)" || { echo "Set API_IMAGE, WEB_IMAGE, MIGRATION_IMAGE and MEDIPAY_DOMAIN"; exit 2; }
 	docker compose -f $(PROD_COMPOSE) --profile monitoring config --quiet
@@ -190,9 +180,6 @@ ansible-bootstrap:
 
 promptfoo:
 	npx --yes promptfoo@latest eval -c eval/promptfoo.yaml --no-cache
-
-deploy-render: env-check-production render-validate
-	$(PYTHON) scripts/deploy.py render --env-file $(ENV_FILE)
 
 deploy-vercel: check
 	$(PYTHON) scripts/deploy.py vercel --env-file $(ENV_FILE)

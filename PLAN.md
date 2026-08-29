@@ -90,16 +90,14 @@ synthetic benchmark không thay thế reviewer pháp lý, load test hay restore 
   P95 khoảng 312 ms; đây chỉ là process/dependency smoke, không phải chat
   provider benchmark.
 - External preflight read-only ngày 2026-08-29: AWS profile `p151` xác thực
-  thành công nhưng account/region hiện có 0 EC2, 0 SSM-managed instance và 0
-  Lightsail instance; vì vậy AWS Compose chưa được deploy. AWS là đích
-  production duy nhất; Render/Vercel bên dưới chỉ là platform legacy, không
-  phải promotion prerequisite. Render/Vercel artifact cũ chỉ giữ cho migration;
-  không dùng làm AWS production evidence. Vercel project
+  thành công; đã provision 1 EC2 Graviton `t4g.small` và SSM-managed instance,
+  nhưng AWS Compose chưa được deploy. AWS là đích
+  production backend/data duy nhất; Vercel là frontend production chính.
+  Render đã được loại bỏ khỏi deployment path. Vercel project
   `team-genius` có deployment production READY và domain trả HTTP 200, nhưng
   P-151 chưa được link vào project; trạng thái đó không được dùng làm AWS
   production evidence.
-  Render/Vercel trạng thái cũ không ảnh hưởng AWS production; mọi secret backend
-  chỉ được cài trên EC2, không đưa vào frontend.
+  Mọi secret backend chỉ được cài trên EC2, không đưa vào frontend.
   PostgreSQL active release là
   `snapshot-c439751724ab7f10`; projection Qdrant còn locator logic
   `legal_graph_chunks__snapshot_c439751724ab7f10`, trong khi collection vật lý
