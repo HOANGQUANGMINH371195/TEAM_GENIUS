@@ -99,6 +99,16 @@ synthetic benchmark không thay thế reviewer pháp lý, load test hay restore 
   project đang có khoảng 80 biến môi trường (bao gồm cả backend/database
   secrets); theo kiến trúc web chỉ cần API URL và Firebase public config, nên
   các secret backend phải được rà soát và gỡ khỏi Vercel trước khi promote.
+  Read-only Render API audit bổ sung xác nhận service `medipay-api` đang chạy
+  commit `b416129` (không phải source hiện tại). PostgreSQL active release là
+  `snapshot-c439751724ab7f10`; projection Qdrant còn locator logic
+  `legal_graph_chunks__snapshot_c439751724ab7f10`, trong khi collection vật lý
+  đúng là release-suffixed hybrid collection. Source hiện tại đã có resolver
+  bounded, read-only để ánh xạ locator đó; bản đang chạy trên Render chưa có
+  resolver nên readiness fail dù Qdrant và Neo4j managed vẫn reachable. Render
+  cũng chưa khai báo `QDRANT_COLLECTION` và `NEO4J_DATABASE` trong service env.
+  Không sửa bằng cách trỏ mù vào collection hoặc tắt readiness: phải triển khai
+  commit hiện tại, giữ resolver, rồi chạy lại parity/readiness.
 
 - Runtime API đi qua `src/runtime_entrypoint.py`, `src/main.py`, `src/api/` và
   `src/services/chat.py`.

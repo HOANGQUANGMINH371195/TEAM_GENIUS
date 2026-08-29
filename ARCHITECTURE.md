@@ -55,6 +55,13 @@ vẫn 200 còn `/ready` 503 do Qdrant và Neo4j unavailable, nên chưa được
 production-ready. Vercel project còn khoảng 80 env vars, trong đó có backend /
 database secrets; web deployment chỉ nên giữ API URL và Firebase public config,
 phần còn lại cần được gỡ hoặc chuyển về backend host.
+Render service đang chạy commit `b416129`, trước bounded release-collection
+resolver. Active PostgreSQL projection giữ locator logic cũ trong khi Qdrant
+đang lưu collection vật lý theo release; vì vậy bản cũ không tự resolve được và
+readiness báo Qdrant/Neo4j không sẵn sàng dù các endpoint managed có thể truy cập.
+Việc khắc phục bắt buộc là deploy source hiện tại, khai báo đủ
+`QDRANT_COLLECTION`/`NEO4J_DATABASE`, sau đó xác minh parity; không hardcode
+collection hay bỏ qua readiness.
 
 Verifier promotion đã được đồng bộ với status ledger tiếng Việt của PLAN và
 không còn báo false-positive; trạng thái production hiện là `false` khi còn
