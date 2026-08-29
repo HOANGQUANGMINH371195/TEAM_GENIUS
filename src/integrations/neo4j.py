@@ -21,8 +21,12 @@ async def _session_context(driver: Any, **kwargs: Any):
     session = driver.session(**kwargs)
     if inspect.isawaitable(session):
         session = await session
-    async with session:
-        yield session
+    # ``driver.session()`` may return either an async context manager or an
+    # awaitable resolving to one.  Yield the value returned by ``__aenter__``
+    # rather than the wrapper itself; this keeps lightweight test doubles and
+    # Neo4j's native AsyncSession behavior consistent.
+    async with session as entered_session:
+        yield entered_session
 
 
 class Neo4jGraphStore:

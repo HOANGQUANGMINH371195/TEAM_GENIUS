@@ -297,27 +297,6 @@ export async function draftBenefitCalculation(question: string): Promise<Calcula
   return response.json() as Promise<CalculatorDraftResponse>;
 }
 
-export async function fetchAdminReviews(status = "pending", domain = "all"): Promise<ReviewQueueItem[]> {
-  const response = await adminRequest(`/api/v1/auth/admin/reviews?status=${encodeURIComponent(status)}&domain=${encodeURIComponent(domain)}`);
-  if (!response.ok) {
-    const error = (await response.json().catch(() => null)) as ApiError | null;
-    throw new Error(error?.message ?? "Không thể tải hàng đợi kiểm duyệt");
-  }
-  return (await response.json()) as ReviewQueueItem[];
-}
-
-export async function decideAdminReview(reviewId: string, status: "accepted" | "rejected", note = ""): Promise<ReviewQueueItem> {
-  const response = await adminRequest(`/api/v1/auth/admin/reviews/${encodeURIComponent(reviewId)}`, {
-    method: "PATCH",
-    body: JSON.stringify({ status, note }),
-  });
-  if (!response.ok) {
-    const error = (await response.json().catch(() => null)) as ApiError | null;
-    throw new Error(error?.message ?? "Không thể cập nhật bản kiểm duyệt");
-  }
-  return (await response.json()) as ReviewQueueItem;
-}
-
 export async function sendChatMessage(
   message: string,
   context: ChatTurnContext = {},
