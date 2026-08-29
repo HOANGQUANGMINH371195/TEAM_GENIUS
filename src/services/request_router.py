@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from dataclasses import dataclass
 from typing import Literal
 
@@ -54,6 +55,9 @@ _INJECTION_MARKERS = (
     "secret key",
 )
 _INTERNAL_TOKEN = re.compile(r"\b(?:dataset|chunk|trace|evidence|claim)_?id\s*[:=]", re.I)
+_ROUTER_CACHE: dict[tuple[str, str], tuple[RouteDecision, float]] = {}
+_ROUTER_CACHE_TTL_SECONDS = 300.0
+_ROUTER_CACHE_MAX_ENTRIES = 512
 
 
 def input_guardrail(query: str) -> InputGuardrailResult:
@@ -128,6 +132,13 @@ async def classify_request(query: str, *, settings) -> tuple[RouteDecision, str]
     baseline = _baseline_decision(baseline_plan)
     if not getattr(settings, "model_router_enabled", True):
         return baseline, "deterministic_disabled"
+    cache_key = (
+        str(getattr(settings, "model_router_model_name", "") or getattr(settings, "model_name", "")),
+        " ".join(query.casefold().split()),
+    )
+    cached = _ROUTER_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached[1] < _ROUTER_CACHE_TTL_SECONDS:
+        return cached[0], "model_cache"
     # Every allowed request is classified by the model. The deterministic
     # planner remains a policy boundary/fallback, not the normal router; this
     # keeps paraphrases, compound questions and new features on one contract.
@@ -141,7 +152,12 @@ async def classify_request(query: str, *, settings) -> tuple[RouteDecision, str]
             timeout=float(settings.model_router_timeout_seconds),
         )
         decision = result if isinstance(result, RouteDecision) else RouteDecision.model_validate(result)
-        return _clamp_decision(decision, baseline), "model"
+        decision = _clamp_decision(decision, baseline)
+        if len(_ROUTER_CACHE) >= _ROUTER_CACHE_MAX_ENTRIES:
+            oldest = min(_ROUTER_CACHE, key=lambda item: _ROUTER_CACHE[item][1])
+            _ROUTER_CACHE.pop(oldest, None)
+        _ROUTER_CACHE[cache_key] = (decision, time.monotonic())
+        return decision, "model"
     except Exception:
         return baseline, "deterministic_fallback"
 

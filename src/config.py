@@ -38,7 +38,10 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     llm_timeout_seconds: float = Field(default=45.0, gt=0)
     llm_max_output_tokens: int = Field(default=900, ge=64, le=4_096)
-    llm_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "medium"
+    # Luna's grounded answer contract does not need hidden chain-of-thought
+    # for every request; disabling extra reasoning materially reduces TTFT
+    # while retrieval/verifier guardrails remain unchanged.
+    llm_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "none"
     llm_verbosity: Literal["low", "medium", "high"] = "low"
     llm_use_responses_api: bool = True
     query_rewrite_max_tokens: int = Field(default=180, ge=64, le=512)

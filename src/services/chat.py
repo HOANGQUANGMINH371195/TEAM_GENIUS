@@ -156,6 +156,10 @@ class GraphRagRuntime:
         self._answer_cache: dict[tuple[tuple[object, ...], str], tuple[str, float]] = {}
         self._readiness_cache: tuple[dict[str, bool], float] | None = None
         self._readiness_task: asyncio.Task[dict[str, bool]] | None = None
+        # Release projection rows change only when the immutable active release
+        # changes. Keep the locator process-local for a short window so every
+        # chat request does not pay an extra Supabase round trip before recall.
+        self._projection_cache: dict[str, tuple[dict[str, dict[str, object]], float]] = {}
         self._community_index_cache: tuple[str, int, str, tuple[CommunitySummary, ...]] | None = None
         self._experience_index_cache: tuple[str, int, str, ExperienceIndex] | None = None
         self._authority_document_cache: dict[str, tuple[list[str], float]] = {}
@@ -949,11 +953,16 @@ class GraphRagRuntime:
                 # every fresh process while retaining discovery as a safe
                 # compatibility fallback for older releases.
                 try:
-                    if hasattr(repository, "current_projection_contract"):
+                    projection: dict[str, dict[str, object]] | None = None
+                    cached_projection = self._projection_cache.get(dataset_id)
+                    if cached_projection and time.monotonic() - cached_projection[1] < 30:
+                        projection = cached_projection[0]
+                    elif hasattr(repository, "current_projection_contract"):
                         projection = await repository.current_projection_contract(dataset_id)
-                        qdrant_locator = str(
-                            (projection.get("qdrant") or {}).get("locator") or ""
-                        ).strip()
+                        self._projection_cache[dataset_id] = (projection, time.monotonic())
+                    qdrant_locator = str(
+                        ((projection or {}).get("qdrant") or {}).get("locator") or ""
+                    ).strip()
                 except Exception:
                     qdrant_locator = ""
                 exact_candidates: list[DocumentCandidate] = []
@@ -1658,7 +1667,11 @@ class GraphRagRuntime:
                 document_recall_operatives: list[RetrievalResult] = []
                 if (
                     document_candidate_ids
-                    and (not table_semantic_sufficient or is_table_route)
+                    # Once dense/lexical recall already contains an explicit
+                    # numeric value for a table route, the document-bounded
+                    # second SQL scan cannot improve the selected fact and
+                    # commonly costs another 2–3s on managed Postgres.
+                    and not table_semantic_sufficient
                     and hasattr(hydration_repository, "search_lexical")
                 ):
                     # The document-level index has already bounded the
@@ -2988,6 +3001,7 @@ class GraphRagRuntime:
         self._embeddings = None
         get_embedding_model.cache_clear()
         self._active_release = None
+        self._projection_cache.clear()
         self._embedding_cache.clear()
         pending_embeddings = list(self._embedding_inflight.values())
         for task in pending_embeddings:
