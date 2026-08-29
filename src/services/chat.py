@@ -2678,7 +2678,7 @@ class GraphRagRuntime:
     async def readiness(self) -> dict[str, bool]:
         """Return a short-lived coalesced dependency probe.
 
-        Render/Kubernetes may poll readiness concurrently. Re-running full
+        A load balancer/orchestrator may poll readiness concurrently. Re-running full
         Qdrant/Neo4j count checks for every probe creates artificial latency and
         connection pressure, so one probe is shared for a small bounded window.
         """

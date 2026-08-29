@@ -28,7 +28,9 @@ These are operator credentials, not application runtime variables. Do not add
 them to `.env.example` or pass them as Docker build arguments.
 
 1. Verify `ops.active_release` generation and the release fingerprint; all
-   three projection rows must be `ready` with exact counts.
+   three projection rows must be `ready`. Qdrant keeps an exact point-count
+   check; Neo4j readiness requires connectivity and at least the contracted
+   node/approved-edge counts, while exact parity remains a separate audit.
 2. Create PostgreSQL and Neo4j backups and retain active plus previous release.
 3. Build migration, API and web images from a clean checkout; inspect context,
    SBOM and non-root/read-only settings.

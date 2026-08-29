@@ -48,16 +48,11 @@ PostgreSQL/Qdrant/Neo4j/Redis/migrate/API/web healthy, `/health` và `/ready`
 đều trả HTTP 200; healthcheck dùng đúng Python path của image Slim.
 Readiness load 20 request đồng thời đạt 20/20 (P50 ~309 ms, P95 ~312 ms),
 nhưng không được dùng thay cho live chat/provider SLO.
-External preflight cùng ngày xác nhận AWS credential hợp lệ nhưng chưa có EC2,
-SSM-managed instance hoặc Lightsail instance. Đã provision 1 EC2 Graviton
-`t4g.small` và SSM online, nhưng Compose chưa được deploy. AWS EC2 + Compose là
-production target cho backend/data; Vercel là frontend production chính. Render đã được
-loại bỏ khỏi repository và deployment path. Vercel project còn khoảng 80 env
-vars, trong đó có backend/database secrets; chỉ đưa các biến `NEXT_PUBLIC_*`
-cần thiết vào Vercel, không đưa secret backend vào frontend.
-Live Langfuse probe xác nhận label `medipay-system:production` hiện chưa tồn tại;
-resolver fail-open về local hash trong giới hạn 2 giây và cache kết quả, nhưng
-prompt production thật phải được tạo/pin trước khi promote.
+Đã provision 1 EC2 Graviton `t4g.small`, SSM online và Compose production đang
+phục vụ backend phía sau Nginx. AWS EC2 + Compose là production target cho
+backend/data; Vercel là frontend production chính. Render đã được loại bỏ khỏi
+repository, Vercel env và service cloud. Prompt Langfuse
+`medipay-system:production` đã được tạo và pin version 1.
 Khi dựng AWS, phải dùng source hiện tại, khai báo đủ
 `QDRANT_COLLECTION`/`NEO4J_DATABASE`, sau đó xác minh parity; không hardcode
 collection hay bỏ qua readiness.
@@ -66,13 +61,13 @@ Verifier promotion đã được đồng bộ với status ledger tiếng Việt
 không còn báo false-positive; trạng thái production hiện là `false` khi còn
 blocker external/live.
 
-Live preflight gần nhất: PostgreSQL, Qdrant và Neo4j đều kết nối được. Runtime
-đã thêm resolver Qdrant read-only, chọn collection vật lý theo `dataset_id` và
-exact point count nên Qdrant readiness đạt dù host env còn alias cũ;
-`release_projections.locator` vẫn cần được ghi lại đúng physical locator. Neo4j
-đang lệch parity so với manifest (1914 nodes/197 approved edges so với 1901/187).
-Cách xử lý đúng là cập nhật locator/reconcile có backup và chạy parity report;
-không tắt readiness, xóa mù hoặc fallback thành dữ liệu không có căn cứ.
+Live preflight gần nhất: PostgreSQL, Qdrant và Neo4j đều kết nối được; AWS
+`/health` và `/ready` trả 200. Runtime chọn collection Qdrant theo
+`dataset_id` và Neo4j dùng bounded pool/timeout. Graph có thêm audit-only
+metadata cùng release (1917 nodes/213 approved edges so với lock 1901/187),
+nhưng không thiếu projection phục vụ; readiness dùng ngưỡng tối thiểu để drift
+không làm sập API. Exact parity vẫn là một audit/reconcile riêng, không được
+chữa bằng cách xóa mù hoặc tắt guardrail.
 
 ### Quyết định vận hành sau live benchmark (2026-08-29)
 

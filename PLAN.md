@@ -223,7 +223,7 @@ bản trôi chảy.
 | API/SSE/schema/renderer/idempotency/context cache | Đã có và có regression test | Giữ contract; chạy smoke có auth |
 | PostgreSQL migration authority | Đã có | Chạy migration one-shot trên host, không `create_all` |
 | Table-fact/calculator path | Contract và fallback đã có; active projection chưa có row `review_status=accepted` | Chạy migration index và chỉ nạp/đánh dấu fact đã review; nếu không có thì trả canonical passage, không tự tính |
-| Qdrant/Neo4j connectivity | Qdrant readiness đã pass nhờ resolver; Neo4j parity chưa đạt | Ghi physical locator chuẩn và reconcile Neo4j theo manifest; chạy parity report |
+| Qdrant/Neo4j connectivity | Qdrant và Neo4j readiness live đã pass; Neo4j còn additive audit drift so với lock | Giữ bounded connectivity/readiness; reconcile exact parity theo manifest trong đợt bảo trì riêng |
 | Langfuse prompt/trace | Adapter fail-open + OTel exporter đã có | Tạo/pin prompt thật, kiểm tra collector, redaction và lineage |
 | Prometheus/Grafana/Nginx/Valkey/Ansible | Artifact đã có, chưa có evidence host | Bootstrap EC2, TLS, readiness, dashboard và restart drill |
 | Accuracy/latency/cost | **Đang fail live gate**: hai lượt suite 100 câu thật đạt 74--75/100, P50 11,33--11,93s, P95 20,59--20,98s; còn 25--26 lỗi cơ học | Ổn định recall/citation, reviewer fact, đạt SLO qua lặp cold/warm/concurrency và lưu cost ledger |
