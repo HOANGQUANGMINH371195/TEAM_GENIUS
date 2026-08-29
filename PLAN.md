@@ -96,7 +96,8 @@ synthetic benchmark không thay thế reviewer pháp lý, load test hay restore 
   phải promotion prerequisite. Render/Vercel artifact cũ chỉ giữ cho migration;
   không dùng làm AWS production evidence. Vercel project
   `team-genius` có deployment production READY và domain trả HTTP 200, nhưng
-  P-151 chưa được link vào project và working tree còn thay đổi chưa commit.
+  P-151 chưa được link vào project; trạng thái đó không được dùng làm AWS
+  production evidence.
   Render/Vercel trạng thái cũ không ảnh hưởng AWS production; mọi secret backend
   chỉ được cài trên EC2, không đưa vào frontend.
   PostgreSQL active release là
