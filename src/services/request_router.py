@@ -86,12 +86,16 @@ def _clamp_decision(decision: RouteDecision, baseline: RouteDecision) -> RouteDe
     # Model output may refine the task, but cannot bypass deterministic safety
     # boundaries or activate providers outside the route contract.
     route: Route = decision.route
+    # Policy is the only route that can be forced by the deterministic layer:
+    # a legal request must never be answered by a short social response. All
+    # other intent choices belong to the model; ``needs_table`` is an explicit
+    # typed capability flag, not a lexical override.
     if baseline.route == "policy":
         route = "policy"
-    if baseline.route == "table" or decision.needs_table:
+    elif route == "policy" and not decision.direct_response:
+        route = baseline.route
+    if decision.needs_table:
         route = "table"
-    elif baseline.route == "exact":
-        route = "exact"
     graph_allowed = route in {"temporal", "relational"}
     return decision.model_copy(
         update={

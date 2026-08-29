@@ -8,7 +8,7 @@ can benefit from them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from src.services.retrieval import (
@@ -55,6 +55,54 @@ class RoutePlan:
             "context_budget": self.context_budget,
             "verifier_policy": self.verifier_policy,
         }
+
+
+def apply_model_route(
+    plan: RoutePlan,
+    *,
+    route: str,
+    risk: str | None = None,
+    needs_graph: bool = False,
+    settings,
+) -> RoutePlan:
+    """Project a validated model route onto the bounded resource contract.
+
+    The model owns intent selection.  This helper only translates the typed
+    route enum into provider/budget permissions; it never inspects query words
+    or creates legal facts.  ``build_route_plan`` remains the deterministic
+    fallback when the router is unavailable.
+    """
+    allowed: set[str] = {
+        "policy", "exact", "table", "topical", "temporal", "relational", "global", "deep"
+    }
+    if route not in allowed:
+        return plan
+    resolved_risk = "high" if plan.risk == "high" else (risk if risk in {"low", "medium", "high"} else plan.risk)
+    providers = ["postgres"]
+    if route in {"table", "topical", "temporal", "relational", "global", "deep"}:
+        providers.append("qdrant")
+    if route == "global" and getattr(settings, "feature_global_search_enabled", False):
+        providers.append("community")
+    if (
+        getattr(settings, "feature_graph_enabled", True)
+        and needs_graph
+        and route in {"temporal", "relational"}
+    ):
+        providers.append("neo4j")
+    return replace(
+        plan,
+        route=route,  # type: ignore[arg-type]
+        risk=resolved_risk,  # type: ignore[arg-type]
+        providers=tuple(providers),
+        retrieval_budget_ms=(
+            15_000 if route in {"temporal", "relational", "global", "deep"} or resolved_risk == "high" else 8_000
+        ),
+        max_candidates=min(
+            int(getattr(settings, "retrieval_candidate_k", plan.max_candidates)),
+            12 if route == "exact" else 30,
+        ),
+        verifier_policy="strict" if resolved_risk == "high" else "standard",
+    )
 
 
 def build_route_plan(query: str, *, settings) -> RoutePlan:

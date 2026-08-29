@@ -158,6 +158,20 @@ class QdrantVectorStore:
             self._hybrid_bm25 = False
         return self._hybrid_bm25
 
+    async def _dense_query(self, vector: Sequence[float], **kwargs):
+        """Query dense vectors across named and legacy unnamed collections.
+
+        Release collections are usually named ``dense`` vectors.  A retry
+        without ``using`` keeps compatibility with older snapshots while
+        preventing Qdrant's opaque "wrong vector name" 400 from taking down
+        the whole retrieval request.
+        """
+        values = [float(value) for value in vector]
+        try:
+            return await self.client.query_points(query=values, using="dense", **kwargs)
+        except Exception:
+            return await self.client.query_points(query=values, **kwargs)
+
     async def search(
         self,
         vector: Sequence[float],
@@ -223,11 +237,9 @@ class QdrantVectorStore:
                 # unavailable.  The release remains observable as dense-only
                 # until its BM25 capability is fixed and republished.
                 self._hybrid_bm25 = False
-                response = await self.client.query_points(
-                    query=[float(value) for value in vector], **kwargs
-                )
+                response = await self._dense_query(vector, **kwargs)
         else:
-            response = await self.client.query_points(query=[float(value) for value in vector], **kwargs)
+            response = await self._dense_query(vector, **kwargs)
         return [
             VectorHit(
                 chunk_id=str(point.payload.get("passage_id") or point.id).replace("-", ""),
@@ -302,9 +314,8 @@ class QdrantVectorStore:
         query_filter = models.Filter(must=conditions)
 
         async def one(vector: Sequence[float]) -> list[VectorHit]:
-            response = await self.client.query_points(
-                self.collection,
-                query=[float(value) for value in vector],
+            common = dict(
+                collection_name=self.collection,
                 query_filter=query_filter,
                 limit=limit,
                 with_payload=["passage_id", "document_id", "unit_id", "input_sha256"],
@@ -312,6 +323,7 @@ class QdrantVectorStore:
                 score_threshold=score_threshold,
                 timeout=self.timeout,
             )
+            response = await self._dense_query(vector, **common)
             return [
                 VectorHit(
                     chunk_id=str(point.payload.get("passage_id") or point.id).replace("-", ""),
@@ -332,6 +344,7 @@ class QdrantVectorStore:
         requests = [
             models.QueryRequest(
                 query=vector,
+                using="dense",
                 filter=query_filter,
                 limit=limit,
                 with_payload=["passage_id", "document_id", "unit_id", "input_sha256"],
@@ -343,6 +356,11 @@ class QdrantVectorStore:
         try:
             responses = await query_batch(collection_name=self.collection, requests=requests)
         except (AttributeError, TypeError, NotImplementedError):
+            return await asyncio.gather(*(one(vector) for vector in values))
+        except Exception:
+            # Named-vector support varies across Qdrant Cloud snapshots. A
+            # failed batch must degrade to the per-vector compatibility path,
+            # never surface as an agent error.
             return await asyncio.gather(*(one(vector) for vector in values))
         return [
             [

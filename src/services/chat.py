@@ -23,7 +23,7 @@ from src.agents.prompts import NO_EVIDENCE_RESPONSE, SYSTEM_PROMPT
 from src.config import get_settings
 from src.db.repositories import GraphRepository
 from src.db.session import dispose_database, session_scope
-from src.domain.route_plan import build_route_plan
+from src.domain.route_plan import apply_model_route, build_route_plan
 from src.integrations.embeddings import EmbeddingModel, get_embedding_model
 from src.integrations.langfuse import llm_invoke_config, resolve_prompt, trace_span
 from src.integrations.neo4j import Neo4jGraphStore
@@ -858,22 +858,14 @@ class GraphRagRuntime:
         settings = get_settings()
         route_plan = build_route_plan(query, settings=settings)
         if route_plan_override:
-            # Only accept fields already present in the typed deterministic
-            # plan. Model output cannot widen budgets or activate providers.
-            allowed_routes = {"policy", "exact", "table", "topical", "temporal", "relational", "global", "deep"}
             route_value = str(route_plan_override.get("route") or "")
-            if route_value in allowed_routes:
-                route_plan = route_plan.__class__(
-                    route=route_value,
-                    risk=route_plan.risk,
-                    required_facts=route_plan.required_facts,
-                    providers=route_plan.providers,
-                    retrieval_budget_ms=route_plan.retrieval_budget_ms,
-                    generation_budget_ms=route_plan.generation_budget_ms,
-                    max_candidates=route_plan.max_candidates,
-                    context_budget=route_plan.context_budget,
-                    verifier_policy=route_plan.verifier_policy,
-                )
+            route_plan = apply_model_route(
+                route_plan,
+                route=route_value,
+                risk=str(route_plan_override.get("risk") or "") or None,
+                needs_graph=bool(route_plan_override.get("needs_graph")),
+                settings=settings,
+            )
         is_table_route = route_plan.route == "table"
         route_started = time.perf_counter()
         route_deadline = route_started + route_plan.retrieval_budget_ms / 1000
@@ -984,7 +976,21 @@ class GraphRagRuntime:
                 ]
                 if signature_matches:
                     exact_candidates = signature_matches
-                intent = retrieval_intent(query)
+                route_intents = {
+                    "exact": "lookup",
+                    "temporal": "temporal",
+                    "relational": "relational",
+                    "policy": "thematic",
+                    "table": "thematic",
+                    "topical": "thematic",
+                    "global": "thematic",
+                    "deep": "thematic",
+                }
+                intent = (
+                    route_intents.get(route_plan.route, retrieval_intent(query))
+                    if route_plan_override
+                    else retrieval_intent(query)
+                )
                 global_document_ids: list[str] = []
                 if route_plan.route == "global" and settings.feature_global_search_enabled:
                     global_started = time.perf_counter()
@@ -1421,7 +1427,9 @@ class GraphRagRuntime:
                         raise vector_result
                     vector_hits = vector_result
                     if document_semantic_task is not None:
-                        document_vector_result = await document_semantic_task
+                        document_vector_result = (
+                            await asyncio.gather(document_semantic_task, return_exceptions=True)
+                        )[0]
                         document_vector_hits = (
                             []
                             if isinstance(document_vector_result, BaseException)

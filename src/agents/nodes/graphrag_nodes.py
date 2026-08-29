@@ -11,7 +11,7 @@ from uuid import uuid4
 from src.agents.prompts import NO_EVIDENCE_RESPONSE, SYSTEM_PROMPT
 from src.agents.state import AgentState
 from src.config import get_settings
-from src.domain.route_plan import build_route_plan
+from src.domain.route_plan import apply_model_route, build_route_plan
 from src.integrations.langfuse import resolve_prompt
 from src.models.graph import Citation, Entity, Relation, RetrievalResult
 from src.services.chat import get_runtime
@@ -70,13 +70,20 @@ async def intake_node(state: AgentState) -> dict:
             "response": "Tôi chỉ hỗ trợ câu hỏi về BHYT, viện phí và văn bản pháp luật liên quan.",
             "metadata": metadata,
         }
-    decision, decision_source = await classify_request(guard.query, settings=get_settings())
+    settings = get_settings()
+    decision, decision_source = await classify_request(guard.query, settings=settings)
     metadata["model_route"] = decision.model_dump(mode="json")
     metadata["model_route_source"] = decision_source
+    base_plan = build_route_plan(guard.query, settings=settings)
+    route_plan = apply_model_route(
+        base_plan,
+        route=decision.route,
+        risk=decision.risk,
+        needs_graph=decision.needs_graph,
+        settings=settings,
+    )
     metadata["route_plan"] = {
-        **build_route_plan(guard.query, settings=get_settings()).as_dict(),
-        "route": decision.route,
-        "risk": decision.risk,
+        **route_plan.as_dict(),
         "model_route": True,
         "model_route_confidence": decision.confidence,
         "sub_tasks": decision.sub_tasks,
