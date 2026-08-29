@@ -932,6 +932,15 @@ class GraphRagRuntime:
         try:
             phase1_started = time.perf_counter()
             qdrant_locator = ""
+            # Start the canonical lexical channel as soon as the active
+            # release is known.  The document/title recall below is an
+            # optional rescue path and can be slow on a cold managed
+            # PostgreSQL pool; starting it first used to consume the entire
+            # topical route budget before lexical evidence was even queued.
+            # Keep this task broad and let the shared reranker apply
+            # authority/currentness filtering after hydration.  It is still
+            # release-scoped and never becomes public without provenance.
+            early_lexical_task: asyncio.Task[list[RetrievalResult]] | None = None
             # Phase 1: release metadata, exact lookup and PageIndex. This
             # session closes before embedding, Qdrant or Neo4j calls.
             async with session_scope() as session:
@@ -1039,6 +1048,18 @@ class GraphRagRuntime:
                 exact_document_ids = [
                     candidate.document_id for candidate in exact_candidates if candidate.answer_ready
                 ]
+                if route_plan.risk == "high" and not exact_document_ids:
+                    early_lexical_task = asyncio.create_task(
+                        lexical_search(
+                            dataset_id=dataset_id,
+                            document_ids=None,
+                            limit=min(
+                                settings.retrieval_candidate_k,
+                                route_plan.max_candidates,
+                                max(settings.max_llm_evidence * 2, 24),
+                            ),
+                        )
+                    )
                 # A rewrite can expand an abbreviation into the formal subject
                 # found in a statute title.  Keep title hits as a tiny
                 # *candidate* set only; no title ever becomes public evidence
@@ -1243,7 +1264,7 @@ class GraphRagRuntime:
                 route_plan.max_candidates,
                 max(settings.max_llm_evidence * 2, 24),
             )
-            lexical_task = asyncio.create_task(
+            lexical_task = early_lexical_task or asyncio.create_task(
                 lexical_search(
                     dataset_id=dataset_id,
                     document_ids=search_document_ids,
