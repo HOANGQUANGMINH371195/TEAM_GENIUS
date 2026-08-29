@@ -78,7 +78,9 @@ services:
       - key: EMBEDDING_DIMENSIONS
         value: "1536"
       - key: RETRIEVAL_TIMEOUT_SECONDS
-        value: "15"
+        # Remote retrieval includes embedding, Qdrant and SQL hydration;
+        # fifteen seconds expires before the verified final SSE event.
+        value: "45"
       - key: FIREBASE_SERVICE_ACCOUNT_JSON
         sync: false
       - key: RATE_LIMIT_REDIS_URL

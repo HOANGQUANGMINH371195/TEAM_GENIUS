@@ -952,24 +952,22 @@ class GraphRagRuntime:
                 # is a query-derived candidate stage (not an answer mapping):
                 # title hits, lexical document hits and ANN hits still have to
                 # produce a grounded passage and pass the shared reranker.
-                document_recall_ids = (
-                    await repository.search_lexical_document_ids(
-                        query,
-                        dataset_id=dataset_id,
-                        # Keep the same bounded candidate budget as the
-                        # corpus-wide first stage.  A document-level recall
-                        # pass exists precisely to rescue a short operative
-                        # clause that ranked below broad explanatory text;
-                        # truncating it halfway through would silently lose
-                        # the current governing law for a rewritten query.
-                        limit=settings.retrieval_candidate_k,
-                    )
-                    if (
-                        document_recall_enabled
-                        and hasattr(repository, "search_lexical_document_ids")
-                    )
-                    else []
-                )
+                document_recall_ids: list[str] = []
+                if document_recall_enabled and hasattr(repository, "search_lexical_document_ids"):
+                    try:
+                        # Optional document-level rescue is bounded so a slow
+                        # free-tier SQL connection cannot consume the request
+                        # budget; primary lexical and dense recall remain valid.
+                        document_recall_ids = await asyncio.wait_for(
+                            repository.search_lexical_document_ids(
+                                query,
+                                dataset_id=dataset_id,
+                                limit=settings.retrieval_candidate_k,
+                            ),
+                            timeout=min(4.0, settings.retrieval_timeout_seconds / 3),
+                        )
+                    except (TimeoutError, OSError, RuntimeError) as exc:
+                        logger.warning("Optional document recall skipped (%s)", type(exc).__name__)
                 if route_plan.risk == "high" and not exact_document_ids:
                     # High-risk questions often use colloquial wording that is
                     # absent from the current statute (for example emergency
@@ -993,15 +991,21 @@ class GraphRagRuntime:
                             )
                         except Exception:
                             current_authority_ids = []
-                    document_recall_ids = list(
-                        dict.fromkeys([*current_authority_ids, *document_recall_ids])
-                    )[: settings.retrieval_candidate_k]
                 if current_title_query and hasattr(repository, "search_lexical_document_ids"):
-                    current_recall_ids = await repository.search_lexical_document_ids(
-                        current_title_query,
-                        dataset_id=dataset_id,
-                        limit=settings.retrieval_candidate_k,
-                    )
+                    try:
+                        current_recall_ids = await asyncio.wait_for(
+                            repository.search_lexical_document_ids(
+                                current_title_query,
+                                dataset_id=dataset_id,
+                                limit=settings.retrieval_candidate_k,
+                            ),
+                            timeout=min(4.0, settings.retrieval_timeout_seconds / 3),
+                        )
+                    except (TimeoutError, OSError, RuntimeError) as exc:
+                        logger.warning(
+                            "Optional current-law recall skipped (%s)", type(exc).__name__
+                        )
+                        current_recall_ids = []
                     document_recall_ids = list(
                         dict.fromkeys(
                             [

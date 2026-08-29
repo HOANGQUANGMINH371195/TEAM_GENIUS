@@ -659,6 +659,25 @@ async def _stream_agent(
             request_id=request_id or "",
         )
         yield emit("done", {"ok": True})
+    except GraphRagUnavailableError as exc:
+        # Preserve a typed terminal error so the browser can distinguish a
+        # retryable dependency/deadline failure from an unexpected stream bug.
+        # Release an idempotency lease on failure instead of stranding it.
+        logger.exception("Agent stream retrieval failure")
+        if idempotency_key:
+            await get_idempotency_store().abort(
+                owner_uid=owner_uid,
+                endpoint=idempotency_endpoint,
+                key=idempotency_key,
+            )
+        timed_out = "deadline" in str(exc).casefold()
+        yield emit(
+            "error",
+            {
+                "code": "retrieval_timeout" if timed_out else "retrieval_unavailable",
+                "message": "Retrieval deadline exceeded" if timed_out else "GraphRAG service unavailable",
+            },
+        )
     except Exception as exc:
         logger.exception("Agent stream failure")
         if idempotency_key:
