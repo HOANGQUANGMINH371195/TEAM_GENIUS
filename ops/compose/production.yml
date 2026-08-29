@@ -72,6 +72,8 @@ services:
         condition: service_started
       web:
         condition: service_started
+      grafana:
+        condition: service_started
     ports:
       - "80:80"
       - "443:443"
