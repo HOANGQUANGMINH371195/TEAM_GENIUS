@@ -2475,7 +2475,15 @@ class GraphRagRuntime:
             structured = hasattr(llm, "with_structured_output")
             generation_trace["structured_output"] = structured
             generation_llm = (
-                llm.with_structured_output(GroundedAnswer, method="json_schema")
+                # Keep the raw AIMessage alongside the parsed Pydantic object.
+                # Responses API usage metadata is attached to that raw message;
+                # without it a real provider run appears free and cannot be
+                # reconciled with the billing dashboard.
+                llm.with_structured_output(
+                    GroundedAnswer,
+                    method="json_schema",
+                    include_raw=True,
+                )
                 if structured
                 else llm
             )
@@ -2511,15 +2519,17 @@ class GraphRagRuntime:
             metrics.inc("generation_requests_total", outcome="error")
             metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="error")
             raise ChatProviderError("Chat provider failed") from exc
-        # Structured providers return a Pydantic object (or a dict for some
-        # LangChain/OpenAI versions).  Render it deterministically so the
-        # browser never receives a raw JSON object or an unprocessed chunk.
-        if isinstance(result, GroundedAnswer):
-            content = render_grounded_answer(result)
+        # ``include_raw=True`` returns {raw, parsed, parsing_error}; older
+        # wrappers/mocks may still return the parsed object directly. Render
+        # only the parsed value, while reading usage from the raw message.
+        raw_result = result.get("raw") if isinstance(result, dict) and "parsed" in result else result
+        parsed_result = result.get("parsed") if isinstance(result, dict) and "parsed" in result else result
+        if isinstance(parsed_result, GroundedAnswer):
+            content = render_grounded_answer(parsed_result)
             generation_trace["schema_valid"] = True
-        elif isinstance(result, dict) and "conclusion" in result:
+        elif isinstance(parsed_result, dict) and "conclusion" in parsed_result:
             try:
-                grounded = GroundedAnswer.model_validate(result)
+                grounded = GroundedAnswer.model_validate(parsed_result)
             except Exception as exc:
                 generation_trace["schema_valid"] = False
                 raise ChatProviderError("Structured chat output failed validation") from exc
@@ -2536,8 +2546,8 @@ class GraphRagRuntime:
                 raise ChatProviderError("Chat provider returned non-schema output")
             content = getattr(result, "content", result)
             generation_trace["schema_valid"] = False
-        response_metadata = getattr(result, "response_metadata", {}) or {}
-        usage_metadata = getattr(result, "usage_metadata", {}) or {}
+        response_metadata = getattr(raw_result, "response_metadata", {}) or {}
+        usage_metadata = getattr(raw_result, "usage_metadata", {}) or {}
         usage = usage_metadata or response_metadata.get("token_usage") or response_metadata.get("usage") or {}
         if isinstance(usage, dict):
             generation_trace["usage"] = {

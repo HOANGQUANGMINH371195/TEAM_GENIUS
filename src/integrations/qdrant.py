@@ -154,7 +154,7 @@ class QdrantVectorStore:
             vectors = info.config.params.vectors
             sparse = info.config.params.sparse_vectors or {}
             self._hybrid_bm25 = isinstance(vectors, dict) and {"dense"} <= set(vectors) and "bm25" in sparse
-        except (Exception, asyncio.TimeoutError):
+        except Exception:
             self._hybrid_bm25 = False
         return self._hybrid_bm25
 
