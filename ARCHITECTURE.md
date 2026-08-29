@@ -49,22 +49,19 @@ PostgreSQL/Qdrant/Neo4j/Redis/migrate/API/web healthy, `/health` và `/ready`
 Readiness load 20 request đồng thời đạt 20/20 (P50 ~309 ms, P95 ~312 ms),
 nhưng không được dùng thay cho live chat/provider SLO.
 External preflight cùng ngày xác nhận AWS credential hợp lệ nhưng chưa có EC2,
-SSM-managed instance hoặc Lightsail instance; Vercel deployment hiện hữu READY
-trên domain cũ nhưng P-151 chưa link/chưa promote commit local. Render `/health`
-vẫn 200 còn `/ready` 503 do Qdrant và Neo4j unavailable, nên chưa được coi là
-production-ready. Vercel project còn khoảng 80 env vars, trong đó có backend /
-database secrets; web deployment chỉ nên giữ API URL và Firebase public config,
-phần còn lại cần được gỡ hoặc chuyển về backend host.
+SSM-managed instance hoặc Lightsail instance. AWS EC2 + Compose là production
+target duy nhất; Vercel/Render đã tồn tại chỉ là platform legacy và không phải
+promotion prerequisite. Vercel project còn khoảng 80 env vars, trong đó có
+backend/database secrets; không dùng chúng cho AWS và không đưa secret backend
+vào frontend.
 Live Langfuse probe xác nhận label `medipay-system:production` hiện chưa tồn tại;
 resolver fail-open về local hash trong giới hạn 2 giây và cache kết quả, nhưng
 prompt production thật phải được tạo/pin trước khi promote.
-Render service đang chạy commit `b416129`, trước bounded release-collection
-resolver. Active PostgreSQL projection giữ locator logic cũ trong khi Qdrant
-đang lưu collection vật lý theo release; vì vậy bản cũ không tự resolve được và
-readiness báo Qdrant/Neo4j không sẵn sàng dù các endpoint managed có thể truy cập.
-Việc khắc phục bắt buộc là deploy source hiện tại, khai báo đủ
-`QDRANT_COLLECTION`/`NEO4J_DATABASE`, sau đó xác minh parity; không hardcode
-collection hay bỏ qua readiness.
+Render service legacy đang chạy commit `b416129`, trước bounded
+release-collection resolver. Trạng thái đó không ảnh hưởng AWS production và
+không cần sửa để đóng AWS gate. Khi dựng AWS, phải dùng source hiện tại, khai
+báo đủ `QDRANT_COLLECTION`/`NEO4J_DATABASE`, sau đó xác minh parity; không
+hardcode collection hay bỏ qua readiness.
 
 Verifier promotion đã được đồng bộ với status ledger tiếng Việt của PLAN và
 không còn báo false-positive; trạng thái production hiện là `false` khi còn

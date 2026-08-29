@@ -91,24 +91,22 @@ synthetic benchmark không thay thế reviewer pháp lý, load test hay restore 
   provider benchmark.
 - External preflight read-only ngày 2026-08-29: AWS profile `p151` xác thực
   thành công nhưng account/region hiện có 0 EC2, 0 SSM-managed instance và 0
-  Lightsail instance; vì vậy AWS Compose chưa được deploy. Vercel project
+  Lightsail instance; vì vậy AWS Compose chưa được deploy. AWS là đích
+  production duy nhất; Render/Vercel bên dưới chỉ là platform legacy, không
+  phải promotion prerequisite. Render/Vercel artifact cũ chỉ giữ cho migration;
+  không dùng làm AWS production evidence. Vercel project
   `team-genius` có deployment production READY và domain trả HTTP 200, nhưng
   P-151 chưa được link vào project và working tree còn thay đổi chưa commit.
-  Render API `/health` trả 200 nhưng `/ready` trả 503 (`qdrant=false`,
-  `neo4j=false`), nên backend production chưa đạt dependency readiness. Vercel
-  project đang có khoảng 80 biến môi trường (bao gồm cả backend/database
-  secrets); theo kiến trúc web chỉ cần API URL và Firebase public config, nên
-  các secret backend phải được rà soát và gỡ khỏi Vercel trước khi promote.
-  Read-only Render API audit bổ sung xác nhận service `medipay-api` đang chạy
-  commit `b416129` (không phải source hiện tại). PostgreSQL active release là
+  Render/Vercel trạng thái cũ không ảnh hưởng AWS production; mọi secret backend
+  chỉ được cài trên EC2, không đưa vào frontend.
+  PostgreSQL active release là
   `snapshot-c439751724ab7f10`; projection Qdrant còn locator logic
   `legal_graph_chunks__snapshot_c439751724ab7f10`, trong khi collection vật lý
   đúng là release-suffixed hybrid collection. Source hiện tại đã có resolver
-  bounded, read-only để ánh xạ locator đó; bản đang chạy trên Render chưa có
-  resolver nên readiness fail dù Qdrant và Neo4j managed vẫn reachable. Render
-  cũng chưa khai báo `QDRANT_COLLECTION` và `NEO4J_DATABASE` trong service env.
-  Không sửa bằng cách trỏ mù vào collection hoặc tắt readiness: phải triển khai
-  commit hiện tại, giữ resolver, rồi chạy lại parity/readiness.
+  bounded, read-only để ánh xạ locator đó; AWS host phải khai báo đầy đủ
+  `QDRANT_COLLECTION` và `NEO4J_DATABASE`.
+  Không sửa bằng cách trỏ mù vào collection hoặc tắt readiness: khi dựng AWS,
+  phải giữ resolver, khai báo đủ locator/database và chạy lại parity/readiness.
 
 - Runtime API đi qua `src/runtime_entrypoint.py`, `src/main.py`, `src/api/` và
   `src/services/chat.py`.

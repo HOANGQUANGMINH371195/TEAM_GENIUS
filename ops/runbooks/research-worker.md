@@ -14,13 +14,13 @@ The worker runs the same image with:
 python -m src.research_worker
 ```
 
-An optional Render blueprint is provided at `render-research-worker.yaml`; it
-is deliberately not included in the default API blueprint to avoid creating a
-paid worker before Redis and the production attestation exist.
+The `render-research-worker.yaml` blueprint is retained only as a legacy
+migration artifact; it is deliberately not included in the default API
+blueprint. AWS production runs the worker from the Compose profile on EC2.
 
 The worker refuses to start unless the Redis backend is explicit. Jobs are
 owner/conversation/release scoped, bounded by TTL and timeout, and persist only
-the public answer/citation envelope. Deploy it as a separately scaled Render
-worker after Redis connectivity, restart recovery, cancellation, and rollback
-are demonstrated. The in-process queue remains the development fallback and
-is not a production durability claim.
+the public answer/citation envelope. Deploy it as a separately scaled AWS
+Compose worker after Redis connectivity, restart recovery, cancellation, and
+rollback are demonstrated. The in-process queue remains the development
+fallback and is not a production durability claim.

@@ -129,7 +129,7 @@ def main() -> int:
         "external_gates_still_required": [
             "independent human-adjudicated accuracy and no-catastrophic-error review",
             "authenticated cold/warm/concurrency latency and SSE TTFT run",
-            "managed Render/Vercel smoke, rollback, and provider outage drill",
+            "authenticated AWS EC2 smoke, rollback, and provider outage drill",
             "ablation evidence for learned reranker, typed graph, and grounded planning",
             "durable async worker deployment and release-scoped community index artifact",
         ],

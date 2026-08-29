@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Verify provider-platform contracts without contacting Render or Vercel.
+"""Verify legacy platform contracts without contacting Render or Vercel.
 
 This is intentionally a structural gate.  It proves that the repository has a
-safe Render/Vercel contract, while authenticated project, domain and staging
-attestation remain external checks.
+backwards-compatible Render/Vercel contract for migration tooling; AWS EC2
+Compose is the production target and its authenticated host attestation remains
+an external check.
 """
 
 from __future__ import annotations
@@ -96,8 +97,8 @@ def main() -> int:
         "external_attestation_required": True,
         "checks": checks,
         "external_checks": [
-            "Render project/paid plan/region and authenticated staging smoke",
-            "Vercel project environments/preview protection and browser E2E",
+            "AWS EC2/SSM host, security group, TLS and authenticated production smoke",
+            "AWS Compose rollback/restore and provider-outage drill",
             "Firebase authorized domains and production secret installation",
         ],
     }
