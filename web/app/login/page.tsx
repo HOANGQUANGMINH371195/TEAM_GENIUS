@@ -12,7 +12,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace(user.role === "admin" ? "/admin/review" : "/");
+      router.replace(user.role === "admin" ? "/admin" : "/");
     }
   }, [user, loading, router]);
 

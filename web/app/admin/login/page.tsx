@@ -10,7 +10,7 @@ export default function AdminLoginPage() {
 
   useEffect(() => {
     if (isReady && isAuthenticated && isAdmin) {
-      router.replace("/admin/review");
+      router.replace("/admin");
     } else if (isReady && isAuthenticated && !isAdmin) {
       router.replace("/");
     }

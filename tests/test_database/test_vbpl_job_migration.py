@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).parents[2]
 MIGRATION = ROOT / "database" / "postgres" / "migrations" / "20260835_vbpl_jobs_cache.sql"
 ROLLBACK = ROOT / "database" / "postgres" / "migrations" / "20260835_vbpl_jobs_cache.rollback.sql"

@@ -412,3 +412,43 @@ class ReadinessResponse(ApiModel):
     llm: bool
     embedding: bool
     details: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdminObservabilityMetric(ApiModel):
+    value: float | None = None
+    observable: bool = False
+
+
+class AdminObservabilitySummary(ApiModel):
+    requests: AdminObservabilityMetric = Field(default_factory=AdminObservabilityMetric)
+    error_rate: AdminObservabilityMetric = Field(default_factory=AdminObservabilityMetric)
+    p95_latency_ms: AdminObservabilityMetric = Field(default_factory=AdminObservabilityMetric)
+    total_tokens: AdminObservabilityMetric = Field(default_factory=AdminObservabilityMetric)
+    total_cost_usd: AdminObservabilityMetric = Field(default_factory=AdminObservabilityMetric)
+
+
+class AdminObservabilityPoint(ApiModel):
+    timestamp: datetime
+    requests: int | None = None
+    errors: int | None = None
+    p95_latency_ms: float | None = None
+    total_tokens: int | None = None
+    total_cost_usd: float | None = None
+
+
+class AdminObservabilityBreakdown(ApiModel):
+    name: str
+    requests: int | None = None
+    p95_latency_ms: float | None = None
+
+
+class AdminObservabilityResponse(ApiModel):
+    available: bool
+    reason: str = ""
+    range: Literal["today", "7d", "30d", "90d"]
+    from_timestamp: datetime
+    to_timestamp: datetime
+    updated_at: datetime
+    summary: AdminObservabilitySummary = Field(default_factory=AdminObservabilitySummary)
+    series: list[AdminObservabilityPoint] = Field(default_factory=list)
+    breakdowns: list[AdminObservabilityBreakdown] = Field(default_factory=list)

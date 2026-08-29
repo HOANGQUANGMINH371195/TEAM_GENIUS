@@ -525,7 +525,7 @@ async def test_swagger_and_openapi(client):
     assert docs_response.status_code == 200
     assert openapi_response.status_code == 200
     paths = openapi_response.json()["paths"]
-    assert {"/health", "/ready", "/api/v1/status", "/api/v1/chat", "/api/v1/chat/stream", "/api/v1/analyze"} <= paths.keys()
+    assert {"/health", "/ready", "/api/v1/status", "/api/v1/chat", "/api/v1/chat/stream", "/api/v1/analyze", "/api/v1/auth/admin/observability"} <= paths.keys()
     assert paths["/api/v1/chat"]["post"]["requestBody"]
     assert paths["/api/v1/chat"]["post"]["responses"]["200"]
     schemas = openapi_response.json()["components"]["schemas"]

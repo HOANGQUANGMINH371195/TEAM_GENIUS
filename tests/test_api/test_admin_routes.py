@@ -8,6 +8,34 @@ import pytest
 
 from src.api.auth import require_admin
 from src.main import app
+from src.models.schemas import AdminObservabilityResponse
+
+
+@pytest.mark.asyncio
+async def test_admin_observability_requires_admin_and_returns_dashboard(client):
+    async def admin_user():
+        return {"uid": "admin-1", "role": "admin"}
+
+    app.dependency_overrides[require_admin] = admin_user
+    try:
+        with patch(
+            "src.api.auth_routes.fetch_dashboard",
+            return_value=AdminObservabilityResponse(
+                available=False,
+                reason="Langfuse chưa được cấu hình.",
+                range="7d",
+                from_timestamp=datetime(2026, 8, 22, tzinfo=UTC),
+                to_timestamp=datetime(2026, 8, 29, tzinfo=UTC),
+                updated_at=datetime(2026, 8, 29, tzinfo=UTC),
+            ),
+        ):
+            response = await client.get("/api/v1/auth/admin/observability?range=7d")
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
+
+    assert response.status_code == 200
+    assert response.json()["available"] is False
+    assert response.json()["range"] == "7d"
 
 
 class Result:

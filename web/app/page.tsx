@@ -271,7 +271,7 @@ export default function HomePage() {
             </div>
           ) : null}
           <div className="bhyt-support-note"><Icon name="shield" /><span><strong>Hỗ trợ tra cứu BHYT</strong><small>Thông tin được đối chiếu từ nguồn pháp lý</small></span></div>
-          {user?.role === "admin" ? <a className="bhyt-admin-link" href="/admin/review"><Icon name="shield" /><span>Cổng quản trị viên</span></a> : null}
+          {user?.role === "admin" ? <a className="bhyt-admin-link" href="/admin"><Icon name="shield" /><span>Cổng quản trị viên</span></a> : null}
         </div>
       </aside>
 

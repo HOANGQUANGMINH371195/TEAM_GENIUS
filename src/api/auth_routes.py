@@ -4,7 +4,7 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -12,16 +12,30 @@ from src.api.auth import get_current_user, require_admin
 from src.api.public_contract import public_citations
 from src.db.session import session_scope
 from src.models.schemas import (
+    AdminObservabilityResponse,
     ConversationSummary,
     ConversationTurn,
     ReviewDecisionRequest,
     ReviewQueueItem,
 )
 from src.services.conversations import ConversationStoreError, get_conversation_store
+from src.services.langfuse_dashboard import ObservabilityRange, fetch_dashboard
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+
+
+@router.get("/admin/observability", response_model=AdminObservabilityResponse, tags=["Admin"])
+async def admin_observability(
+    response: Response,
+    range_name: ObservabilityRange = Query(default="7d", alias="range"),
+    _user: dict[str, Any] = Depends(require_admin),
+) -> AdminObservabilityResponse:
+    """Return bounded Langfuse telemetry for authenticated administrators."""
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Vary"] = "Authorization"
+    return await fetch_dashboard(range_name)
 
 
 class UserProfile(BaseModel):

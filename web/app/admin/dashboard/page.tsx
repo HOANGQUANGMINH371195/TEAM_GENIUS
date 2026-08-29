@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
-export default function AdminReviewPage() {
+export default function AdminDashboardAliasPage() {
   redirect("/admin");
 }

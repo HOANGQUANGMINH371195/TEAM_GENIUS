@@ -25,6 +25,48 @@ export type ChatResponse = {
   turn_id?: string;
 };
 
+export type ObservabilityRange = "today" | "7d" | "30d" | "90d";
+
+export type AdminObservabilityMetric = {
+  value: number | null;
+  observable: boolean;
+};
+
+export type AdminObservabilityResponse = {
+  available: boolean;
+  reason: string;
+  range: ObservabilityRange;
+  from_timestamp: string;
+  to_timestamp: string;
+  updated_at: string;
+  summary: {
+    requests: AdminObservabilityMetric;
+    error_rate: AdminObservabilityMetric;
+    p95_latency_ms: AdminObservabilityMetric;
+    total_tokens: AdminObservabilityMetric;
+    total_cost_usd: AdminObservabilityMetric;
+  };
+  series: Array<{
+    timestamp: string;
+    requests: number | null;
+    errors: number | null;
+    p95_latency_ms: number | null;
+    total_tokens: number | null;
+    total_cost_usd: number | null;
+  }>;
+  breakdowns: Array<{ name: string; requests: number | null; p95_latency_ms: number | null }>;
+};
+
+export async function fetchAdminObservability(range: ObservabilityRange = "7d"): Promise<AdminObservabilityResponse> {
+  const response = await adminRequest(`/api/v1/auth/admin/observability?range=${encodeURIComponent(range)}`);
+  if (!response.ok) {
+    const error = (await response.json().catch(() => null)) as ApiError | null;
+    throw new Error(error?.message ?? "Không thể tải dữ liệu giám sát");
+  }
+  return (await response.json()) as AdminObservabilityResponse;
+}
+
+// Legacy review API remains available for existing non-dashboard clients.
 export type ReviewQueueItem = {
   review_id: string;
   domain: "legal_document" | "hospital_fee_ocr";
@@ -42,6 +84,27 @@ export type ReviewQueueItem = {
   decided_at: string | null;
   audit: Array<Record<string, unknown>>;
 };
+
+export async function fetchAdminReviews(status = "pending", domain = "all"): Promise<ReviewQueueItem[]> {
+  const response = await adminRequest(`/api/v1/auth/admin/reviews?status=${encodeURIComponent(status)}&domain=${encodeURIComponent(domain)}`);
+  if (!response.ok) {
+    const error = (await response.json().catch(() => null)) as ApiError | null;
+    throw new Error(error?.message ?? "Không thể tải dữ liệu kiểm duyệt");
+  }
+  return (await response.json()) as ReviewQueueItem[];
+}
+
+export async function decideAdminReview(reviewId: string, status: "accepted" | "rejected", note = ""): Promise<ReviewQueueItem> {
+  const response = await adminRequest(`/api/v1/auth/admin/reviews/${encodeURIComponent(reviewId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status, note }),
+  });
+  if (!response.ok) {
+    const error = (await response.json().catch(() => null)) as ApiError | null;
+    throw new Error(error?.message ?? "Không thể cập nhật bản kiểm duyệt");
+  }
+  return (await response.json()) as ReviewQueueItem;
+}
 
 export type ChatStreamEvent =
   | { type: "status"; stage: string }
