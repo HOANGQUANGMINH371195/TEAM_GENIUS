@@ -115,7 +115,9 @@ networks:
   edge:
     driver: bridge
   data:
-    internal: true
+    # Services are not published on host ports, but API/migrator need outbound
+    # access to Supabase, Qdrant Cloud and Neo4j Aura. Docker's `internal`
+    # network flag would block that egress and make managed dependencies fail.
     driver: bridge
 
 volumes:
