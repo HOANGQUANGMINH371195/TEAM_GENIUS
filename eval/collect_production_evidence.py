@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import quantiles
@@ -84,7 +85,11 @@ async def _probe_stream(client: httpx.AsyncClient, url: str, headers: dict[str, 
             **headers,
             "Idempotency-Key": f"benchmark-{case['case_id']}-{time.time_ns()}",
         }
-        async with client.stream("POST", url, headers=request_headers, json={"message": case["question"], "conversation_id": f"benchmark-{case['case_id']}"}) as response:
+        # Conversation storage validates UUIDs.  UUID5 keeps a stable,
+        # collision-free conversation per fixture case without creating an
+        # invalid synthetic identifier or mixing cases across users.
+        conversation_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"medipay-benchmark:{case['case_id']}"))
+        async with client.stream("POST", url, headers=request_headers, json={"message": case["question"], "conversation_id": conversation_id}) as response:
             status_code = response.status_code
             event_name = ""
             async for line in response.aiter_lines():
