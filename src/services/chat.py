@@ -147,7 +147,7 @@ class GraphRagRuntime:
             cooldown_seconds=get_settings().provider_circuit_cooldown_seconds,
         )
         self._exact_cache: dict[tuple[str, str], tuple[list[DocumentCandidate], float]] = {}
-        self._retrieval_cache: dict[tuple[tuple[object, ...], str], tuple[RetrievalBundle, float]] = {}
+        self._retrieval_cache: dict[tuple[tuple[object, ...], str, str], tuple[RetrievalBundle, float]] = {}
         self._rewrite_cache: dict[tuple[str, str], tuple[str, float]] = {}
         # Generated answers are safe to reuse only while the immutable active
         # release and every prompt/input fingerprint remain identical.  Keep
@@ -226,7 +226,7 @@ class GraphRagRuntime:
             ),
         )
 
-    async def retrieve_bundle_adaptive(self, query: str) -> RetrievalBundle:
+    async def retrieve_bundle_adaptive(self, query: str, *, route_plan_override: dict[str, Any] | None = None) -> RetrievalBundle:
         """Retrieve the original and a constrained rewrite concurrently.
 
         The original wording is always retained. Rewrite failure, timeout or
@@ -236,16 +236,20 @@ class GraphRagRuntime:
         """
         settings = get_settings()
         if not settings.query_rewrite_enabled or not should_rewrite_query(query):
-            return await self.retrieve_bundle(query)
+            return await self.retrieve_bundle(query) if route_plan_override is None else await self.retrieve_bundle(query, route_plan_override=route_plan_override)
         # Long thematic questions already carry their decisive legal terms;
         # running a second full retrieval view adds ~10–15s while rarely
         # improving recall. Keep HyDE for temporal/relational routing (where
         # formal wording is genuinely different) and for short open queries
         # covered by the focused unit tests.
         if retrieval_intent(query) == "thematic" and len(query.split()) >= 10:
-            return await self.retrieve_bundle(query)
+            return await self.retrieve_bundle(query) if route_plan_override is None else await self.retrieve_bundle(query, route_plan_override=route_plan_override)
 
-        original_task = asyncio.create_task(self.retrieve_bundle(query))
+        original_task = asyncio.create_task(
+            self.retrieve_bundle(query)
+            if route_plan_override is None
+            else self.retrieve_bundle(query, route_plan_override=route_plan_override)
+        )
         try:
             rewritten = await asyncio.wait_for(
                 self._rewrite_query(query),
@@ -259,7 +263,11 @@ class GraphRagRuntime:
             metrics.inc("query_rewrite_total", outcome="unchanged")
             return await original_task
 
-        rewritten_task = asyncio.create_task(self.retrieve_bundle(rewritten))
+        rewritten_task = asyncio.create_task(
+            self.retrieve_bundle(rewritten)
+            if route_plan_override is None
+            else self.retrieve_bundle(rewritten, route_plan_override=route_plan_override)
+        )
         original, expanded = await asyncio.gather(
             original_task,
             rewritten_task,
@@ -376,13 +384,13 @@ class GraphRagRuntime:
         self._rewrite_cache[key] = (rewritten, now)
         return rewritten
 
-    async def retrieve_bundle(self, query: str) -> RetrievalBundle:
+    async def retrieve_bundle(self, query: str, *, route_plan_override: dict[str, Any] | None = None) -> RetrievalBundle:
         """Retrieve one request and attach an isolated local trace."""
         trace: dict[str, Any] = {"trace_id": uuid4().hex, "stages": []}
         token = _trace_context.set(trace)
         started = time.perf_counter()
         try:
-            bundle = await self._retrieve_bundle(query)
+            bundle = await self._retrieve_bundle(query, route_plan_override=route_plan_override)
             _record_trace_event("retrieval_total", started, evidence_count=len(bundle.evidence))
             return RetrievalBundle(
                 evidence=bundle.evidence,
@@ -402,7 +410,7 @@ class GraphRagRuntime:
         finally:
             _trace_context.reset(token)
 
-    async def _retrieve_bundle(self, query: str) -> RetrievalBundle:
+    async def _retrieve_bundle(self, query: str, *, route_plan_override: dict[str, Any] | None = None) -> RetrievalBundle:
         started = time.perf_counter()
         safe_response = policy_response(query)
         if safe_response:
@@ -425,7 +433,8 @@ class GraphRagRuntime:
             settings.max_llm_evidence,
             _RETRIEVAL_POLICY_VERSION,
         )
-        cached = self._retrieval_cache.get((cache_namespace, normalized_query)) if current_release else None
+        override_key = json.dumps(route_plan_override or {}, sort_keys=True, separators=(",", ":"))
+        cached = self._retrieval_cache.get((cache_namespace, normalized_query, override_key)) if current_release else None
         if cached and time.monotonic() - cached[1] < 60:
             metrics.inc("retrieval_requests_total", mode="cache", outcome="success")
             metrics.observe("retrieval_duration_seconds", time.perf_counter() - started, mode="cache")
@@ -437,7 +446,7 @@ class GraphRagRuntime:
         ) as span:
             try:
                 bundle = await asyncio.wait_for(
-                    self._retrieve(query),
+                    self._retrieve(query, route_plan_override=route_plan_override),
                     timeout=get_settings().retrieval_timeout_seconds,
                 )
             except TimeoutError as exc:
@@ -474,6 +483,7 @@ class GraphRagRuntime:
                         _RETRIEVAL_POLICY_VERSION,
                     ),
                     normalized_query,
+                    override_key,
                 )
                 if len(self._retrieval_cache) >= 128:
                     oldest = min(self._retrieval_cache, key=lambda item: self._retrieval_cache[item][1])
@@ -829,8 +839,8 @@ class GraphRagRuntime:
             metrics.inc("experience_index_load_total", outcome="invalid")
             return []
 
-    async def _retrieve(self, query: str) -> RetrievalBundle:
-        return await self._retrieve_staged(query)
+    async def _retrieve(self, query: str, *, route_plan_override: dict[str, Any] | None = None) -> RetrievalBundle:
+        return await self._retrieve_staged(query, route_plan_override=route_plan_override)
 
     async def _retrieve_staged(
         self,
@@ -838,10 +848,28 @@ class GraphRagRuntime:
         *,
         vector_override: Sequence[float] | None = None,
         vector_hits_override: Sequence[VectorHit] | None = None,
+        route_plan_override: dict[str, Any] | None = None,
     ) -> RetrievalBundle:
         """Retrieve in bounded DB phases; never hold a SQL session over providers."""
         settings = get_settings()
         route_plan = build_route_plan(query, settings=settings)
+        if route_plan_override:
+            # Only accept fields already present in the typed deterministic
+            # plan. Model output cannot widen budgets or activate providers.
+            allowed_routes = {"policy", "exact", "table", "topical", "temporal", "relational", "global", "deep"}
+            route_value = str(route_plan_override.get("route") or "")
+            if route_value in allowed_routes:
+                route_plan = route_plan.__class__(
+                    route=route_value,
+                    risk=route_plan.risk,
+                    required_facts=route_plan.required_facts,
+                    providers=route_plan.providers,
+                    retrieval_budget_ms=route_plan.retrieval_budget_ms,
+                    generation_budget_ms=route_plan.generation_budget_ms,
+                    max_candidates=route_plan.max_candidates,
+                    context_budget=route_plan.context_budget,
+                    verifier_policy=route_plan.verifier_policy,
+                )
         is_table_route = route_plan.route == "table"
         route_started = time.perf_counter()
         route_deadline = route_started + route_plan.retrieval_budget_ms / 1000

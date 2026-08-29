@@ -17,6 +17,7 @@ from src.models.graph import Citation, Entity, Relation, RetrievalResult
 from src.services.chat import get_runtime
 from src.services.claims import build_legal_claim, claim_dict
 from src.services.planner import evidence_gap_plan, followup_queries
+from src.services.request_router import classify_request, input_guardrail
 from src.services.retrieval import (
     decompose_query,
     extract_query_terms,
@@ -59,13 +60,35 @@ async def intake_node(state: AgentState) -> dict:
     query = state.get("query", "").strip()
     if not query:
         return {"error": "Query must not be empty"}
+    guard = input_guardrail(query)
     metadata = dict(state.get("metadata") or {})
     metadata.setdefault("trace_id", uuid4().hex)
+    metadata["input_guardrail"] = "allow" if guard.allowed else guard.reason
+    if not guard.allowed:
+        return {
+            "query": guard.query,
+            "response": "Tôi chỉ hỗ trợ câu hỏi về BHYT, viện phí và văn bản pháp luật liên quan.",
+            "metadata": metadata,
+        }
+    decision, decision_source = await classify_request(guard.query, settings=get_settings())
+    metadata["model_route"] = decision.model_dump(mode="json")
+    metadata["model_route_source"] = decision_source
+    metadata["route_plan"] = {
+        **build_route_plan(guard.query, settings=get_settings()).as_dict(),
+        "route": decision.route,
+        "risk": decision.risk,
+        "model_route": True,
+        "model_route_confidence": decision.confidence,
+        "sub_tasks": decision.sub_tasks,
+        "needs_table": decision.needs_table,
+        "needs_calculator": decision.needs_calculator,
+        "needs_graph": decision.needs_graph,
+        "needs_current_law": decision.needs_current_law,
+    }
     # The plan carries budgets/provider permissions, never legal evidence.
     # Keeping it in metadata makes each route auditable without changing the
     # public response contract.
-    metadata["route_plan"] = build_route_plan(query, settings=get_settings()).as_dict()
-    return {"query": query, "metadata": metadata}
+    return {"query": guard.query, "metadata": metadata}
 
 
 async def extract_entities_node(state: AgentState) -> dict:
@@ -78,6 +101,7 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
     runtime = get_runtime()
     started = time.perf_counter()
     subqueries = decompose_query(query)
+    route_override = (state.get("metadata") or {}).get("route_plan")
     # Adaptive retrieval preserves the complete user question and pairs it
     # with a clause-shaped rewrite. Running deterministic decomposition first
     # used to discard cross-condition facts (e.g. “mức đóng *và* hỗ trợ”),
@@ -88,13 +112,13 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
         # and merging independently ranked bundles can discard the clause
         # that satisfies both conditions. Preserve the complete question so
         # lexical, semantic and operative retrieval are fused once.
-        bundle = await runtime.retrieve_bundle(query)
+        bundle = await runtime.retrieve_bundle(query, route_plan_override=route_override)
     elif get_settings().query_rewrite_enabled:
-        bundle = await runtime.retrieve_bundle_adaptive(query)
+        bundle = await runtime.retrieve_bundle_adaptive(query, route_plan_override=route_override)
     elif len(subqueries) > 1:
         bundle = await runtime.retrieve_bundle_many(subqueries)
     else:
-        bundle = await runtime.retrieve_bundle(query)
+        bundle = await runtime.retrieve_bundle(query, route_plan_override=route_override)
     evidence, relations = bundle.evidence, bundle.relations
     release_id = next((item.dataset_id for item in evidence if item.dataset_id), "")
     if not release_id:

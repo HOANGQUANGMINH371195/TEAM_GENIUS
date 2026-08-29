@@ -523,6 +523,10 @@ trong tracked files và image không có CVE vượt ngưỡng release.
    được tạo public response/SSE.
 9. Hoàn tất semantic attributes OpenInference, collector/W3C context và redaction live trên nền OTel đã wiring.
 10. Xác nhận citation/output guard không lộ ID, score, chunk hoặc trace nội bộ.
+11. Thêm input guardrail trước retrieval và model router typed JSON Schema; model
+    chỉ phân loại intent/sub-task, deterministic policy clamp luôn có quyền phủ
+    quyết. Cache quyết định theo query + release, timeout ngắn và fallback về
+    `build_route_plan` để không đánh đổi latency hay an toàn pháp lý.
 
 **Exit:** smoke 5 câu pass, structured output 100%, stream luôn hợp lệ,
 dependency outage không làm hỏng format và benchmark 1–2 câu không còn trả

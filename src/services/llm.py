@@ -62,7 +62,30 @@ def get_rewrite_llm() -> ChatOpenAI:
     return ChatOpenAI(**options)
 
 
+@lru_cache(maxsize=1)
+def get_router_llm() -> ChatOpenAI:
+    """Low-output classifier profile; never used to synthesize an answer."""
+    settings = get_settings()
+    if settings.llm_provider.casefold() != "openai":
+        raise LlmConfigurationError("Only OpenAI is supported for request routing")
+    if not settings.openai_api_key or not settings.model_name:
+        raise LlmConfigurationError("OpenAI router provider is not configured")
+    options = {
+        "model": settings.model_name,
+        "api_key": settings.openai_api_key,
+        "timeout": settings.model_router_timeout_seconds,
+        "max_tokens": settings.model_router_max_tokens,
+        "max_retries": 0,
+    }
+    if settings.model_name.casefold().startswith("gpt-5"):
+        options.update(use_responses_api=settings.llm_use_responses_api, reasoning_effort="none", verbosity="low")
+    else:
+        options["temperature"] = 0.0
+    return ChatOpenAI(**options)
+
+
 def close_llm() -> None:
     """Drop the process-wide model wrapper during application shutdown/tests."""
     get_llm.cache_clear()
     get_rewrite_llm.cache_clear()
+    get_router_llm.cache_clear()

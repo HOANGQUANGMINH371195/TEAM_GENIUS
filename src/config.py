@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     llm_use_responses_api: bool = True
     query_rewrite_max_tokens: int = Field(default=180, ge=64, le=512)
     query_rewrite_timeout_seconds: float = Field(default=10.0, gt=0, le=30)
+    model_router_enabled: bool = True
+    model_router_timeout_seconds: float = Field(default=1.5, gt=0.1, le=10.0)
+    model_router_max_tokens: int = Field(default=160, ge=64, le=512)
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = Field(default=1536, ge=1)

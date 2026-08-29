@@ -334,6 +334,21 @@ HTTP error hoặc HTML body không được coi là SSE event. Web chỉ cần m
 
 ### 5.3 Route budget
 
+#### Input guardrail và model router
+
+Mỗi request đi qua một input guardrail trước retrieval. Lớp này chuẩn hóa chuỗi,
+chặn prompt-injection/yêu cầu truy cập dữ liệu nội bộ và cho phép chuyển thẳng
+greeting mà không mở database. Sau đó model router trả về `RouteDecision` theo
+JSON Schema (intent, tối đa ba sub-task, risk, needs_table/calculator/graph và
+confidence). Router chỉ phân việc, không được cung cấp dữ kiện pháp lý.
+
+`RouteDecision` luôn bị policy clamp về enum route, provider capability, fan-out,
+timeout và risk của deterministic planner. Model router có timeout/cache; khi
+provider lỗi hoặc timeout, `build_route_plan` hiện tại là fallback. Vì vậy model
+không thể kích hoạt Neo4j ngoài route cho phép, bỏ verifier hoặc làm thay đổi
+ngưỡng an toàn. Metadata chỉ ghi nguồn quyết định (`model`, `deterministic_shape`
+hoặc `deterministic_fallback`) cho telemetry, không đưa ra browser.
+
 Router dùng feature rẻ và query shape:
 
 - greeting/casual: trả lời ngắn, không truy vấn pháp luật;

@@ -34,7 +34,12 @@ from src.agents.state import AgentState  # noqa: E402
 
 async def should_continue(state: AgentState) -> str:
     """Route without dispatching a trivial condition through a thread pool."""
-    return END if state.get("error") else "extract_entities"
+    if state.get("error"):
+        return END
+    # Input guardrail refusals still pass through the public output guardrail
+    # so the adapter returns the same response/citation contract as normal
+    # answers, without touching retrieval providers.
+    return "guardrail" if state.get("response") else "extract_entities"
 
 
 def build_graph():
