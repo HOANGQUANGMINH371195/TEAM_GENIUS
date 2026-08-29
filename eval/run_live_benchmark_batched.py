@@ -73,6 +73,9 @@ def main() -> int:
         "release": {"dataset_id": args.dataset_id, "qdrant_collection": args.qdrant_collection},
         "runtime": {
             "model_name": get_settings().model_name,
+            "router_model_name": get_settings().model_router_model_name,
+            "model_router_enabled": get_settings().model_router_enabled,
+            "model_router_timeout_seconds": get_settings().model_router_timeout_seconds,
             "query_rewrite_enabled": get_settings().query_rewrite_enabled,
             "provider_observability": "local_stage_trace",
             "trace_schema_version": 1,

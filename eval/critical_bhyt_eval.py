@@ -226,6 +226,18 @@ async def _run_cases(
                 raise TypeError("agent output must be an object")
             answer = str(output.get("response") or "").strip()
             findings = _deterministic_findings(case, output)
+            expected_route = str(case.get("expected_route") or "").strip()
+            if expected_route:
+                route_meta = output.get("metadata") or {}
+                model_route = (route_meta.get("model_route") or {}).get("route")
+                actual_route = str(model_route or (route_meta.get("route_plan") or {}).get("route") or "")
+                if not actual_route and route_meta.get("input_guardrail") != "allow":
+                    actual_route = "policy"
+                findings["expected_route"] = expected_route
+                findings["actual_route"] = actual_route
+                if actual_route != expected_route:
+                    findings.setdefault("failures", []).append("route_mismatch")
+                    findings["deterministic_status"] = "FAIL"
             public_citations = [
                 {
                     "document_number": str(item.get("document_number") or ""),

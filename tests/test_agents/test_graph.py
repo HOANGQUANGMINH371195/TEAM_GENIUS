@@ -45,6 +45,19 @@ async def test_intake_guardrail_refuses_internal_prompt_without_routing():
     assert "route_plan" not in result["metadata"]
 
 
+@pytest.mark.asyncio
+async def test_intake_uses_router_direct_response_for_greeting(monkeypatch):
+    from src.services.request_router import RouteDecision
+
+    async def fake_router(_query, *, settings):
+        return RouteDecision(route="policy", risk="low", direct_response="Xin chào! Tôi có thể hỗ trợ câu hỏi về BHYT."), "model"
+
+    monkeypatch.setattr("src.agents.nodes.graphrag_nodes.classify_request", fake_router)
+    result = await intake_node({"query": "Xin chào bạn"})
+    assert result["response"].startswith("Xin chào!")
+    assert result["metadata"]["model_route_source"] == "model"
+
+
 def test_claim_audit_does_not_stitch_numeric_facts_across_sources():
     citations = [
         Citation(

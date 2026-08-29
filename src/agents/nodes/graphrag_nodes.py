@@ -85,6 +85,8 @@ async def intake_node(state: AgentState) -> dict:
         "needs_graph": decision.needs_graph,
         "needs_current_law": decision.needs_current_law,
     }
+    if decision.route == "policy" and decision.direct_response:
+        return {"query": guard.query, "response": decision.direct_response, "metadata": metadata}
     # The plan carries budgets/provider permissions, never legal evidence.
     # Keeping it in metadata makes each route auditable without changing the
     # public response contract.

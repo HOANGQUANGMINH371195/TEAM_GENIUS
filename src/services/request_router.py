@@ -31,6 +31,7 @@ class RouteDecision(BaseModel):
     needs_graph: bool = False
     needs_current_law: bool = False
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    direct_response: str | None = Field(default=None, max_length=240)
 
 
 @dataclass(frozen=True)
@@ -94,17 +95,32 @@ def _clamp_decision(decision: RouteDecision, baseline: RouteDecision) -> RouteDe
             "risk": "high" if baseline.risk == "high" else decision.risk,
             "needs_graph": bool(decision.needs_graph and graph_allowed),
             "sub_tasks": [" ".join(item.split())[:240] for item in decision.sub_tasks[:3] if item.strip()],
+            "direct_response": (
+                " ".join((decision.direct_response or "").split())[:240]
+                if route == "policy" and decision.direct_response
+                else None
+            ),
         }
     )
 
 
 _ROUTER_INSTRUCTION = """Phân loại nhiệm vụ cho trợ lý pháp luật BHYT. Chỉ trả JSON đúng schema.
-Bạn chỉ được chọn route và cờ tác vụ; không trả lời câu hỏi, không thêm con số,
-tên văn bản hoặc dữ kiện pháp lý. Giữ nguyên ý người dùng. route=table khi cần
-con số/bảng/tính tiền; temporal khi hỏi hiệu lực/thời điểm; relational khi so
-sánh/thay thế/liên hệ văn bản; exact khi có số hiệu; topical cho câu hỏi chung.
+Bạn chỉ được chọn route và cờ tác vụ; không trả lời câu hỏi pháp lý, không thêm con số,
+tên văn bản hoặc dữ kiện pháp lý. Giữ nguyên ý người dùng. Ưu tiên route theo các quy
+tắc sau khi câu hỏi có nhiều tín hiệu: policy cho greeting/cảm ơn/ngoài phạm vi;
+exact khi yêu cầu tra một văn bản/điều khoản cụ thể (trừ khi trọng tâm là hiệu lực
+hoặc thay thế); temporal khi hỏi hiệu lực, thời hạn, dòng thời gian, thay đổi theo
+năm; relational khi so sánh, đối chiếu hai kịch bản/phương án
+(kể cả "đối chiếu hai kịch bản"), phương án nào có lợi hơn, thay thế hoặc mối liên hệ; global khi yêu cầu tổng
+quan/toàn quốc/toàn bộ phạm vi; deep khi yêu cầu phân tích toàn diện, nhiều khía
+cạnh; table khi cần con số, tỷ lệ, mức đóng/hỗ trợ, bảng hoặc phép tính tiền cụ
+thể (ví dụ hỏi học sinh đóng bao nhiêu tiền; không dùng table chỉ vì có từ
+"tính" trong câu hỏi); topical cho câu hỏi BHYT chung, quyền lợi liên tục,
+checklist, hồ sơ hoặc điều kiện còn lại.
 needs_graph chỉ bật cho temporal/relational. needs_calculator chỉ bật khi cần
-phép tính từ giá trị người dùng hoặc giá trị đã truy hồi."""
+phép tính từ giá trị người dùng hoặc giá trị đã truy hồi. Với greeting, cảm ơn
+hoặc câu hỏi ngoài phạm vi BHYT, route=policy và điền direct_response là một câu
+tiếng Việt lịch sự, tối đa 25 từ; các route khác phải để direct_response=null."""
 
 
 async def classify_request(query: str, *, settings) -> tuple[RouteDecision, str]:
@@ -112,9 +128,9 @@ async def classify_request(query: str, *, settings) -> tuple[RouteDecision, str]
     baseline = _baseline_decision(baseline_plan)
     if not getattr(settings, "model_router_enabled", True):
         return baseline, "deterministic_disabled"
-    # Obvious low-cost paths should not pay for a classifier round trip.
-    if baseline.route in {"policy", "exact"} or len(query.split()) < 5:
-        return baseline, "deterministic_shape"
+    # Every allowed request is classified by the model. The deterministic
+    # planner remains a policy boundary/fallback, not the normal router; this
+    # keeps paraphrases, compound questions and new features on one contract.
     try:
         structured = get_router_llm().with_structured_output(RouteDecision, method="json_schema")
         result = await asyncio.wait_for(
