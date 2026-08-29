@@ -59,7 +59,10 @@ jobs:
           NEXT_PUBLIC_FIREBASE_APP_ID: 1:000000000000:web:test
 
       - name: Build production container
-        run: docker build --pull --tag medipay-api:ci .
+        # The runtime image performs a Debian security upgrade.  Do not reuse
+        # a cached RUN layer, otherwise a newly disclosed fixed package can
+        # remain in the image while Trivy correctly fails the gate.
+        run: docker build --pull --no-cache --tag medipay-api:ci .
 
       - name: Verify container runs as non-root
         run: |
