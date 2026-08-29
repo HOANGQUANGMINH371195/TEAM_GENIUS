@@ -283,6 +283,23 @@ async def test_generate_uses_strict_grounded_schema_and_public_renderer():
 
 
 @pytest.mark.asyncio
+async def test_generate_retries_plain_text_after_truncated_structured_json():
+    runtime = GraphRagRuntime()
+    structured = type("Structured", (), {})()
+    structured.ainvoke = AsyncMock(side_effect=ValueError("Invalid JSON: EOF while parsing a string"))
+    plain = type("Message", (), {"content": "Mức đóng được xác định theo nhóm tham gia."})()
+    llm = type("Llm", (), {})()
+    llm.with_structured_output = lambda *_args, **_kwargs: structured
+    llm.ainvoke = AsyncMock(return_value=plain)
+
+    with patch("src.services.chat.get_llm", return_value=llm):
+        answer = await runtime.generate("Mức đóng BHYT theo từng nhóm là bao nhiêu?", "Nguồn đã xác nhận")
+
+    assert answer == plain.content
+    llm.ainvoke.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_generate_cache_is_scoped_to_active_release():
     runtime = GraphRagRuntime()
     runtime._active_release = ("release-1", 10, 0.0)

@@ -2640,6 +2640,17 @@ class GraphRagRuntime:
             metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="cache")
             return cached[0]
         answer_instruction = _answer_format_instruction(query)
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(
+                content=(
+                    f"Câu hỏi người dùng:\n{query}\n\n"
+                    f"Nguồn pháp lý được phép sử dụng:\n{context}\n\n"
+                    f"Định dạng đầu ra bắt buộc:\n{answer_instruction}"
+                )
+            ),
+        ]
+        structured = False
         try:
             llm = get_llm()
             structured = hasattr(llm, "with_structured_output")
@@ -2658,19 +2669,7 @@ class GraphRagRuntime:
                 else llm
             )
             result = await asyncio.wait_for(
-                generation_llm.ainvoke(
-                    [
-                        SystemMessage(content=system_prompt),
-                        HumanMessage(
-                            content=(
-                                f"Câu hỏi người dùng:\n{query}\n\n"
-                                f"Nguồn pháp lý được phép sử dụng:\n{context}\n\n"
-                                f"Định dạng đầu ra bắt buộc:\n{answer_instruction}"
-                            )
-                        ),
-                    ],
-                    config=llm_invoke_config() or None,
-                ),
+                generation_llm.ainvoke(messages, config=llm_invoke_config() or None),
                 timeout=generation_timeout,
             )
         except TimeoutError:
@@ -2682,13 +2681,52 @@ class GraphRagRuntime:
             metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="timeout")
             return NO_EVIDENCE_RESPONSE
         except Exception as exc:
-            generation_trace.update(
-                outcome=type(exc).__name__,
-                duration_ms=round((time.perf_counter() - started) * 1000, 2),
-            )
-            metrics.inc("generation_requests_total", outcome="error")
-            metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="error")
-            raise ChatProviderError("Chat provider failed") from exc
+            # The Responses structured parser raises when a long answer is
+            # cut at the provider output ceiling (typically an EOF inside the
+            # JSON object). Retry once as concise plain text; it still flows
+            # through the same verifier/guardrail and is safer than exposing
+            # a generic stream failure to the user.
+            if structured and _is_structured_parse_error(exc):
+                try:
+                    retry_timeout = max(0.25, generation_timeout - (time.perf_counter() - started))
+                    compact_instruction = (
+                        "Trả lời bằng tối đa 5 gạch đầu dòng ngắn, không JSON, không chép nguyên chunk. "
+                        "Chỉ nêu điều kiện và con số được nguồn xác nhận; nếu thiếu dữ kiện hãy nói rõ."
+                    )
+                    result = await asyncio.wait_for(
+                        llm.ainvoke(
+                            [
+                                SystemMessage(content=system_prompt),
+                                HumanMessage(
+                                    content=(
+                                        f"Câu hỏi người dùng:\n{query}\n\n"
+                                        f"Nguồn pháp lý được phép sử dụng:\n{context}\n\n"
+                                        f"{compact_instruction}"
+                                    )
+                                ),
+                            ],
+                            config=llm_invoke_config() or None,
+                        ),
+                        timeout=retry_timeout,
+                    )
+                    structured = False
+                    generation_trace["structured_retry"] = "plain_text_after_truncated_json"
+                except Exception as retry_exc:
+                    generation_trace.update(
+                        outcome=type(retry_exc).__name__,
+                        duration_ms=round((time.perf_counter() - started) * 1000, 2),
+                    )
+                    metrics.inc("generation_requests_total", outcome="error")
+                    metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="error")
+                    raise ChatProviderError("Chat provider failed") from retry_exc
+            else:
+                generation_trace.update(
+                    outcome=type(exc).__name__,
+                    duration_ms=round((time.perf_counter() - started) * 1000, 2),
+                )
+                metrics.inc("generation_requests_total", outcome="error")
+                metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="error")
+                raise ChatProviderError("Chat provider failed") from exc
         # ``include_raw=True`` returns {raw, parsed, parsing_error}; older
         # wrappers/mocks may still return the parsed object directly. Render
         # only the parsed value, while reading usage from the raw message.
@@ -3118,6 +3156,19 @@ def _answer_format_instruction(query: str) -> str:
             "được nguồn xác nhận thay vì chỉ trả lời rằng chưa biết; tối đa 8 gạch đầu dòng."
         )
     return synthesis_rule + "Trả lời ngắn gọn trong tối đa 8 gạch đầu dòng; nếu nguồn chưa đủ hãy nói rõ giới hạn."
+
+
+def _is_structured_parse_error(error: BaseException) -> bool:
+    """Identify provider JSON truncation without masking unrelated failures."""
+    current: BaseException | None = error
+    for _ in range(4):
+        message = str(current)
+        if "EOF while parsing" in message or "Invalid JSON" in message or "json_invalid" in message:
+            return True
+        current = current.__cause__ or current.__context__
+        if current is None:
+            break
+    return False
 
 
 def render_grounded_answer(answer: GroundedAnswer) -> str:
