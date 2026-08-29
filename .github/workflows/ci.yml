@@ -75,7 +75,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Scan production image for high/critical CVEs
-        uses: aquasecurity/trivy-action@0.28.0
+        # v0.28.0 does not exist; pin a published release so Actions can
+        # resolve the action before the runner starts the job.
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: medipay-api:ci
           format: table
