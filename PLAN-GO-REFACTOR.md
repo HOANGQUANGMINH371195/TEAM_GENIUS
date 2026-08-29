@@ -132,7 +132,11 @@ deadline riêng và trả typed errors (`Unavailable`, `Timeout`, `InvalidData`,
 
 ### Phase 0 — CI và baseline (1–2 ngày)
 
-- Sửa `aquasecurity/trivy-action` sang tag đã phát hành `0.33.1`.
+- Giữ `aquasecurity/trivy-action` ở immutable commit của bản phát hành
+  `v0.36.0` (action này dùng setup-trivy/binary hiện hành; không quay lại
+  `v0.33.1`, vì bản đó đã gọi asset Trivy `v0.65.0` không còn tải được).
+- Build image với `--pull --no-cache` và base Debian được cập nhật; scan phải
+  đạt 0 HIGH/CRITICAL unfixed trước khi merge.
 - Chạy lại GitHub Actions; nếu fail ở `Set up job`, xử lý quota/runner của
   GitHub trước, không đổi ngôn ngữ.
 - Đóng băng release/prompt/model và lưu benchmark JSON + cost ledger.

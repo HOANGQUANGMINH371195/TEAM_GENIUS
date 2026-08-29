@@ -1,0 +1,3 @@
+module github.com/HOANGQUANGMINH371195/TEAM_GENIUS/go
+
+go 1.23
