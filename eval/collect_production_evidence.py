@@ -76,7 +76,15 @@ async def _probe_stream(client: httpx.AsyncClient, url: str, headers: dict[str, 
     payload: dict[str, Any] = {}
     error = ""
     try:
-        async with client.stream("POST", url, headers=headers, json={"message": case["question"], "conversation_id": f"benchmark-{case['case_id']}"}) as response:
+        # Production deliberately requires idempotency for every mutating chat
+        # request.  The benchmark must exercise the same contract while still
+        # making each repetition an independent request (a reused key would
+        # measure the idempotency replay path rather than retrieval/LLM work).
+        request_headers = {
+            **headers,
+            "Idempotency-Key": f"benchmark-{case['case_id']}-{time.time_ns()}",
+        }
+        async with client.stream("POST", url, headers=request_headers, json={"message": case["question"], "conversation_id": f"benchmark-{case['case_id']}"}) as response:
             status_code = response.status_code
             event_name = ""
             async for line in response.aiter_lines():
