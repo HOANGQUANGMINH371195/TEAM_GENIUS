@@ -23,7 +23,7 @@ export default function AdminLoginPage() {
       <section className="admin-login-card" aria-labelledby="admin-login-title">
         <div className="admin-login-brand">
           <span><LoginIcon name="shield" /></span>
-          <div><strong>BHYT Admin Portal</strong><small>Hệ thống quản trị tri thức</small></div>
+          <div><strong>MediPay AI</strong><small>Hệ thống quản trị tri thức</small></div>
         </div>
         <div className="admin-login-heading">
           <p>Truy cập được kiểm soát</p>

@@ -157,9 +157,9 @@ async function adminRequest(path: string, init: RequestInit = {}): Promise<Respo
   return response;
 }
 
-export async function fetchDocumentHtml(documentNumber: string): Promise<string> {
+export async function fetchDocumentHtml(documentNumber: string, signal?: AbortSignal): Promise<string> {
   const path = `/api/v1/documents/${documentNumber.split("/").map(encodeURIComponent).join("/")}/html`;
-  const response = await adminRequest(path, { headers: { Accept: "text/html" } });
+  const response = await adminRequest(path, { headers: { Accept: "text/html" }, signal });
   if (!response.ok) throw new Error("Không thể tải văn bản nguồn");
   return response.text();
 }
@@ -322,7 +322,7 @@ export async function sendChatMessage(
 
   if (!response.ok) {
     const error = (await response.json().catch(() => null)) as ApiError | null;
-    throw new Error(error?.message ?? "Không thể kết nối MediPay Agent");
+    throw new Error(error?.message ?? "Không thể kết nối MediPay AI");
   }
 
   const payload: unknown = await response.json();
@@ -368,7 +368,7 @@ export async function sendChatMessageStream(
   }
   if (!response.ok || !response.body) {
     const error = (await response.json().catch(() => null)) as ApiError | null;
-    throw new Error(error?.message ?? "Không thể kết nối MediPay Agent");
+    throw new Error(error?.message ?? "Không thể kết nối MediPay AI");
   }
 
   const reader = response.body.getReader();

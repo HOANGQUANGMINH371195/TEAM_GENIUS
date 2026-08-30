@@ -1,16 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { AuthRoute } from "./auth-route";
-import { useAuth } from "../lib/auth-context";
-
-type FeatureKey = "calculator" | "timeline" | "eligibility";
-
-const navigation: Array<{ key: FeatureKey; href: string; label: string; icon: string }> = [
-  { key: "calculator", href: "/calculator", label: "So sánh kịch bản", icon: "⇄" },
-  { key: "timeline", href: "/timeline", label: "Dòng thời gian pháp lý", icon: "◷" },
-  { key: "eligibility", href: "/eligibility", label: "Checklist điều kiện", icon: "✓" },
-];
+import { BhytSidebar, BhytSidebarIcon, type BhytSidebarItem } from "./bhyt-sidebar";
 
 export function FeatureShell({
   active,
@@ -19,57 +12,35 @@ export function FeatureShell({
   description,
   children,
 }: {
-  active: FeatureKey;
+  active: Exclude<BhytSidebarItem, "chat">;
   eyebrow: string;
   title: string;
   description: string;
   children: React.ReactNode;
 }) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <AuthRoute>
-      <div className="bhyt-feature-app">
-        <aside className="bhyt-feature-sidebar" aria-label="Công cụ BHYT">
-          <Link className="bhyt-feature-brand" href="/">
-            <span className="bhyt-feature-brand-mark" aria-hidden="true">✦</span>
-            <span><strong>BHYT AI</strong><small>Trợ lý y tế số</small></span>
-          </Link>
-          <Link className="bhyt-feature-back" href="/">← Tra cứu hội thoại</Link>
-          <nav className="bhyt-feature-nav" aria-label="Điều hướng công cụ">
-            {navigation.map((item) => (
-              <Link key={item.key} className={`bhyt-feature-nav-item${active === item.key ? " is-active" : ""}`} href={item.href} aria-current={active === item.key ? "page" : undefined}>
-                <span aria-hidden="true">{item.icon}</span>{item.label}
-              </Link>
-            ))}
-          </nav>
-          <div className="bhyt-feature-sidebar-note">
-            <strong>Phạm vi an toàn</strong>
-            <span>Công cụ chỉ xử lý dữ liệu bạn cung cấp và nguồn pháp lý đã được xác minh.</span>
-          </div>
-          <AccountFooter />
-        </aside>
-        <main className="bhyt-feature-main">
+      <main className={`bhyt-app bhyt-feature-app${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`}>
+        <button className={`bhyt-mobile-backdrop${mobileMenuOpen ? " is-visible" : ""}`} type="button" aria-label="Đóng menu" tabIndex={mobileMenuOpen ? 0 : -1} onClick={() => setMobileMenuOpen(false)} />
+        <BhytSidebar active={active} collapsed={sidebarCollapsed} mobileMenuOpen={mobileMenuOpen} onToggle={() => setSidebarCollapsed((current) => !current)} onCloseMobile={() => setMobileMenuOpen(false)} />
+        <section className="bhyt-feature-main" aria-labelledby="bhyt-feature-title">
           <header className="bhyt-feature-header">
-            <div>
-              <p className="bhyt-feature-eyebrow">{eyebrow}</p>
-              <h1>{title}</h1>
-              <p className="bhyt-feature-description">{description}</p>
+            <div className="bhyt-feature-header-leading">
+              <button className="bhyt-mobile-menu" type="button" aria-label="Mở menu" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(true)}><BhytSidebarIcon name="menu" /></button>
+              <div>
+                <p className="bhyt-feature-eyebrow">{eyebrow}</p>
+                <h1 id="bhyt-feature-title">{title}</h1>
+                <p className="bhyt-feature-description">{description}</p>
+              </div>
             </div>
             <Link className="bhyt-feature-chat-link" href="/">Đặt câu hỏi <span aria-hidden="true">↗</span></Link>
           </header>
           <div className="bhyt-feature-content">{children}</div>
-        </main>
-      </div>
+        </section>
+      </main>
     </AuthRoute>
-  );
-}
-
-function AccountFooter() {
-  const { user, signOut } = useAuth();
-  return (
-    <div className="bhyt-feature-account">
-      <span className="bhyt-feature-avatar" aria-hidden="true">{(user?.displayName || user?.email || "U").slice(0, 1).toUpperCase()}</span>
-      <span className="bhyt-feature-account-name">{user?.displayName || user?.email || "Tài khoản"}</span>
-      <button type="button" onClick={() => signOut()} aria-label="Đăng xuất">↪</button>
-    </div>
   );
 }

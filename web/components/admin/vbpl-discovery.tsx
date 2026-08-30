@@ -38,6 +38,15 @@ function formatDate(value: string | null): string {
   return new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
+function formatIssueDate(value: string | null | undefined): string {
+  const match = value?.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return "—";
+  const [, year, month, day] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+  if (date.getFullYear() !== Number(year) || date.getMonth() !== Number(month) - 1 || date.getDate() !== Number(day)) return "—";
+  return new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" }).format(date);
+}
+
 function statusLabel(status: VbplRefreshStatus): string {
   switch (status) {
     case "queued": return "Đang xếp hàng";
@@ -226,7 +235,7 @@ export function VbplDiscovery({ onIngest, reloadToken = 0 }: Props) {
           return <tr key={item.doc_id} className={`${isHealthRelated(item) ? "is-health" : ""}${selected.has(item.doc_id) ? " is-selected" : ""}`}>
             <td className="vbpl-table-select"><input aria-label={`Chọn ${item.title}`} type="checkbox" checked={selected.has(item.doc_id)} disabled={imported} onChange={() => toggleSelect(item.doc_id)} /></td>
             <td><div className="vbpl-document-cell"><span className={`vbpl-document-mark${isHealthRelated(item) ? " is-health" : ""}`} aria-hidden="true">§</span><div><strong>{item.title || "Chưa có tiêu đề"}</strong><span className="vbpl-document-meta"><code>{item.so_ky_hieu || "Chưa có số hiệu"}</code>{isHealthRelated(item) ? <em>BHYT</em> : null}</span>{item.summary ? <small>{item.summary}</small> : null}</div></div></td>
-            <td className="vbpl-date">{item.issue_date || "—"}</td>
+            <td className="vbpl-date">{formatIssueDate(item.issue_date)}</td>
             <td className="vbpl-agency">{item.issuing_body || "—"}</td>
             <td><span className={`vbpl-ingestion-badge is-${item.ingestion_status ?? "not_imported"}`}><span aria-hidden="true" />{ingestionLabel(item.ingestion_status)}</span></td>
           </tr>;

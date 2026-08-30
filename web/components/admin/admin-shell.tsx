@@ -25,9 +25,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="admin-portal">
       <aside className="admin-shell-sidebar" aria-label="Điều hướng quản trị">
-        <Link className="admin-shell-brand" href={dashboardPath} aria-label="BHYT Knowledge Engine">
+        <Link className="admin-shell-brand" href={dashboardPath} aria-label="MediPay AI - Khu vực quản trị">
           <span className="admin-shell-brand-mark"><AdminIcon name="shield" /></span>
-          <span><strong>BHYT Knowledge</strong><small>Engine Administration</small></span>
+          <span><strong>MediPay AI</strong><small>Quản trị hệ thống</small></span>
         </Link>
 
         <nav className="admin-shell-nav">
@@ -54,7 +54,6 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             <span>Admin</span><AdminIcon name="chevron" /><span>{isVbpl ? "Kho văn bản nguồn" : "Giám sát hệ thống"}</span><AdminIcon name="chevron" /><strong>{isVbpl ? "VBPL Discovery" : "Observability Dashboard"}</strong>
           </nav>
           <div className="admin-shell-header-actions">
-            <span className="admin-dataset-tag">Langfuse telemetry</span>
             <div className="admin-profile"><span><AdminIcon name="user" /></span><div><strong>{user?.displayName || "Quản trị viên"}</strong><small>{user?.email || "Admin"}</small></div></div>
             <button className="admin-header-logout" type="button" onClick={handleLogout}><AdminIcon name="logout" /><span>Đăng xuất</span></button>
           </div>

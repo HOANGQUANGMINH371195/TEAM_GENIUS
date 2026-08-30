@@ -62,7 +62,7 @@ export default function LoginPage() {
             <path d="M19 16c.2 1.7.8 2.8 2.5 3-1.7.2-2.3 1.3-2.5 3-.2-1.7-.8-2.8-2.5-3 1.7-.2 2.3-1.3 2.5-3Z" />
           </svg>
           <div>
-            <strong>BHYT AI</strong>
+            <strong>MediPay AI</strong>
             <small>Trợ lý y tế số</small>
           </div>
         </div>

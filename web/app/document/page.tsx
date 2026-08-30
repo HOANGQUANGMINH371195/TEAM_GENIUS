@@ -1,20 +1,27 @@
-"use client";
+import type { Metadata } from "next";
+import { DocumentViewer } from "./document-viewer";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { fetchDocumentHtml } from "../../lib/api";
+type DocumentPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
-export default function DocumentPage() {
-  const [html, setHtml] = useState("");
-  const [error, setError] = useState("");
-  const [number] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("number") || "");
-  useEffect(() => {
-    if (!number) { Promise.resolve().then(() => setError("Thiếu số/ký hiệu văn bản")); return; }
-    fetchDocumentHtml(number).then(setHtml).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Không thể tải văn bản"));
-  }, [number]);
-  return <main className="document-viewer" aria-live="polite">
-    <Link href="/">← Quay lại tra cứu</Link>
-    <h1>Văn bản nguồn</h1>
-    {error ? <p role="alert">{error}</p> : html ? <div dangerouslySetInnerHTML={{ __html: html }} /> : <p>Đang tải văn bản…</p>}
-  </main>;
+function normalizeDocumentNumber(value: string | string[] | undefined): string {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return (candidate ?? "").trim().slice(0, 80);
+}
+
+export async function generateMetadata({ searchParams }: DocumentPageProps): Promise<Metadata> {
+  const params = await searchParams;
+  const documentNumber = normalizeDocumentNumber(params.number);
+  const label = documentNumber ? `${documentNumber} · ` : "";
+  return {
+    title: `${label}Văn bản pháp quy | MediPay AI`,
+    description: "Bản HTML đã làm sạch của văn bản pháp quy trong kho tri thức MediPay AI.",
+    robots: { index: false, follow: false },
+  };
+}
+
+export default async function DocumentPage({ searchParams }: DocumentPageProps) {
+  const params = await searchParams;
+  return <DocumentViewer documentNumber={normalizeDocumentNumber(params.number)} />;
 }

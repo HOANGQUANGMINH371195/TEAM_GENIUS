@@ -179,7 +179,6 @@
 .admin-shell-breadcrumb svg { width: 12px; height: 12px; }
 .admin-shell-breadcrumb strong { max-width: 240px; overflow: hidden; color: #334155; text-overflow: ellipsis; }
 .admin-shell-header-actions { gap: 12px; }
-.admin-dataset-tag { padding: 6px 9px; border: 1px solid #a7f3d0; border-radius: 999px; color: #047857; background: #ecfdf5; font-family: "DM Mono", monospace; font-size: 8px; letter-spacing: .02em; white-space: nowrap; }
 .admin-profile { gap: 8px; padding-left: 12px; border-left: 1px solid var(--admin-line); }
 .admin-profile > span { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 10px; color: var(--admin-teal-dark); background: #ccfbf1; }
 .admin-profile svg { width: 16px; height: 16px; }
@@ -434,7 +433,6 @@
 @media (max-width: 700px) {
   .admin-shell-breadcrumb > span,
   .admin-shell-breadcrumb > svg,
-  .admin-dataset-tag,
   .admin-header-logout span { display: none; }
   .admin-shell-header { height: 58px; }
   .admin-shell-main { grid-template-rows: 58px minmax(0, 1fr); }
@@ -482,8 +480,6 @@
 }
 .admin-dashboard > * { width: min(100%, 1440px); margin-right: auto; margin-left: auto; }
 .admin-dashboard-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
-.admin-dashboard-kicker { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--dashboard-teal-dark); font-family: "DM Mono", monospace; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
-.admin-dashboard-kicker span { width: 28px; height: 1px; background: var(--dashboard-sky); }
 .admin-dashboard-hero h1 { max-width: 760px; margin: 12px 0 10px; font-size: clamp(28px, 4vw, 50px); letter-spacing: -.065em; line-height: .98; }
 .admin-dashboard-intro { max-width: 650px; margin: 0; color: var(--dashboard-muted); font-size: 12px; line-height: 1.7; }
 .admin-dashboard-refresh { display: inline-flex; align-items: center; gap: 8px; min-height: 37px; padding: 0 13px; border: 1px solid #99f6e4; border-radius: 9px; color: var(--dashboard-teal-dark); background: #f0fdfa; font-size: 10px; font-weight: 800; cursor: pointer; }

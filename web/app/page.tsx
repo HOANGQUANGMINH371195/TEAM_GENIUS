@@ -2,17 +2,17 @@
 
 import { FormEvent, forwardRef, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 
-import { ChatCitation, sendChatMessageStream } from "../lib/api";
-import { useAuth } from "../lib/auth-context";
+import { ChatCitation, fetchDocumentHtml, sendChatMessageStream } from "../lib/api";
 import { AuthRoute } from "../components/auth-route";
+import { BhytSidebar } from "../components/bhyt-sidebar";
 
 type ChatMessage = { role: "user" | "assistant"; content: string; id: string; citations?: ChatCitation[] };
-type IconName = "arrow" | "book" | "chat" | "check" | "chevron" | "close" | "document" | "help" | "history" | "logout" | "menu" | "new" | "review" | "search" | "shield" | "spark" | "user";
+type DocumentPreview = { citation: ChatCitation; html: string };
+type IconName = "arrow" | "book" | "check" | "chevron" | "close" | "document" | "menu" | "new" | "search" | "shield" | "spark" | "stop";
 
 const topicCards = [
   {
@@ -78,7 +78,6 @@ function isComparisonQuestion(value: string) {
 }
 
 export default function HomePage() {
-  const { user, signOut } = useAuth();
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -89,12 +88,19 @@ export default function HomePage() {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [expandedCitationIds, setExpandedCitationIds] = useState<string[]>([]);
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
+  const [documentPreview, setDocumentPreview] = useState<DocumentPreview | null>(null);
+  const [documentLoading, setDocumentLoading] = useState(false);
+  const [documentError, setDocumentError] = useState("");
   const streamRef = useRef<HTMLDivElement>(null);
   const welcomeRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const drawerReturnFocusRef = useRef<HTMLElement | null>(null);
+  const documentModalRef = useRef<HTMLElement>(null);
+  const documentCloseRef = useRef<HTMLButtonElement>(null);
+  const documentReturnFocusRef = useRef<HTMLElement | null>(null);
+  const documentAbortRef = useRef<AbortController | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
   const conversationIdRef = useRef(crypto.randomUUID());
 
@@ -107,6 +113,7 @@ export default function HomePage() {
 
   const activeMessage = messages.find((message) => message.id === activeMessageId && message.role === "assistant");
   const activeEvidence = (activeMessage?.citations ?? []).map((citation, index) => ({ ...citation, evidenceId: `${activeMessage?.id ?? "active"}-${index}` }));
+  const documentPreviewOpen = documentPreview !== null;
 
   useGSAP(() => {
     if (!welcomeRef.current || messages.length || typeof window === "undefined") return;
@@ -167,6 +174,41 @@ export default function HomePage() {
     };
   }, [evidenceOpen]);
 
+  useEffect(() => {
+    if (!documentPreviewOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    documentCloseRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        documentAbortRef.current?.abort();
+        documentAbortRef.current = null;
+        setDocumentPreview(null);
+        setDocumentLoading(false);
+        setDocumentError("");
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = documentModalRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+      documentReturnFocusRef.current?.focus();
+    };
+  }, [documentPreviewOpen]);
+
   function createNewChat() {
     if (loading) return;
     streamAbortRef.current?.abort();
@@ -177,6 +219,7 @@ export default function HomePage() {
     setActiveMessageId(null);
     setExpandedCitationIds([]);
     setEvidenceOpen(false);
+    closeDocumentPreview();
   }
 
   function chooseTopic(value: string) {
@@ -193,6 +236,43 @@ export default function HomePage() {
     setExpandedCitationIds([]);
     setEvidenceOpen(true);
     if (evidenceOpen) window.setTimeout(() => drawerCloseRef.current?.focus(), 0);
+  }
+
+  function openDocumentPreview(citation: ChatCitation) {
+    const documentNumber = citation.document_number?.trim();
+    if (!documentNumber) return;
+    documentAbortRef.current?.abort();
+    const controller = new AbortController();
+    documentAbortRef.current = controller;
+    documentReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setEvidenceOpen(false);
+    setDocumentPreview({ citation, html: "" });
+    setDocumentLoading(true);
+    setDocumentError("");
+    void fetchDocumentHtml(documentNumber, controller.signal)
+      .then((html) => {
+        if (controller.signal.aborted || documentAbortRef.current !== controller) return;
+        if (!html.trim()) throw new Error("Văn bản không có nội dung để hiển thị");
+        setDocumentPreview({ citation, html });
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted || documentAbortRef.current !== controller) return;
+        setDocumentError(reason instanceof Error ? reason.message : "Không thể tải văn bản");
+      })
+      .finally(() => {
+        if (documentAbortRef.current === controller) {
+          documentAbortRef.current = null;
+          setDocumentLoading(false);
+        }
+      });
+  }
+
+  function closeDocumentPreview() {
+    documentAbortRef.current?.abort();
+    documentAbortRef.current = null;
+    setDocumentPreview(null);
+    setDocumentLoading(false);
+    setDocumentError("");
   }
 
   async function submitQuestion(event: FormEvent<HTMLFormElement>) {
@@ -244,36 +324,7 @@ export default function HomePage() {
     <main className={`bhyt-app${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`}>
       <button className={`bhyt-mobile-backdrop${mobileMenuOpen ? " is-visible" : ""}`} type="button" aria-label="Đóng menu" tabIndex={mobileMenuOpen ? 0 : -1} onClick={() => setMobileMenuOpen(false)} />
 
-      <aside className={`bhyt-sidebar${mobileMenuOpen ? " is-mobile-open" : ""}`} aria-label="Điều hướng chính">
-        <div className="bhyt-brand-row">
-          <a className="bhyt-brand" href="#main-chat" aria-label="BHYT AI - Trang tra cứu">
-            <span className="bhyt-brand-symbol" aria-hidden="true"><Icon name="spark" /></span>
-            <span className="bhyt-brand-copy"><strong>BHYT AI</strong><small>Trợ lý y tế số</small></span>
-          </a>
-          <button className="bhyt-collapse-button" type="button" aria-label={sidebarCollapsed ? "Mở rộng menu" : "Thu gọn menu"} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((current) => !current)}><Icon name="chevron" /></button>
-        </div>
-
-        <nav className="bhyt-nav" onClick={() => setMobileMenuOpen(false)}>
-          <a className="bhyt-nav-item is-active" href="#main-chat"><Icon name="chat" /><span>Tra cứu BHYT</span></a>
-          <Link className="bhyt-nav-item" href="/calculator"><Icon name="document" /><span>So sánh kịch bản</span></Link>
-          <Link className="bhyt-nav-item" href="/timeline"><Icon name="history" /><span>Dòng thời gian pháp lý</span></Link>
-          <Link className="bhyt-nav-item" href="/eligibility"><Icon name="check" /><span>Checklist điều kiện</span></Link>
-          <button className="bhyt-nav-item" type="button" onClick={() => chooseTopic(topicCards[2].question)}><Icon name="document" /><span>Hướng dẫn thủ tục</span></button>
-          <button className="bhyt-nav-item" type="button" onClick={() => inputRef.current?.focus()}><Icon name="help" /><span>Trợ giúp &amp; Hỏi đáp</span></button>
-        </nav>
-
-        <div className="bhyt-sidebar-footer">
-          {user ? (
-            <div className="bhyt-user-info">
-              {user.photoURL ? <Image src={user.photoURL} alt="" width={32} height={32} unoptimized className="bhyt-user-avatar" /> : <Icon name="user" />}
-              <span><strong>{user.displayName || user.email}</strong><small>{user.role === "admin" ? "Quản trị viên" : "Người dùng"}</small></span>
-              <button type="button" className="bhyt-logout-btn" onClick={() => signOut()} title="Đăng xuất"><Icon name="logout" /></button>
-            </div>
-          ) : null}
-          <div className="bhyt-support-note"><Icon name="shield" /><span><strong>Hỗ trợ tra cứu BHYT</strong><small>Thông tin được đối chiếu từ nguồn pháp lý</small></span></div>
-          {user?.role === "admin" ? <a className="bhyt-admin-link" href="/admin"><Icon name="shield" /><span>Cổng quản trị viên</span></a> : null}
-        </div>
-      </aside>
+      <BhytSidebar active="chat" collapsed={sidebarCollapsed} mobileMenuOpen={mobileMenuOpen} onToggle={() => setSidebarCollapsed((current) => !current)} onCloseMobile={() => setMobileMenuOpen(false)} />
 
       <section className="bhyt-workspace" id="main-chat">
         <header className="bhyt-topbar">
@@ -319,8 +370,9 @@ export default function HomePage() {
         <form className="bhyt-composer" onSubmit={submitQuestion}>
           <Icon name="search" />
           <input ref={inputRef} aria-label="Nhập câu hỏi về bảo hiểm y tế" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Hỏi về quyền lợi, mức đóng hoặc thủ tục BHYT..." disabled={loading} />
-          <span className="bhyt-composer-hint">Enter</span>
-          <button type={loading ? "button" : "submit"} aria-label={loading ? "Hủy tra cứu" : "Gửi câu hỏi"} onClick={loading ? cancelRequest : undefined} disabled={!loading && !question.trim()}>{loading ? "Hủy" : "Gửi câu hỏi"}<Icon name={loading ? "close" : "arrow"} /></button>
+          <button className={loading ? "bhyt-stop-button" : undefined} type={loading ? "button" : "submit"} aria-label={loading ? "Dừng tra cứu" : "Gửi câu hỏi"} title={loading ? "Dừng tra cứu" : undefined} onClick={loading ? cancelRequest : undefined} disabled={!loading && !question.trim()}>
+            {loading ? <Icon name="stop" /> : <>Gửi câu hỏi<Icon name="arrow" /></>}
+          </button>
         </form>
       </section>
 
@@ -334,8 +386,23 @@ export default function HomePage() {
           <div className="bhyt-drawer-context"><Icon name="shield" /><p>{activeMessage ? `Có ${activeEvidence.length} nguồn được dùng cho câu trả lời đang chọn.` : "Nguồn trích dẫn sẽ xuất hiện sau khi bạn mở nguồn từ một câu trả lời."}</p></div>
           <div className="bhyt-evidence-list">
             {activeEvidence.length ? activeEvidence.map((citation) => (
-              <CitationCard key={citation.evidenceId} citation={citation} expanded={expandedCitationIds.includes(citation.evidenceId)} onToggle={() => setExpandedCitationIds((current) => current.includes(citation.evidenceId) ? current.filter((id) => id !== citation.evidenceId) : [...current, citation.evidenceId])} />
+              <CitationCard key={citation.evidenceId} citation={citation} expanded={expandedCitationIds.includes(citation.evidenceId)} onToggle={() => setExpandedCitationIds((current) => current.includes(citation.evidenceId) ? current.filter((id) => id !== citation.evidenceId) : [...current, citation.evidenceId])} onOpenDocument={openDocumentPreview} />
             )) : <div className="bhyt-empty-evidence"><Icon name="document" /><p>Chưa có nguồn nào được chọn.</p><span>Mở nguồn ngay dưới câu trả lời của trợ lý để kiểm tra căn cứ.</span></div>}
+          </div>
+        </> : null}
+      </aside>
+
+      <button className={`bhyt-document-modal-backdrop${documentPreviewOpen ? " is-visible" : ""}`} type="button" aria-label="Đóng văn bản nguồn" tabIndex={documentPreviewOpen ? 0 : -1} onClick={closeDocumentPreview} />
+      <aside ref={documentModalRef} className={`bhyt-document-modal${documentPreviewOpen ? " is-open" : ""}`} id="document-modal" role="dialog" aria-modal="true" aria-hidden={!documentPreviewOpen} aria-labelledby="document-modal-title">
+        {documentPreview ? <>
+          <div className="bhyt-document-modal-header">
+            <div><p>Văn bản nguồn</p><h2 id="document-modal-title">{documentPreview.citation.title || "Văn bản pháp quy"}</h2><code>{documentPreview.citation.document_number}</code></div>
+            <button ref={documentCloseRef} type="button" aria-label="Đóng văn bản nguồn" onClick={closeDocumentPreview}><Icon name="close" /></button>
+          </div>
+          <div className="bhyt-document-modal-body" aria-busy={documentLoading}>
+            {documentLoading ? <div className="bhyt-document-modal-state" role="status"><span className="document-viewer-loader" aria-hidden="true" /><p>Đang tải toàn văn văn bản…</p></div> : null}
+            {documentError ? <div className="bhyt-document-modal-state is-error" role="alert"><strong>Không thể tải văn bản</strong><p>{documentError}</p><button type="button" onClick={() => openDocumentPreview(documentPreview.citation)}>Thử tải lại văn bản</button></div> : null}
+            {!documentLoading && !documentError && documentPreview.html ? <div className="document-html bhyt-document-html" aria-label="Nội dung toàn văn văn bản" dangerouslySetInnerHTML={{ __html: documentPreview.html }} /> : null}
           </div>
         </> : null}
       </aside>
@@ -440,10 +507,10 @@ function LoadingMessage({ stage, onCancel }: { stage: string; onCancel: () => vo
     verified: "Đã kiểm chứng câu trả lời.",
     cancelled: "Đã hủy truy vấn.",
   };
-  return <div className="bhyt-message-row is-assistant"><span className="bhyt-assistant-avatar" aria-hidden="true"><Icon name="spark" /></span><div className="bhyt-assistant-message"><div className="bhyt-message-meta"><strong>Trợ lý BHYT</strong><span>Đang tra cứu</span></div><div className="bhyt-typing"><span /><span /><span /><p>{labels[stage] ?? labels.started}</p><button type="button" onClick={onCancel}>Hủy</button></div></div></div>;
+  return <div className="bhyt-message-row is-assistant"><span className="bhyt-assistant-avatar" aria-hidden="true"><Icon name="spark" /></span><div className="bhyt-assistant-message"><div className="bhyt-message-meta"><strong>Trợ lý BHYT</strong><span>Đang tra cứu</span></div><div className="bhyt-typing"><span /><span /><span /><p>{labels[stage] ?? labels.started}</p><button className="bhyt-stop-button" type="button" aria-label="Dừng tra cứu" title="Dừng tra cứu" onClick={onCancel}><Icon name="stop" /></button></div></div></div>;
 }
 
-function CitationCard({ citation, expanded, onToggle }: { citation: ChatCitation & { evidenceId: string }; expanded: boolean; onToggle: () => void }) {
+function CitationCard({ citation, expanded, onToggle, onOpenDocument }: { citation: ChatCitation & { evidenceId: string }; expanded: boolean; onToggle: () => void; onOpenDocument: (citation: ChatCitation) => void }) {
   return (
     <article className={`bhyt-evidence-card${expanded ? " is-expanded" : ""}`}>
       <button type="button" onClick={onToggle} aria-expanded={expanded} aria-controls={`evidence-${citation.evidenceId}`}>
@@ -451,7 +518,7 @@ function CitationCard({ citation, expanded, onToggle }: { citation: ChatCitation
         <span className="bhyt-evidence-copy"><small>{citation.document_number || "Nguồn pháp lý"}</small><strong>{citation.title || "Văn bản nguồn"}</strong><span>{citation.quote}</span></span>
         <span className="bhyt-evidence-chevron"><Icon name="chevron" /></span>
       </button>
-      {expanded ? <div className="bhyt-evidence-content" id={`evidence-${citation.evidenceId}`}><p>{citation.quote}</p>{citation.section_title ? <strong>{citation.section_title}</strong> : null}{citation.document_number ? <a href={`/document?number=${encodeURIComponent(citation.document_number)}`}>Mở bản HTML đã làm sạch</a> : null}{citation.source_url ? <a href={citation.source_url} target="_blank" rel="noreferrer">Mở nguồn chính thức</a> : null}</div> : null}
+      {expanded ? <div className="bhyt-evidence-content" id={`evidence-${citation.evidenceId}`}><p>{citation.quote}</p>{citation.section_title ? <strong>{citation.section_title}</strong> : null}{citation.document_number ? <button className="bhyt-evidence-document-link" type="button" onClick={() => onOpenDocument(citation)} aria-label={`Xem toàn văn ${citation.document_number}`}>Xem toàn văn văn bản <span aria-hidden="true">↗</span></button> : null}{citation.source_url ? <a href={citation.source_url} target="_blank" rel="noreferrer">Mở nguồn chính thức <span aria-hidden="true">↗</span></a> : null}</div> : null}
     </article>
   );
 }
@@ -460,21 +527,16 @@ function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
     arrow: <><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></>,
     book: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5z"/></>,
-    chat: <><path d="M21 12a8 8 0 0 1-8 8H6l-4 2 1.5-4A9 9 0 1 1 21 12Z"/><path d="M8 12h.01M12 12h.01M16 12h.01"/></>,
     check: <path d="m5 12 4 4L19 6"/>,
     chevron: <path d="m9 18 6-6-6-6"/>,
     close: <><path d="m6 6 12 12"/><path d="M18 6 6 18"/></>,
     document: <><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5M9 12h6M9 16h6"/></>,
-    help: <><circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.5 2.5 0 1 1 3.4 2.3c-.8.4-1.1.9-1.1 1.7M12 17h.01"/></>,
-    history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></>,
-    logout: <><path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10"/></>,
+    stop: <rect x="7" y="7" width="10" height="10" rx="1.5" />,
     menu: <><path d="M4 7h16M4 12h16M4 17h16"/></>,
     new: <><path d="M12 5v14M5 12h14"/></>,
-    review: <><path d="M5 3h14v18H5z"/><path d="M9 8h6M9 12h6M9 16h4"/></>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     shield: <><path d="M12 2 20 5v6c0 5-3.4 9-8 11-4.6-2-8-6-8-11V5z"/><path d="m9 12 2 2 4-5"/></>,
     spark: <><path d="M12 2c.6 5 2 7.4 7 8-5 .6-6.4 3-7 8-.6-5-2-7.4-7-8 5-.6 6.4-3 7-8Z"/><path d="M19 16c.2 1.7.8 2.8 2.5 3-1.7.2-2.3 1.3-2.5 3-.2-1.7-.8-2.8-2.5-3 1.7-.2 2.3-1.3 2.5-3Z"/></>,
-    user: <><circle cx="12" cy="8" r="3"/><path d="M5 21a7 7 0 0 1 14 0"/></>,
   };
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
