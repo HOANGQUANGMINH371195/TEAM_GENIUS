@@ -1191,13 +1191,20 @@ class GraphRagRuntime:
                     document_recall_ids = list(
                         dict.fromkeys(
                             [
+                                *authority_document_ids,
                                 *current_recall_ids,
                                 *document_recall_ids,
                             ]
                         )
                     )[: settings.retrieval_candidate_k]
                 document_semantic_candidate_ids = list(
-                    dict.fromkeys([*title_document_ids, *document_recall_ids])
+                    dict.fromkeys(
+                        [
+                            *authority_document_ids,
+                            *title_document_ids,
+                            *document_recall_ids,
+                        ]
+                    )
                 )[: settings.retrieval_candidate_k]
                 # The document-wide lexical scan is more expensive than a
                 # Qdrant filter.  It needs only the strongest candidates;
