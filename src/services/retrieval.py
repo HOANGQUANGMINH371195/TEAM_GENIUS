@@ -104,7 +104,7 @@ def requires_clause_expansion(query: str) -> bool:
     normalized = " ".join(query.casefold().split())
     return bool(
         re.search(
-            r"\b(?:bao\s+nhiêu|bao\s+lâu|khi\s+nào|từ\s+khi\s+nào|trường\s+hợp\s+nào|điều\s+kiện\s+nào|quyền\s+lợi\s+gì|mức\s+hưởng|được\s+hưởng|thế\s+nào|như\s+thế\s+nào|ra\s+sao|cách\s+nào|được\s+tính|có\s+được)\b|\bcó\b[\s\S]{0,100}\bkhông\b|%",
+            r"\b(?:bao\s+nhiêu|bao\s+lâu|khi\s+nào|từ\s+khi\s+nào|trường\s+hợp\s+nào|điều\s+kiện\s+nào|quyền\s+lợi\s+gì|mức\s+hưởng|được\s+hưởng|cách\s+nào|được\s+tính|có\s+được)\b|\b(?:thay\s+đổi|được\s+tính)\s+(?:như\s+)?thế\s+nào\b|\bcó\b[\s\S]{0,100}\bkhông\b|%",
             normalized,
         )
     )
