@@ -168,9 +168,12 @@ async def test_agent_basic_flow():
     evidence = RetrievalResult(
         chunk_id="chunk-1",
         document_id="doc-1",
+        dataset_id="release-1",
         title="Luật BHYT",
         content="Mức hưởng BHYT được quy định tại Điều 22.",
         channels=["semantic"],
+        source_start=0,
+        source_end=len("Mức hưởng BHYT được quy định tại Điều 22."),
     )
     with patch("src.agents.nodes.graphrag_nodes.get_runtime") as runtime_factory:
         runtime = runtime_factory.return_value

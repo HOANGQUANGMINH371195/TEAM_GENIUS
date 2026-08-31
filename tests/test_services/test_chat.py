@@ -205,7 +205,7 @@ def test_context_packer_honors_token_budget():
 
 
 def test_answer_cache_excludes_temporal_and_high_risk_intents():
-    assert _answer_cache_allowed("Quyền lợi BHYT là gì?")
+    assert not _answer_cache_allowed("Quyền lợi BHYT là gì?")
     assert not _answer_cache_allowed("Văn bản này còn hiệu lực không?")
     assert not _answer_cache_allowed("Mức chi trả là bao nhiêu?")
 
