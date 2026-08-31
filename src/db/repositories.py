@@ -280,61 +280,111 @@ class GraphRepository:
     async def current_authority_document_ids(
         self, query: str = "", *, dataset_id: str, limit: int = 16
     ) -> list[str]:
-        """Return a small current-authority fallback set for open numeric queries.
+        """Return query-ranked current authorities for an open legal query.
 
-        This is a candidate seed only.  Every passage still has to match the
-        user's query, be hydrated from PostgreSQL and pass the normal legal
-        reranker.  It prevents a colloquial phrase (for example a user's
-        wording for an out-of-network visit) from forcing a full corpus scan
-        when the governing current instrument uses different terminology.
+        The old implementation selected documents by title prefixes and then
+        ordered them mostly by publication date.  That made a large, unrelated
+        set of recent provincial instruments displace the governing national
+        law.  Authority is now derived from the release metadata/status and
+        the document's indexed content; the result remains candidate-only and
+        must still produce a canonical passage before it can reach an answer.
         """
+        query_text = " ".join(str(query or "").split())
+        if not query_text or not dataset_id or limit <= 0:
+            return []
         result = await self.session.execute(
             text(
                 """
-                SELECT d.id
-                FROM documents d
-                WHERE d.dataset_id = :dataset_id
-                  AND NOT d.is_external
-                  AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
-                  AND (
-                      d.title ILIKE 'luật %'
-                      OR d.title ILIKE 'nghị định %'
-                      OR d.title ILIKE 'văn bản hợp nhất%'
-                  )
-                  AND (
-                      (
-                          COALESCE(d.payload -> 'metadata' ->> 'legal_status_verified', 'false')::boolean IS TRUE
-                          AND COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', '') ILIKE 'còn hiệu lực%'
+                WITH request AS (
+                    SELECT websearch_to_tsquery('simple', :query) AS ts_query
+                ), candidates AS (
+                    SELECT d.id,
+                           GREATEST(
+                               ts_rank_cd(d.document_search_vector, request.ts_query),
+                               ts_rank_cd(
+                                   to_tsvector(
+                                       'simple',
+                                       concat_ws(
+                                           ' ', d.title,
+                                           d.payload -> 'metadata' ->> 'linh_vuc',
+                                           d.payload -> 'metadata' ->> 'nganh',
+                                           d.payload -> 'metadata' ->> 'agent_category',
+                                           d.payload -> 'metadata' ->> 'loai_van_ban',
+                                           d.payload -> 'metadata' ->> 'co_quan_ban_hanh'
+                                       )
+                                   ),
+                                   request.ts_query
+                               )
+                           ) AS relevance,
+                           CASE
+                               WHEN COALESCE(d.payload -> 'metadata' ->> 'legal_status_verified', 'false')::boolean IS TRUE
+                                AND COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', '') ILIKE 'còn hiệu lực%'
+                               THEN 1 ELSE 0
+                           END AS verified_current,
+                           CASE
+                               WHEN d.payload -> 'metadata' ->> 'retrieval_scope' = 'seed_core' THEN 1 ELSE 0
+                           END AS release_seed,
+                           CASE
+                               -- Keep the instrument hierarchy data-derived:
+                               -- primary law/decree/unified text outranks local
+                               -- administrative reproductions when relevance is
+                               -- otherwise comparable.
+                               WHEN lower(COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '')) LIKE '%luật%' THEN 4
+                               WHEN lower(COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '')) LIKE '%nghị định%' THEN 3
+                               WHEN lower(COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '')) LIKE '%hợp nhất%' THEN 2
+                               ELSE 1
+                           END AS authority_rank,
+                           GREATEST(
+                               CASE
+                                   WHEN COALESCE(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', '') ~ '\\d{4}$'
+                                   THEN RIGHT(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', 4)::int
+                                   ELSE 0
+                               END,
+                               CASE
+                                   WHEN COALESCE(d.payload -> 'metadata' ->> 'ngay_ban_hanh', '') ~ '\\d{4}$'
+                                   THEN RIGHT(d.payload -> 'metadata' ->> 'ngay_ban_hanh', 4)::int
+                                   ELSE 0
+                               END
+                           ) AS publication_year
+                    FROM documents d
+                    CROSS JOIN request
+                    WHERE d.dataset_id = :dataset_id
+                      AND NOT d.is_external
+                      AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                      AND (
+                          (
+                              COALESCE(d.payload -> 'metadata' ->> 'legal_status_verified', 'false')::boolean IS TRUE
+                              AND COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', '') ILIKE 'còn hiệu lực%'
+                          )
+                          OR GREATEST(
+                              CASE
+                                  WHEN COALESCE(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', '') ~ '\\d{4}$'
+                                  THEN RIGHT(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', 4)::int
+                                  ELSE 0
+                              END,
+                              CASE
+                                  WHEN COALESCE(d.payload -> 'metadata' ->> 'ngay_ban_hanh', '') ~ '\\d{4}$'
+                                  THEN RIGHT(d.payload -> 'metadata' ->> 'ngay_ban_hanh', 4)::int
+                                  ELSE 0
+                              END
+                          ) >= :minimum_year
                       )
-                      OR GREATEST(
-                          CASE
-                              WHEN COALESCE(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', '') ~ '\\d{4}$'
-                              THEN RIGHT(d.payload -> 'metadata' ->> 'ngay_co_hieu_luc', 4)::int
-                              ELSE 0
-                          END,
-                          CASE
-                              WHEN COALESCE(d.payload -> 'metadata' ->> 'ngay_ban_hanh', '') ~ '\\d{4}$'
-                              THEN RIGHT(d.payload -> 'metadata' ->> 'ngay_ban_hanh', 4)::int
-                              ELSE 0
-                          END
-                      ) >= :minimum_year
-                  )
+                )
+                SELECT id
+                FROM candidates
                 ORDER BY
-                  CASE
-                    WHEN d.title ILIKE 'luật %' THEN 4
-                    WHEN d.title ILIKE 'văn bản hợp nhất%' THEN 3
-                    WHEN d.title ILIKE 'nghị định %' THEN 2
-                    ELSE 1
-                  END DESC,
-                  CASE WHEN COALESCE(d.payload -> 'metadata' ->> 'ngay_ban_hanh', '') ~ '\\d{4}$'
-                       THEN substring(d.payload -> 'metadata' ->> 'ngay_ban_hanh' FROM '\\d{4}$')::int
-                       ELSE 0 END DESC,
-                  d.id
+                  verified_current DESC,
+                  authority_rank DESC,
+                  release_seed DESC,
+                  relevance DESC,
+                  publication_year DESC,
+                  id
                 LIMIT :limit
                 """
             ),
             {
                 "dataset_id": dataset_id,
+                "query": query_text,
                 "limit": max(1, min(limit, 32)),
                 "minimum_year": date.today().year - 2,
             },
