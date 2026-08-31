@@ -1084,8 +1084,11 @@ class GraphRepository:
                 -- Exact query-derived phrase score controls relevance;
                 -- authority/currentness resolve near-ties rather than
                 -- replacing relevance with a closed hierarchy.
-                ORDER BY (anchors.document_id IS NOT NULL) DESC,
-                         score DESC, current_verified_rank DESC, authority_rank DESC, ranked.document_id
+                ORDER BY current_verified_rank DESC,
+                         release_seed DESC,
+                         authority_rank DESC,
+                         (anchors.document_id IS NOT NULL) DESC,
+                         score DESC, ranked.document_id
                 LIMIT :limit
                 """
             ),
