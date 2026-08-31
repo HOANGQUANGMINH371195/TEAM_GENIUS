@@ -1776,10 +1776,13 @@ class GraphRagRuntime:
                             hydration_repository.search_document_operatives(
                                 operative_document_ids,
                                 dataset_id=dataset_id,
-                                # Phrase-only matching keeps generic words such as
-                                # “luật”, “chi”, or “căn cứ” from flooding the bounded
-                                # result set before the distinctive operative clause.
-                                terms=extract_query_phrases(query, limit=16),
+                                # Start with the query's distinctive terms.  A
+                                # phrase-only first pass was both expensive and
+                                # brittle: paraphrases rarely contain the same
+                                # contiguous n-gram as the statute, so the pass
+                                # consumed the route budget before the useful
+                                # term rescue could run.
+                                terms=extract_query_terms(query, limit=16),
                                 limit=min(48, settings.retrieval_candidate_k),
                                 # A decisive short clause may contain only one
                                 # query-derived phrase (for example a three-token
@@ -1812,23 +1815,11 @@ class GraphRagRuntime:
                     # scan when the phrase pass already returned a contiguous
                     # query-derived anchor: on managed Postgres this second
                     # LIKE/unnest query is commonly the largest latency cost.
-                    phrase_anchor_found = any(
-                        phrase.casefold() in f"{item.section_title} {item.content}".casefold()
-                        and any(
-                            marker in str(
-                                ranking_metadata.get(item.document_id, {}).get("document_type", "")
-                            ).casefold()
-                            for marker in ("luật", "nghị định", "văn bản hợp nhất")
-                        )
-                        for item in document_recall_operatives
-                        for phrase in extract_query_phrases(query, limit=16)
-                        if len(phrase.split()) >= 3
-                    )
                     query_years = [
                         int(value) for value in re.findall(r"\b(?:19|20)\d{2}\b", query)
                     ]
                     historical_lookup = bool(query_years and max(query_years) < date.today().year - 1)
-                    if not historical_lookup and not phrase_anchor_found:
+                    if not historical_lookup and not operative_rows:
                         try:
                             term_rows = await bounded_db(
                                 hydration_repository.search_document_operatives(
@@ -1978,15 +1969,41 @@ class GraphRagRuntime:
                 # query-derived authority candidate as a diversity channel.
                 # This is metadata/relevance driven (never a document-number
                 # map) and still requires source span + canonical hydration.
-                authority_anchor_results: list[RetrievalResult] = []
                 authority_ids = set(authority_document_ids)
+                authority_anchor_results: list[RetrievalResult] = []
+                # The authority seed is intentionally retrieved before the
+                # broad ANN/lexical fusion.  Do not rely on RRF to rediscover
+                # a governing statute: a short colloquial query can give a
+                # newer but unrelated administrative passage more channel
+                # votes.  Promote one query-matching canonical passage for
+                # each seeded authority; it remains subject to the same
+                # provenance/currentness filters below.
+                if authority_ids:
+                    seen_seed_documents: set[str] = set()
+                    for item in document_recall_operatives:
+                        if item.document_id not in authority_ids or item.document_id in seen_seed_documents:
+                            continue
+                        if item.source_start is None or item.source_end is None:
+                            continue
+                        item.channels = sorted(set([*item.channels, "authority_anchor"]))
+                        item.score += 4.0
+                        item.rank_details = {
+                            **item.rank_details,
+                            "authority_seed_anchor": True,
+                        }
+                        authority_anchor_results.append(item)
+                        seen_seed_documents.add(item.document_id)
+                        if len(authority_anchor_results) >= min(8, settings.max_llm_evidence):
+                            break
                 authority_pool = [
                     *document_recall_operatives,
                     *document_recall_semantic_results,
                     *lexical_results,
                     *semantic_results,
                 ]
-                seen_authority_documents: set[str] = set()
+                seen_authority_documents: set[str] = {
+                    item.document_id for item in authority_anchor_results if item.document_id
+                }
                 for item in sorted(
                     authority_pool,
                     key=lambda value: (
