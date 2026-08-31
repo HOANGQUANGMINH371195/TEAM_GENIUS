@@ -2693,6 +2693,34 @@ class GraphRagRuntime:
                         fused_evidence = preferred + [
                             item for item in fused_evidence if item.chunk_id not in preferred_ids
                         ]
+            # Final authority floor: if fusion dropped every current primary
+            # document, recover a few canonical operative rows directly from
+            # the already selected authority set. This is a bounded fallback
+            # for provider/reranker variance, not a question-to-document map.
+            if (
+                route_plan.risk == "high"
+                and authority_document_ids
+                and not any(item.document_id in set(authority_document_ids) for item in fused_evidence)
+            ):
+                try:
+                    async with session_scope() as authority_session:
+                        authority_repository = GraphRepository(authority_session)
+                        authority_rows = await asyncio.wait_for(
+                            authority_repository.search_document_operatives(
+                                authority_document_ids[:8],
+                                dataset_id=dataset_id,
+                                terms=extract_query_terms(query, limit=16),
+                                limit=min(4, settings.max_llm_evidence),
+                                minimum_matches=1,
+                            ),
+                            timeout=min(2.0, max(0.1, route_deadline - time.perf_counter())),
+                        )
+                    _apply_document_ranking_metadata(authority_rows, ranking_metadata)
+                    authority_rows = _verified_evidence(authority_rows)
+                    if authority_rows:
+                        fused_evidence = authority_rows + fused_evidence
+                except Exception:
+                    metrics.inc("retrieval_optional_failures", stage="final_authority_floor")
             _record_trace_event(
                 "retrieval:rerank_select",
                 phase3_started,
