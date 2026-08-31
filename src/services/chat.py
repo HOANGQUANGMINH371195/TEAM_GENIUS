@@ -1788,8 +1788,8 @@ class GraphRagRuntime:
                                 # Phrase-only matching keeps generic words such as
                                 # “luật”, “chi”, or “căn cứ” from flooding the bounded
                                 # result set before the distinctive operative clause.
-                                terms=extract_query_phrases(query, limit=16),
-                                limit=min(48, settings.retrieval_candidate_k),
+                                terms=extract_query_terms(query, limit=16),
+                                limit=min(24, settings.retrieval_candidate_k),
                                 # A decisive short clause may contain only one
                                 # query-derived phrase (for example a three-token
                                 # service exclusion). The candidate document was
