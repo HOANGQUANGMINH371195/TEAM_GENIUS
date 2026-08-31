@@ -1758,7 +1758,9 @@ class GraphRagRuntime:
                     recall_order = list(dict.fromkeys([*document_recall_ids, *title_document_ids]))
                     authority_candidates = [
                         identifier
-                        for identifier in recall_order
+                        for identifier in dict.fromkeys(
+                            [*authority_document_ids, *recall_order]
+                        )
                         if str(ranking_metadata.get(identifier, {}).get("document_type", "")).casefold()
                         in {"luật", "nghị định", "văn bản hợp nhất"}
                     ]
