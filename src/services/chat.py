@@ -162,7 +162,10 @@ class GraphRagRuntime:
         self._projection_cache: dict[str, tuple[dict[str, dict[str, object]], float]] = {}
         self._community_index_cache: tuple[str, int, str, tuple[CommunitySummary, ...]] | None = None
         self._experience_index_cache: tuple[str, int, str, ExperienceIndex] | None = None
-        self._authority_document_cache: dict[str, tuple[list[str], float]] = {}
+        # Authority seeds are query-dependent.  Keying only by release lets
+        # the first high-risk question in the TTL window leak its authority
+        # candidates into unrelated questions and silently degrades recall.
+        self._authority_document_cache: dict[tuple[str, str, int], tuple[list[str], float]] = {}
         # Document ranking metadata is immutable inside a release.  The same
         # high-authority documents recur across adjacent BHYT questions; cache
         # the bounded SQL projection so ranking does not reopen a JSON-heavy
@@ -550,17 +553,22 @@ class GraphRagRuntime:
         self, repository: GraphRepository, *, query: str, dataset_id: str, limit: int
     ) -> list[str]:
         """Return a cached current-authority seed without a DB stampede."""
-        cached = self._authority_document_cache.get(dataset_id)
+        query_key = hashlib.sha256(" ".join(query.casefold().split()).encode("utf-8")).hexdigest()
+        cache_key = (dataset_id, query_key, int(limit))
+        cached = self._authority_document_cache.get(cache_key)
         if cached and time.monotonic() - cached[1] < 300:
             return list(cached[0])
         async with self._authority_document_lock:
-            cached = self._authority_document_cache.get(dataset_id)
+            cached = self._authority_document_cache.get(cache_key)
             if cached and time.monotonic() - cached[1] < 300:
                 return list(cached[0])
             ids = await repository.current_authority_document_ids(
                 query, dataset_id=dataset_id, limit=limit
             )
-            self._authority_document_cache[dataset_id] = (list(ids), time.monotonic())
+            if len(self._authority_document_cache) >= 512:
+                oldest = min(self._authority_document_cache, key=lambda item: self._authority_document_cache[item][1])
+                self._authority_document_cache.pop(oldest, None)
+            self._authority_document_cache[cache_key] = (list(ids), time.monotonic())
             return list(ids)
 
     async def _document_ranking_metadata(

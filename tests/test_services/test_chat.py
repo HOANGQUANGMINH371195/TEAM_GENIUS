@@ -225,26 +225,43 @@ async def test_social_fast_path_makes_zero_retrieval_provider_calls():
 
 
 @pytest.mark.asyncio
-async def test_current_authority_seed_is_coalesced_per_release():
+async def test_current_authority_seed_is_coalesced_per_query_and_release():
     runtime = GraphRagRuntime()
     repository = SimpleNamespace(
         current_authority_document_ids=AsyncMock(return_value=["doc-current"])
     )
 
-    results = await asyncio.gather(
-        *(
-            runtime._current_authority_ids(
-                repository,
-                query=f"question-{index}",
-                dataset_id="release-1",
-                limit=8,
-            )
-            for index in range(4)
+    results = await asyncio.gather(*(
+        runtime._current_authority_ids(
+            repository,
+            query="same question",
+            dataset_id="release-1",
+            limit=8,
         )
-    )
+        for _ in range(4)
+    ))
 
     assert results == [["doc-current"]] * 4
     repository.current_authority_document_ids.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_current_authority_seed_does_not_cross_contaminate_queries():
+    runtime = GraphRagRuntime()
+    repository = SimpleNamespace(
+        current_authority_document_ids=AsyncMock(side_effect=[["doc-a"], ["doc-b"]])
+    )
+
+    first = await runtime._current_authority_ids(
+        repository, query="question a", dataset_id="release-1", limit=8
+    )
+    second = await runtime._current_authority_ids(
+        repository, query="question b", dataset_id="release-1", limit=8
+    )
+
+    assert first == ["doc-a"]
+    assert second == ["doc-b"]
+    assert repository.current_authority_document_ids.await_count == 2
 
 
 @pytest.mark.asyncio
