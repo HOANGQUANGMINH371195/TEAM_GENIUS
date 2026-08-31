@@ -123,12 +123,15 @@
         content: "{{ item.value }}\n"
         dest: "{{ medipay_root }}/{{ item.path }}"
         owner: root
-        group: root
-        mode: "0600"
+        # Prometheus runs as UID/GID 65534 (nobody) in the official image.
+        # Keep the token non-world-readable while allowing that process to
+        # read the bind-mounted file without running the container as root.
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
       no_log: true
       loop:
-        - {path: "metrics-token", value: "{{ medipay_metrics_token }}"}
-        - {path: "grafana-admin-password", value: "{{ medipay_grafana_admin_password }}"}
+        - {path: "metrics-token", value: "{{ medipay_metrics_token }}", group: "65534", mode: "0640"}
+        - {path: "grafana-admin-password", value: "{{ medipay_grafana_admin_password }}", group: "root", mode: "0600"}
 
     - name: Install systemd unit
       ansible.builtin.template:
