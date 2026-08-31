@@ -1888,6 +1888,40 @@ class GraphRagRuntime:
                         document_recall_operatives.extend(
                             item for item in sibling_operatives if item.chunk_id not in known_chunks
                         )
+                # If the broad document-bounded branch timed out or produced
+                # only subordinate sources, make one small authority-only
+                # rescue query.  It is still release-scoped and term-derived;
+                # the guard prevents paying for it when a primary passage is
+                # already present.
+                if (
+                    route_plan.risk == "high"
+                    and authority_document_ids
+                    and not any(
+                        item.document_id in set(authority_document_ids)
+                        for item in document_recall_operatives
+                    )
+                    and hasattr(hydration_repository, "search_document_operatives")
+                ):
+                    try:
+                        authority_rows = await bounded_db(
+                            hydration_repository.search_document_operatives(
+                                authority_document_ids[:8],
+                                dataset_id=dataset_id,
+                                terms=[
+                                    *extract_query_phrases(query, limit=12),
+                                    *extract_query_terms(query, limit=12),
+                                ],
+                                limit=min(12, settings.max_llm_evidence),
+                                minimum_matches=1,
+                            ),
+                            "authority_operatives_rescue",
+                        )
+                    except Exception:
+                        authority_rows = []
+                    known_chunks = {item.chunk_id for item in document_recall_operatives}
+                    document_recall_operatives.extend(
+                        item for item in authority_rows if item.chunk_id not in known_chunks
+                    )
                 if (
                     not document_recall_operatives
                     and document_candidate_ids
