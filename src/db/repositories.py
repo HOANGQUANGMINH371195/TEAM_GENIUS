@@ -1067,6 +1067,32 @@ class GraphRepository:
                  "include_local": include_local, "limit": limit},
             )
             indexed_ids = [str(row.document_id) for row in indexed]
+            # Add a small head for the strongest contiguous phrase before the
+            # broad OR-tsquery ranking.  This keeps a concise exclusion
+            # provision discoverable even when many newer documents dominate
+            # the generic lexical score.
+            exact_phrase = next(iter(extract_query_phrases(query, limit=1)), "")
+            if exact_phrase:
+                phrase_head = await self.session.execute(
+                    text(
+                        """
+                        SELECT d.id AS document_id
+                        FROM documents d
+                        WHERE d.dataset_id = :dataset_id
+                          AND NOT d.is_external
+                          AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                          AND (:include_local IS TRUE OR NOT (
+                               COALESCE(d.payload -> 'metadata' ->> 'pham_vi', '') ~* '(địa phương|tỉnh|thành phố|huyện)'
+                               OR d.title ~* 'NQ-HĐND'
+                          ))
+                          AND d.document_search_vector @@ websearch_to_tsquery('simple', :phrase)
+                        ORDER BY ts_rank_cd(d.document_search_vector, websearch_to_tsquery('simple', :phrase)) DESC, d.id
+                        LIMIT 16
+                        """
+                    ),
+                    {"dataset_id": dataset_id, "phrase": exact_phrase, "include_local": include_local},
+                )
+                indexed_ids = list(dict.fromkeys([str(row.document_id) for row in phrase_head] + indexed_ids))
         # Fast path for exact user phrases.  This covers short provisions
         # (e.g. "dịch vụ thẩm mỹ") that may be absent from a document's
         # generated tsvector because of accent/tokenisation differences.
@@ -1136,9 +1162,9 @@ class GraphRepository:
             )
             phrase_ids = [str(row.document_id) for row in phrase_result]
             if phrase_ids:
-                return list(dict.fromkeys([*phrase_ids, *exact_ids, *indexed_ids]))[:limit]
+                return list(dict.fromkeys([*indexed_ids, *phrase_ids, *exact_ids]))[:limit]
             if exact_ids:
-                return list(dict.fromkeys([*exact_ids, *indexed_ids]))[:limit]
+                return list(dict.fromkeys([*indexed_ids, *exact_ids]))[:limit]
         await self.session.execute(text("SET LOCAL statement_timeout = '2500ms'"))
         result = await self.session.execute(
             text(
