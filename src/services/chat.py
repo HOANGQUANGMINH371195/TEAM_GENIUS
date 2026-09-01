@@ -1148,7 +1148,7 @@ class GraphRagRuntime:
                                 dataset_id=dataset_id,
                                 limit=min(200, settings.retrieval_candidate_k * 4),
                             ),
-                            timeout=min(4.0, settings.retrieval_timeout_seconds / 3),
+                            timeout=min(8.0, settings.retrieval_timeout_seconds / 2),
                         )
                     except (TimeoutError, OSError, RuntimeError) as exc:
                         logger.warning("Optional document recall skipped (%s)", type(exc).__name__)
@@ -1181,7 +1181,7 @@ class GraphRagRuntime:
                                 dataset_id=dataset_id,
                                 limit=min(200, settings.retrieval_candidate_k * 4),
                             ),
-                            timeout=min(4.0, settings.retrieval_timeout_seconds / 3),
+                            timeout=min(8.0, settings.retrieval_timeout_seconds / 2),
                         )
                     except (TimeoutError, OSError, RuntimeError) as exc:
                         logger.warning(
@@ -1774,10 +1774,11 @@ class GraphRagRuntime:
                     # broad recall IDs have already contributed ANN/lexical
                     # evidence and must not make the SQL scan exceed the
                     # request deadline.
-                    operative_limit = 4 if is_table_route else (16 if (
-                        "dịch vụ" in query.casefold()
-                        and ("chi trả" in query.casefold() or "được hưởng" in query.casefold())
-                    ) else 8)
+                    # Inspect a bounded but sufficiently broad set of
+                    # query-derived candidates. Parsed legal units may hold
+                    # the decisive clause even when their parent document
+                    # ranked below the first lexical head.
+                    operative_limit = min(48, max(16, settings.retrieval_candidate_k))
                     # Authority/type metadata is a stronger generic signal
                     # than a title-only match.  Put it first so a small
                     # numeric-route budget cannot be consumed by unrelated
