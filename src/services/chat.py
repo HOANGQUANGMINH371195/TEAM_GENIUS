@@ -1566,6 +1566,7 @@ class GraphRagRuntime:
                     except TimeoutError:
                         semantic_scope = []
                 legal_reference_results: list[RetrievalResult] = []
+                document_operatives: list[RetrievalResult] = []
                 document_recall_semantic_results: list[RetrievalResult] = []
                 if document_vector_hits:
                     try:
@@ -2031,6 +2032,7 @@ class GraphRagRuntime:
                 authority_ids = set(authority_document_ids)
                 authority_pool = [
                     *document_recall_operatives,
+                    *document_operatives,
                     *document_recall_semantic_results,
                     *lexical_results,
                     *semantic_results,
