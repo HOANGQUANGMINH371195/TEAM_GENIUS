@@ -1889,15 +1889,21 @@ class GraphRagRuntime:
                                 limit=48,
                                 minimum_matches=1,
                             )
-                    operative_background_task = asyncio.create_task(_background_operatives())
                     try:
-                        # Shield the DB task: cancelling an asyncpg/SQLAlchemy
-                        # operation mid-flight can surface NodeCancelledError
-                        # into the request.  On timeout we simply proceed with
-                        # the normal bounded fallback while the short query
-                        # finishes on its isolated session.
-                        document_recall_operatives = await asyncio.wait_for(
-                            asyncio.shield(operative_background_task), timeout=7.0
+                        # Execute before dense hydration on the already-open
+                        # session.  This avoids pool starvation on the free
+                        # managed Postgres tier, where a second session can
+                        # wait behind hydration and never return a clause.
+                        document_recall_operatives = await bounded_db(
+                            hydration_repository.search_document_operatives(
+                                document_candidate_ids[:64],
+                                dataset_id=dataset_id,
+                                terms=list(dict.fromkeys(_operative_query_phrases(query, limit=2))),
+                                limit=48,
+                                minimum_matches=1,
+                            ),
+                            "operative_pre_hydrate",
+                            db_session=hydration_session,
                         )
                     except (TimeoutError, asyncio.CancelledError):
                         document_recall_operatives = []
@@ -2318,7 +2324,10 @@ class GraphRagRuntime:
                                 hydration_repository.search_document_operatives(
                                     operative_document_ids,
                                     dataset_id=dataset_id,
-                                    terms=_operative_query_phrases(query),
+                                    # Use normalized lexical phrases so the
+                                    # decisive noun phrase survives query
+                                    # wording such as "chi phí ... thuộc".
+                                    terms=extract_query_phrases(query, limit=12),
                                     limit=min(48, settings.retrieval_candidate_k * 2),
                                     minimum_matches=1,
                                 ),
