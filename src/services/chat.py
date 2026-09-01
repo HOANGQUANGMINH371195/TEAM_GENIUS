@@ -3683,6 +3683,15 @@ class GraphRagRuntime:
                     selected_count=len(fused_evidence),
                     operative_row_count=len(document_recall_operatives),
                     operative_document_count=len({item.document_id for item in document_recall_operatives}),
+                    authority_seed_count=len(authority_document_ids),
+                    authority_operatives_count=sum(
+                        item.document_id in set(authority_document_ids)
+                        for item in document_recall_operatives
+                    ),
+                    authority_selected_count=sum(
+                        item.document_id in set(authority_document_ids)
+                        for item in fused_evidence
+                    ),
                     operative_digest=hashlib.sha256(
                         "|".join(sorted({str(item.document_id) for item in document_recall_operatives})).encode()
                     ).hexdigest()[:16],
