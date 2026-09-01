@@ -3507,7 +3507,7 @@ class GraphRagRuntime:
             # document, recover a few canonical operative rows directly from
             # the already selected authority set. This is a bounded fallback
             # for provider/reranker variance, not a question-to-document map.
-            if route_plan.risk == "high" and (authority_document_ids or document_recall_ids):
+            if route_plan.risk == "high":
                 try:
                     if not authority_document_ids:
                         # A concurrent pool timeout must not silently erase
