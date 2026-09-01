@@ -1467,7 +1467,11 @@ class GraphRepository:
         # document-bounded scan. Server-side cancellation returns the socket
         # promptly, unlike cancelling an asyncpg coroutine after the backend
         # has already started a large expression-index walk.
-        await self.session.execute(text("SET LOCAL statement_timeout = '6000ms'"))
+        # The bounded operative scan may inspect several canonical units per
+        # document.  Cancelling it at 6s left asyncpg connections in an
+        # invalid state under load; keep the server-side limit below the
+        # high-risk route budget so it can finish and return grounded clauses.
+        await self.session.execute(text("SET LOCAL statement_timeout = '12000ms'"))
         result = await self.session.execute(
             text(
                 """

@@ -998,7 +998,7 @@ class GraphRagRuntime:
             "expand_references": 2.0,
             "ranking_metadata": 2.5,
             "document_lexical": 2.0,
-            "operative_phrase": 6.0,
+            "operative_phrase": 12.0,
             "operative_terms": 2.0,
             "operative_siblings": 2.0,
             "operative_fallback": 1.5,
