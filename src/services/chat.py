@@ -1393,7 +1393,7 @@ class GraphRagRuntime:
                         if document_recall_task is not None and not document_recall_task.done():
                             document_recall_task.cancel()
                         document_recall_ids = []
-                if route_plan.risk == "high" and not exact_document_ids and not document_recall_ids:
+                if route_plan.risk == "high" and not exact_document_ids:
                     authority_recall_task = asyncio.create_task(isolated_authority_recall())
                     # High-risk questions often use colloquial wording that is
                     # absent from the current statute (for example emergency
@@ -1461,13 +1461,14 @@ class GraphRagRuntime:
                     document_recall_ids = list(
                         dict.fromkeys(
                             [
-                                # Query-specific phrase recall is the highest
-                                # precision seed for a short operative clause;
-                                # keep it at the head before broad current-law
-                                # and authority projections are appended.
-                                *document_recall_ids,
-                                *current_recall_ids,
-                                *authority_document_ids,
+                                # Keep both query-specific phrase recall and
+                                # verified-current authority in the bounded
+                                # head.  A single 64-row list from either
+                                # projection can crowd the other signal out.
+                                *document_recall_ids[:32],
+                                *authority_document_ids[:32],
+                                *current_recall_ids[:32],
+                                *document_recall_ids[32:],
                             ]
                         )
                     )[: min(64, max(24, settings.retrieval_candidate_k))]

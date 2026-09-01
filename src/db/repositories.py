@@ -1478,9 +1478,12 @@ class GraphRepository:
                 ), candidates AS (
                     SELECT c.unit_id, c.document_id, c.text, c.section_title AS heading,
                            c.section_title AS label, c.source_start, c.source_end, c.text_sha256,
+                           COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
                            TRUE AS has_phrase,
                            ts_rank_cd(c.search_vector, request.search_query) AS seed_score
                     FROM chunks c CROSS JOIN request
+                    LEFT JOIN documents d
+                      ON d.dataset_id = c.dataset_id AND d.id::text = c.document_id::text
                     WHERE c.dataset_id = :dataset_id
                       AND c.document_id = ANY(CAST(:document_ids AS text[]))
                       AND c.lexical_eligible IS TRUE
@@ -1493,9 +1496,12 @@ class GraphRepository:
                     -- phrases; never scan the corpus-wide unit store.
                     SELECT u.unit_id, u.document_id, u.text, u.heading,
                            u.label, u.source_start, u.source_end, u.text_sha256,
+                           COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
                            TRUE AS has_phrase,
                            1.0::double precision AS seed_score
                     FROM legal_units u
+                    LEFT JOIN documents d
+                      ON d.dataset_id = u.dataset_id AND d.id::text = u.document_id::text
                     WHERE u.dataset_id = :dataset_id
                       AND u.document_id = ANY(CAST(:document_ids AS text[]))
                       AND EXISTS (
@@ -1516,7 +1522,7 @@ class GraphRepository:
                     FROM candidates
                 )
                 SELECT unit_id, document_id, text, heading, label,
-                       source_start, source_end, text_sha256,
+                       source_start, source_end, text_sha256, document_number,
                        has_phrase, seed_score
                 FROM diverse
                 WHERE document_rank <= :per_document_limit
@@ -1568,6 +1574,7 @@ class GraphRepository:
                 source_start=int(row.source_start) if row.source_start is not None else None,
                 source_end=int(row.source_end) if row.source_end is not None else None,
                 text_sha256=str(row.text_sha256 or ""),
+                document_number=str(row.document_number or ""),
                 channels=["document_operatives", "page_index"],
                 score=float(matched_phrases + match_density) + float(row.seed_score or 0.0),
             )
