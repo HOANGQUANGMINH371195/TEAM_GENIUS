@@ -2459,6 +2459,13 @@ class GraphRagRuntime:
                             for item in document_recall_operatives
                             if str(item.document_number or "")
                         })[:16],
+                        operative_number_digest=hashlib.sha256(
+                            "|".join(sorted({
+                                str(item.document_number or "")
+                                for item in document_recall_operatives
+                                if str(item.document_number or "")
+                            })).encode()
+                        ).hexdigest()[:16],
                     )
                     # Formal statutes may use a different collocation from
                     # the user's phrase (for example “cơ sở cấp chuyên sâu”
