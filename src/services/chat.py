@@ -441,6 +441,40 @@ class GraphRagRuntime:
             current_items = filter_current_authority_candidates(query, ranked)
             if current_items:
                 ranked = current_items
+        # Adaptive original/rewrite fusion has its own final context cut. Keep
+        # a small, data-derived portfolio of verified primary instruments at
+        # this boundary too; otherwise a rewrite's generic neighbours can
+        # evict the governing statute that was present in one branch.
+        if requires_evidence_verification(query):
+            authority_candidates = [
+                item
+                for bundle in valid
+                for item in bundle.evidence
+                if item.legal_status_verified
+                and item.document_id
+                and item.source_start is not None
+                and item.source_end is not None
+            ]
+            authority_candidates.sort(
+                key=lambda item: (
+                    any(marker in f"{item.document_type} {item.title}".casefold()
+                        for marker in ("luật", "nghị định", "văn bản hợp nhất")),
+                    float(item.score),
+                ),
+                reverse=True,
+            )
+            authority_head: list[RetrievalResult] = []
+            seen_authority_docs: set[str] = set()
+            for item in authority_candidates:
+                if item.document_id in seen_authority_docs:
+                    continue
+                seen_authority_docs.add(item.document_id)
+                authority_head.append(item)
+                if len(authority_head) >= 4:
+                    break
+            if authority_head:
+                authority_ids = {item.chunk_id for item in authority_head}
+                ranked = authority_head + [item for item in ranked if item.chunk_id not in authority_ids]
         return RetrievalBundle(
             evidence=ranked[: settings.max_llm_evidence],
             relations=merged.relations,
