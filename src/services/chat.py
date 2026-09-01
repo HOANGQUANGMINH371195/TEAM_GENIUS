@@ -1341,18 +1341,12 @@ class GraphRagRuntime:
                     # mỹ" or "cấp cứu") is even considered.
                     phrases = extract_query_phrases(query, limit=8)
                     if phrases:
-                        query_terms = extract_query_terms(query, limit=16)
-                        trigram_candidates = [
-                            " ".join(query_terms[index : index + 3])
-                            for index in range(max(0, len(query_terms) - 2))
-                        ]
-                        focused_phrase = max(
-                            [*phrases, *trigram_candidates],
-                            key=lambda value: (
-                                sum(token not in _RETRIEVAL_STOPWORDS for token in value.split()),
-                                len(value.split()),
-                            ),
-                        )
+                        # The phrase extractor already orders the most
+                        # distinctive contiguous n-gram first; preserve it
+                        # verbatim so short concepts such as “dịch vụ thẩm
+                        # mỹ” are not replaced by a longer, less selective
+                        # window whose tokens were normalized away.
+                        focused_phrase = phrases[0]
                         phrase_ids = await repository.search_lexical_document_ids(
                             focused_phrase,
                             dataset_id=dataset_id,
