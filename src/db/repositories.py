@@ -1041,6 +1041,7 @@ class GraphRepository:
         # hot path: casting payload to text forces a sequential scan over the
         # whole release.  The generated document tsvector is release-scoped
         # and recovers short decisive phrases without that scan.
+        indexed_ids: list[str] = []
         if phrase_disjunction:
             await self.session.execute(text("SET LOCAL statement_timeout = '1800ms'"))
             indexed = await self.session.execute(
@@ -1066,8 +1067,6 @@ class GraphRepository:
                  "include_local": include_local, "limit": limit},
             )
             indexed_ids = [str(row.document_id) for row in indexed]
-            if indexed_ids:
-                return indexed_ids
         # Fast path for exact user phrases.  This covers short provisions
         # (e.g. "dịch vụ thẩm mỹ") that may be absent from a document's
         # generated tsvector because of accent/tokenisation differences.
@@ -1120,7 +1119,11 @@ class GraphRepository:
                           WHERE d.payload::text ILIKE '%' || phrase || '%'
                              OR d.document_search_vector @@ websearch_to_tsquery('simple', phrase)
                       )
-                    ORDER BY (
+                    ORDER BY (EXISTS (
+                               SELECT 1 FROM unnest(CAST(:phrases AS text[])) AS exact_phrase
+                               WHERE d.payload::text ILIKE '%' || exact_phrase || '%'
+                             )) DESC,
+                             (
                         SELECT max(ts_rank_cd(d.document_search_vector,
                                               websearch_to_tsquery('simple', phrase)))
                         FROM unnest(CAST(:phrases AS text[])) AS phrase
@@ -1133,9 +1136,9 @@ class GraphRepository:
             )
             phrase_ids = [str(row.document_id) for row in phrase_result]
             if phrase_ids:
-                return list(dict.fromkeys([*phrase_ids, *exact_ids]))[:limit]
+                return list(dict.fromkeys([*phrase_ids, *exact_ids, *indexed_ids]))[:limit]
             if exact_ids:
-                return exact_ids
+                return list(dict.fromkeys([*exact_ids, *indexed_ids]))[:limit]
         await self.session.execute(text("SET LOCAL statement_timeout = '2500ms'"))
         result = await self.session.execute(
             text(
@@ -1202,7 +1205,7 @@ class GraphRepository:
         # in the query above and are the first ORDER BY key.  The previous
         # implementation repeated a second corpus-wide phrase scan after this
         # result, adding another managed-Postgres round trip for the same IDs.
-        return [str(row.document_id) for row in result]
+        return list(dict.fromkeys([str(row.document_id) for row in result] + indexed_ids))[:limit]
 
     async def resolve_legal_units(
         self, labels: Sequence[str], *, dataset_id: str, document_ids: Sequence[str], limit: int = 8
@@ -1484,6 +1487,11 @@ class GraphRepository:
                            c.section_title AS label, c.source_start, c.source_end, c.text_sha256,
                            COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
                            TRUE AS has_phrase,
+                           CASE WHEN EXISTS (
+                               SELECT 1 FROM unnest(CAST(:needles AS text[])) AS needle
+                               WHERE lower(COALESCE(c.text, '') || ' ' || COALESCE(c.section_title, ''))
+                                     LIKE '%' || lower(needle) || '%'
+                           ) THEN 1 ELSE 0 END AS phrase_signal,
                            CASE WHEN COALESCE(c.text, '') ~ '[0-9]+[[:space:]]*%' THEN 1 ELSE 0 END AS value_signal,
                            ts_rank_cd(c.search_vector, request.search_query) AS seed_score
                     FROM chunks c CROSS JOIN request
@@ -1503,6 +1511,11 @@ class GraphRepository:
                            u.label, u.source_start, u.source_end, u.text_sha256,
                            COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
                            TRUE AS has_phrase,
+                           CASE WHEN EXISTS (
+                               SELECT 1 FROM unnest(CAST(:needles AS text[])) AS needle
+                               WHERE lower(COALESCE(u.text, '') || ' ' || COALESCE(u.heading, '') || ' ' || COALESCE(u.label, ''))
+                                     LIKE '%' || lower(needle) || '%'
+                           ) THEN 1 ELSE 0 END AS phrase_signal,
                            CASE WHEN COALESCE(u.text, '') ~ '[0-9]+[[:space:]]*%' THEN 1 ELSE 0 END AS value_signal,
                            1.0::double precision AS seed_score
                     FROM legal_units u
@@ -1521,7 +1534,8 @@ class GraphRepository:
                     SELECT candidates.*,
                            row_number() OVER (
                                PARTITION BY document_id
-                               ORDER BY value_signal DESC,
+                               ORDER BY phrase_signal DESC,
+                                        value_signal DESC,
                                         seed_score DESC,
                                         length(COALESCE(NULLIF(text, ''), heading, label, '')),
                                         unit_id
@@ -1533,7 +1547,7 @@ class GraphRepository:
                        has_phrase, seed_score
                 FROM diverse
                 WHERE document_rank <= :per_document_limit
-                ORDER BY has_phrase DESC, value_signal DESC, seed_score DESC,
+                ORDER BY has_phrase DESC, phrase_signal DESC, value_signal DESC, seed_score DESC,
                          length(COALESCE(NULLIF(text, ''), heading, label, '')),
                          unit_id
                 LIMIT :candidate_limit
@@ -1552,7 +1566,7 @@ class GraphRepository:
                 # entitlement, exception and scope clauses can coexist even
                 # when numeric headings outrank the decisive prose clause.
                 "per_document_limit": 1 if limit < 32 else 8,
-                "candidate_limit": min(256, max(64, len(ids) * (1 if limit < 32 else 8))),
+                "candidate_limit": min(1024, max(64, len(ids) * (1 if limit < 32 else 8))),
             },
         )
         document_order = {identifier: index for index, identifier in enumerate(ids)}
