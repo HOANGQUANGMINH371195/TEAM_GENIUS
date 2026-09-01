@@ -1144,6 +1144,11 @@ async def guardrail_node(state: AgentState) -> dict:
     )
     return {
         "response": response,
+        # Preserve the verified retrieval bundle through the terminal graph
+        # node.  Some LangGraph state adapters otherwise serialize only the
+        # citation subset, hiding valid authority evidence from downstream
+        # clients and evaluation even though retrieval found it.
+        "retrieved_evidence": evidence,
         "citations": [citation.model_dump() for citation in citations],
         "claims": claims,
         "metadata": metadata,
