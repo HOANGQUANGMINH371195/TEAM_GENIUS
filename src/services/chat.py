@@ -2298,9 +2298,64 @@ class GraphRagRuntime:
                         if str(ranking_metadata.get(identifier, {}).get("document_type", "")).casefold()
                         in primary_types
                     ]
+                    # Re-run the most selective query-derived phrase on the
+                    # same session immediately before operative expansion.
+                    # The earlier document projection may have been truncated
+                    # by broad current-authority seeds; this small indexed
+                    # seed keeps short governing clauses in the operative
+                    # candidate head without any document-number mapping.
+                    phrase_seed_ids: list[str] = []
+                    phrase_seed = next(
+                        (value for value in extract_query_phrases(query, limit=8) if len(value.split()) >= 2),
+                        "",
+                    )
+                    if phrase_seed and hasattr(hydration_repository, "search_lexical_document_ids"):
+                        try:
+                            phrase_seed_ids = await bounded_db(
+                                hydration_repository.search_lexical_document_ids(
+                                    phrase_seed,
+                                    dataset_id=dataset_id,
+                                    limit=64,
+                                    include_local=_query_allows_local_documents(query),
+                                ),
+                                "operative_phrase_seed",
+                                db_session=hydration_session,
+                            )
+                        except TimeoutError:
+                            phrase_seed_ids = []
+                    leading_terms = extract_query_terms(query, limit=8)
+                    if len(leading_terms) >= 2 and hasattr(hydration_repository, "search_lexical_document_ids"):
+                        leading_seed = " ".join(leading_terms[:2])
+                        if leading_seed != phrase_seed:
+                            try:
+                                phrase_seed_ids = list(
+                                    dict.fromkeys(
+                                        [
+                                            *phrase_seed_ids,
+                                            *await bounded_db(
+                                                hydration_repository.search_lexical_document_ids(
+                                                    leading_seed,
+                                                    dataset_id=dataset_id,
+                                                    limit=64,
+                                                    include_local=_query_allows_local_documents(query),
+                                                ),
+                                                "operative_leading_seed",
+                                                db_session=hydration_session,
+                                            ),
+                                        ]
+                                    )
+                                )
+                            except TimeoutError:
+                                pass
                     operative_document_ids = list(
                         dict.fromkeys(
                             [
+                                *phrase_seed_ids,
+                                # Verified-current authorities are a safety
+                                # floor even when ranking metadata is cold;
+                                # keep them before the broad recall head so
+                                # the governing law cannot be truncated away.
+                                *authority_document_ids[:16],
                                 # The query-derived document projection is
                                 # the strongest signal for an exception or
                                 # exclusion clause; preserve its head before
@@ -2327,7 +2382,10 @@ class GraphRagRuntime:
                                     # Use normalized lexical phrases so the
                                     # decisive noun phrase survives query
                                     # wording such as "chi phí ... thuộc".
-                                    terms=extract_query_phrases(query, limit=12),
+                                    terms=list(dict.fromkeys([
+                                        *extract_query_phrases(query, limit=12),
+                                        " ".join(extract_query_terms(query, limit=8)[:2]),
+                                    ])),
                                     limit=min(48, settings.retrieval_candidate_k * 2),
                                     minimum_matches=1,
                                 ),
