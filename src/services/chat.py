@@ -2748,9 +2748,17 @@ class GraphRagRuntime:
         except GraphRagUnavailableError:
             raise
         except (OSError, RuntimeError, ValueError) as exc:
-            raise GraphRagUnavailableError("GraphRAG dependencies are unavailable") from exc
+            # Optional graph/operative channels must fail open. Returning an
+            # empty verified bundle lets the guardrail produce a safe
+            # abstention instead of converting a transient pool/provider
+            # error into a user-visible 500.
+            logger.warning("GraphRAG optional retrieval degraded: %s", type(exc).__name__)
+            metrics.inc("retrieval_degraded_total", reason=type(exc).__name__)
+            return RetrievalBundle(evidence=[], relations=[])
         except Exception as exc:
-            raise GraphRagUnavailableError("GraphRAG retrieval failed") from exc
+            logger.warning("GraphRAG retrieval degraded: %s", type(exc).__name__)
+            metrics.inc("retrieval_degraded_total", reason=type(exc).__name__)
+            return RetrievalBundle(evidence=[], relations=[])
 
     async def generate(
         self, query: str, context: str, *, timeout_seconds: float | None = None
