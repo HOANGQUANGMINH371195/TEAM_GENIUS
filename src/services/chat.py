@@ -1377,7 +1377,10 @@ class GraphRagRuntime:
                             # cold pooled connection can exceed 1.5s; allow a
                             # bounded 3s while the route still has a hard
                             # deadline and lexical/dense channels in flight.
-                            timeout=min(6.0, settings.retrieval_timeout_seconds / 2),
+                            # Two indexed phrase probes are used for high-risk
+                            # paraphrases; allow the isolated task enough time
+                            # to finish without starving the provider stage.
+                            timeout=min(6.0, max(5.0, settings.retrieval_timeout_seconds / 2)),
                         )
                         document_recall_head = list(document_recall_ids)
                         # Operative expansion runs after semantic/lexical
@@ -1856,8 +1859,30 @@ class GraphRagRuntime:
                             query_terms = extract_query_terms(query, limit=8)
                             if len(query_terms) >= 2:
                                 operative_terms.append(" ".join(query_terms[:2]))
+                            phrase_document_ids = []
+                            if operative_terms:
+                                phrase_document_ids = await GraphRepository(
+                                    operative_session
+                                ).search_lexical_document_ids(
+                                    operative_terms[0],
+                                    dataset_id=dataset_id,
+                                    limit=64,
+                                    include_local=_query_allows_local_documents(query),
+                                )
+                                if len(query_terms) >= 2:
+                                    leading_ids = await GraphRepository(
+                                        operative_session
+                                    ).search_lexical_document_ids(
+                                        " ".join(query_terms[:2]),
+                                        dataset_id=dataset_id,
+                                        limit=64,
+                                        include_local=_query_allows_local_documents(query),
+                                    )
+                                    phrase_document_ids = list(
+                                        dict.fromkeys([*phrase_document_ids, *leading_ids])
+                                    )
                             return await GraphRepository(operative_session).search_document_operatives(
-                                document_candidate_ids[:48],
+                                list(dict.fromkeys([*phrase_document_ids, *document_candidate_ids]))[:64],
                                 dataset_id=dataset_id,
                                 terms=list(dict.fromkeys(operative_terms)),
                                 limit=48,
@@ -1871,7 +1896,7 @@ class GraphRagRuntime:
                         # the normal bounded fallback while the short query
                         # finishes on its isolated session.
                         document_recall_operatives = await asyncio.wait_for(
-                            asyncio.shield(operative_background_task), timeout=4.0
+                            asyncio.shield(operative_background_task), timeout=7.0
                         )
                     except (TimeoutError, asyncio.CancelledError):
                         document_recall_operatives = []
