@@ -3707,10 +3707,11 @@ class GraphRagRuntime:
                     ]
                     authority_pool.sort(
                         key=lambda item: (
-                            sum(p.casefold() in f"{item.section_title} {item.content}".casefold() for p in phrases),
-                            float(item.score),
+                            authority_document_ids.index(item.document_id)
+                            if item.document_id in authority_document_ids else 10_000,
+                            -sum(p.casefold() in f"{item.section_title} {item.content}".casefold() for p in phrases),
+                            -float(item.score),
                         ),
-                        reverse=True,
                     )
                     authority_head: list[RetrievalResult] = []
                     seen_authority_docs: set[str] = set()
