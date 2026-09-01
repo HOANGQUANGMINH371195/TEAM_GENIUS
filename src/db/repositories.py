@@ -1480,6 +1480,7 @@ class GraphRepository:
                            c.section_title AS label, c.source_start, c.source_end, c.text_sha256,
                            COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
                            TRUE AS has_phrase,
+                           CASE WHEN COALESCE(c.text, '') ~ '[0-9]+[[:space:]]*%' THEN 1 ELSE 0 END AS value_signal,
                            ts_rank_cd(c.search_vector, request.search_query) AS seed_score
                     FROM chunks c CROSS JOIN request
                     LEFT JOIN documents d
@@ -1498,6 +1499,7 @@ class GraphRepository:
                            u.label, u.source_start, u.source_end, u.text_sha256,
                            COALESCE(d.payload -> 'metadata' ->> 'so_ky_hieu', d.payload ->> 'so_ky_hieu', '') AS document_number,
                            TRUE AS has_phrase,
+                           CASE WHEN COALESCE(u.text, '') ~ '[0-9]+[[:space:]]*%' THEN 1 ELSE 0 END AS value_signal,
                            1.0::double precision AS seed_score
                     FROM legal_units u
                     LEFT JOIN documents d
@@ -1515,7 +1517,8 @@ class GraphRepository:
                     SELECT candidates.*,
                            row_number() OVER (
                                PARTITION BY document_id
-                               ORDER BY seed_score DESC,
+                               ORDER BY value_signal DESC,
+                                        seed_score DESC,
                                         length(COALESCE(NULLIF(text, ''), heading, label, '')),
                                         unit_id
                            ) AS document_rank
@@ -1526,7 +1529,7 @@ class GraphRepository:
                        has_phrase, seed_score
                 FROM diverse
                 WHERE document_rank <= :per_document_limit
-                ORDER BY has_phrase DESC, seed_score DESC,
+                ORDER BY has_phrase DESC, value_signal DESC, seed_score DESC,
                          length(COALESCE(NULLIF(text, ''), heading, label, '')),
                          unit_id
                 LIMIT :candidate_limit
@@ -1540,10 +1543,12 @@ class GraphRepository:
                 "needles": needles,
                 # Enforce genuine document diversity before the global limit:
                 # a few verbose instruments must not crowd out the governing
-                # statute. One row is enough for narrow budgets; allow two
-                # when the caller explicitly requests a larger operative set.
-                "per_document_limit": 1 if limit < 32 else 2,
-                "candidate_limit": min(256, max(64, len(ids) * (1 if limit < 32 else 2))),
+                # statute. One row is enough for narrow budgets; keep a small
+                # eight-row legal-unit portfolio for larger operative scans so
+                # entitlement, exception and scope clauses can coexist even
+                # when numeric headings outrank the decisive prose clause.
+                "per_document_limit": 1 if limit < 32 else 8,
+                "candidate_limit": min(256, max(64, len(ids) * (1 if limit < 32 else 8))),
             },
         )
         document_order = {identifier: index for index, identifier in enumerate(ids)}
