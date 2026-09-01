@@ -1146,7 +1146,7 @@ class GraphRagRuntime:
                             repository.search_lexical_document_ids(
                                 query,
                                 dataset_id=dataset_id,
-                                limit=settings.retrieval_candidate_k,
+                                limit=min(200, settings.retrieval_candidate_k * 4),
                             ),
                             timeout=min(4.0, settings.retrieval_timeout_seconds / 3),
                         )
@@ -1172,14 +1172,14 @@ class GraphRagRuntime:
                     authority_document_ids = list(current_authority_ids)
                     document_recall_ids = list(
                         dict.fromkeys([*current_authority_ids, *document_recall_ids])
-                    )[: settings.retrieval_candidate_k]
+                    )[: min(120, settings.retrieval_candidate_k * 2)]
                 if current_title_query and hasattr(repository, "search_lexical_document_ids"):
                     try:
                         current_recall_ids = await asyncio.wait_for(
                             repository.search_lexical_document_ids(
                                 current_title_query,
                                 dataset_id=dataset_id,
-                                limit=settings.retrieval_candidate_k,
+                                limit=min(200, settings.retrieval_candidate_k * 4),
                             ),
                             timeout=min(4.0, settings.retrieval_timeout_seconds / 3),
                         )

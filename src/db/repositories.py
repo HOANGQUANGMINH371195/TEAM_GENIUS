@@ -649,16 +649,21 @@ class GraphRepository:
                 JOIN documents d ON d.dataset_id = f.dataset_id AND d.id = f.document_id
                 JOIN legal_units u ON u.dataset_id = f.dataset_id AND u.unit_id = f.legal_unit_id
                 WHERE f.dataset_id = :dataset_id
-                  AND COALESCE(f.payload ->> 'review_status', '') = 'accepted'
+                  AND f.payload ->> 'review_status' = 'accepted'
                   AND u.text <> ''
                   AND u.text_sha256 <> ''
                   AND to_tsvector('simple', f.subject || ' ' || f.attribute || ' ' || f.value)
-                      @@ websearch_to_tsquery('simple', :query)
+                      @@ to_tsquery('simple', :disjunction)
                 ORDER BY f.fact_id
                 LIMIT :limit
                 """
             ),
-            {"dataset_id": dataset_id, "query": query, "limit": max(1, min(limit, 50))},
+            {
+                "dataset_id": dataset_id,
+                "query": query,
+                "disjunction": lexical_disjunction(query, limit=24),
+                "limit": max(1, min(limit, 50)),
+            },
         )
         return [
             RetrievalResult(
@@ -982,49 +987,50 @@ class GraphRepository:
                            cardinality(regexp_split_to_array(phrase, '\\s+')) AS token_count
                     FROM unnest(CAST(:phrases AS text[])) AS phrase
                 ), phrase_anchors AS (
-                    SELECT DISTINCT ON (pq.phrase) pq.phrase, d.id AS document_id
-                    FROM phrase_queries pq
-                    JOIN documents d
-                      ON d.dataset_id = :dataset_id
-                     AND NOT d.is_external
-                     AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
-                     AND d.document_search_vector @@ pq.phrase_query
-                    ORDER BY pq.phrase,
-                             CASE
-                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%luật%'
-                                      OR d.title ILIKE 'luật %' THEN 4
-                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%nghị định%'
-                                      OR d.title ILIKE 'nghị định %' THEN 3
-                                 WHEN d.title ILIKE 'văn bản hợp nhất%' THEN 2
-                                 WHEN d.title ILIKE 'thông tư%' THEN 1
-                                 ELSE 0
-                             END DESC,
-                             length(d.content_text), d.id
+                    SELECT phrase, document_id
+                    FROM (
+                        SELECT pq.phrase, pq.token_count, d.id AS document_id,
+                               row_number() OVER (
+                                   PARTITION BY pq.phrase
+                                   ORDER BY ts_rank_cd(d.document_search_vector, pq.phrase_query) DESC,
+                                            CASE
+                                                WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%luật%'
+                                                     OR d.title ILIKE 'luật %' THEN 4
+                                                WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%nghị định%'
+                                                     OR d.title ILIKE 'nghị định %' THEN 3
+                                                WHEN d.title ILIKE 'văn bản hợp nhất%' THEN 2
+                                                WHEN d.title ILIKE 'thông tư%' THEN 1
+                                                ELSE 0
+                                            END DESC,
+                                            length(d.content_text), d.id
+                               ) AS phrase_rank
+                        FROM phrase_queries pq
+                        JOIN documents d
+                          ON d.dataset_id = :dataset_id
+                         AND NOT d.is_external
+                         AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                         AND d.document_search_vector @@ pq.phrase_query
+                    ) ranked_phrases
+                    WHERE phrase_rank <= 32 AND token_count >= 2
                 ), chunk_phrase_anchors AS (
-                    SELECT DISTINCT ON (pq.phrase) pq.phrase, c.document_id
-                    FROM phrase_queries pq
-                    JOIN chunks c
-                      ON c.dataset_id = :dataset_id
-                     AND c.lexical_eligible IS TRUE
-                     -- Use the generated tsvector/GiN index.  The previous
-                     -- lower(... LIKE '%phrase%') predicate forced a full
-                     -- chunks scan for every phrase and consumed the entire
-                     -- route deadline on the release-sized corpus.
-                     AND c.search_vector @@ pq.phrase_query
-                    JOIN documents d
-                      ON d.dataset_id = c.dataset_id AND d.id = c.document_id
-                    WHERE NOT d.is_external
-                      AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
-                    ORDER BY pq.phrase,
-                             CASE
-                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%luật%'
-                                      OR d.title ILIKE 'luật %' THEN 4
-                                 WHEN COALESCE(d.payload -> 'metadata' ->> 'loai_van_ban', '') ILIKE '%nghị định%'
-                                      OR d.title ILIKE 'nghị định %' THEN 3
-                                 WHEN d.title ILIKE 'văn bản hợp nhất%' THEN 2
-                                 ELSE 0
-                             END DESC,
-                             length(c.text), c.document_id
+                    SELECT phrase, document_id
+                    FROM (
+                        SELECT pq.phrase, pq.token_count, c.document_id,
+                               row_number() OVER (
+                                   PARTITION BY pq.phrase
+                                   ORDER BY ts_rank_cd(c.search_vector, pq.phrase_query) DESC, c.chunk_id
+                               ) AS phrase_rank
+                        FROM phrase_queries pq
+                        JOIN chunks c
+                          ON c.dataset_id = :dataset_id
+                         AND c.lexical_eligible IS TRUE
+                         AND c.search_vector @@ pq.phrase_query
+                        JOIN documents d
+                          ON d.dataset_id = c.dataset_id AND d.id = c.document_id
+                        WHERE NOT d.is_external
+                          AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                    ) ranked_chunk_phrases
+                    WHERE phrase_rank <= 32 AND token_count >= 2
                 ), ranked AS (
                     SELECT d.id AS document_id,
                        max(
@@ -1084,9 +1090,9 @@ class GraphRepository:
                 -- Exact query-derived phrase score controls relevance;
                 -- authority/currentness resolve near-ties rather than
                 -- replacing relevance with a closed hierarchy.
-                ORDER BY current_verified_rank DESC,
+                ORDER BY (anchors.document_id IS NOT NULL) DESC,
+                         current_verified_rank DESC,
                          authority_rank DESC,
-                         (anchors.document_id IS NOT NULL) DESC,
                          score DESC, ranked.document_id
                 LIMIT :limit
                 """
@@ -1371,8 +1377,11 @@ class GraphRepository:
                     LEFT JOIN legal_units parent
                       ON parent.dataset_id = u.dataset_id AND parent.unit_id = u.parent_unit_id
                     JOIN unnest(CAST(:terms AS text[])) AS term(value)
-                      ON lower(COALESCE(u.heading, '') || ' ' || COALESCE(u.text, ''))
-                         LIKE '%' || lower(term.value) || '%'
+                      ON to_tsvector(
+                             'simple',
+                             COALESCE(u.label, '') || ' ' ||
+                             COALESCE(u.heading, '') || ' ' || COALESCE(u.text, '')
+                         ) @@ websearch_to_tsquery('simple', term.value)
                     WHERE u.dataset_id = :dataset_id
                       AND u.document_id = ANY(CAST(:document_ids AS text[]))
                       AND NOT d.is_external

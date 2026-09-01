@@ -335,6 +335,9 @@ create index if not exists table_cell_facts_document_unit_idx
 create index if not exists table_cell_facts_accepted_dataset_idx
     on table_cell_facts(dataset_id)
     where payload ->> 'review_status' = 'accepted';
+create index if not exists table_cell_facts_search_vector_idx
+    on table_cell_facts using gin (to_tsvector('simple', subject || ' ' || attribute || ' ' || value))
+    where payload ->> 'review_status' = 'accepted';
 
 -- Typed facts are a reviewed projection.  Canonical text and provenance remain
 -- in documents/legal_units; pending or rejected rows are never public.
@@ -368,6 +371,8 @@ create index if not exists legal_facts_lookup_idx
     on legal_facts(dataset_id, subject, predicate, review_status);
 create index if not exists legal_facts_temporal_idx
     on legal_facts(dataset_id, effective_from, effective_to);
+create index if not exists legal_units_search_vector_idx
+    on legal_units using gin (to_tsvector('simple', coalesce(label, '') || ' ' || coalesce(heading, '') || ' ' || coalesce(text, '')));
 
 create table if not exists chunks (
     dataset_id text not null,
