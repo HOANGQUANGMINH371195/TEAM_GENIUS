@@ -1210,7 +1210,12 @@ class GraphRagRuntime:
                 # Qdrant filter.  It needs only the strongest candidates;
                 # the full recall set is still used by the dense re-query
                 # below, then the shared reranker decides final evidence.
-                document_candidate_ids = document_semantic_candidate_ids[:24]
+                # Keep enough query-derived document candidates for short
+                # operative clauses that are absent from chunk text (for
+                # example a numbered exception stored only in legal_units).
+                # The downstream SQL remains bounded and reranking selects
+                # the final evidence.
+                document_candidate_ids = document_semantic_candidate_ids[: min(120, max(24, settings.retrieval_candidate_k * 2))]
                 legal_labels = extract_legal_labels(query)
                 page_results = _verified_evidence(
                     await repository.resolve_legal_units(
@@ -1509,7 +1514,7 @@ class GraphRagRuntime:
                     ]
                     document_candidate_ids = list(
                         dict.fromkeys([*document_candidate_ids, *semantic_document_ids])
-                    )[: max(24, min(48, settings.retrieval_candidate_k))]
+                    )[: min(120, max(24, settings.retrieval_candidate_k * 2))]
                 if hasattr(hydration_repository, "hydrate_chunks_with_scope"):
                     try:
                         hydrated, semantic_scope = await bounded_db(

@@ -1104,7 +1104,35 @@ class GraphRepository:
                 "limit": limit,
             },
         )
-        return [str(row.document_id) for row in result]
+        ids_result = [str(row.document_id) for row in result]
+        # Preserve a bounded set of exact multi-token phrase anchors.  A
+        # broad OR query can otherwise crowd out a governing statute whose
+        # decisive clause is a short phrase (especially when parsed units,
+        # rather than chunks, contain the phrase).
+        anchor_result = await self.session.execute(
+            text(
+                """
+                SELECT d.id
+                FROM documents d
+                WHERE d.dataset_id = :dataset_id
+                  AND NOT d.is_external
+                  AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
+                  AND EXISTS (
+                      SELECT 1 FROM unnest(CAST(:phrases AS text[])) p(phrase)
+                      WHERE cardinality(regexp_split_to_array(p.phrase, '\\s+')) >= 2
+                        AND d.document_search_vector @@ phraseto_tsquery('simple', p.phrase)
+                  )
+                ORDER BY d.id
+                LIMIT 64
+                """
+            ),
+            {"dataset_id": dataset_id, "phrases": phrases},
+        )
+        for row in anchor_result:
+            value = str(row.id)
+            if value not in ids_result:
+                ids_result.append(value)
+        return ids_result[: max(limit, min(120, limit * 2))]
 
     async def resolve_legal_units(
         self, labels: Sequence[str], *, dataset_id: str, document_ids: Sequence[str], limit: int = 8
