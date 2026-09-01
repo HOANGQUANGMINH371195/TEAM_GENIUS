@@ -3562,14 +3562,24 @@ class GraphRagRuntime:
                 phrases = extract_query_phrases(query, limit=24)
                 verified_operatives = _verified_evidence(document_recall_operatives)
                 if verified_operatives:
-                    verified_operatives.sort(
+                    # Prefer a passage from the verified-current authority
+                    # set when available; otherwise use the strongest
+                    # query-phrase overlap. This prevents a subordinate memo
+                    # from becoming the sole first citation.
+                    authority_set = set(authority_document_ids)
+                    authority_operatives = [
+                        item for item in verified_operatives
+                        if item.document_id in authority_set
+                    ]
+                    ranking_pool = authority_operatives or verified_operatives
+                    ranking_pool.sort(
                         key=lambda item: (
                             sum(p.casefold() in f"{item.section_title} {item.content}".casefold() for p in phrases),
                             float(item.score),
                         ),
                         reverse=True,
                     )
-                    anchor = verified_operatives[0]
+                    anchor = ranking_pool[0]
                     fused_evidence = [anchor] + [
                         item for item in fused_evidence if item.chunk_id != anchor.chunk_id
                     ]
