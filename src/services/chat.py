@@ -2422,6 +2422,20 @@ class GraphRagRuntime:
                     document_recall_operatives.extend(
                         item for item in operative_rows if item.chunk_id not in known_chunks
                     )
+                    _record_trace_event(
+                        "retrieval:operative_result",
+                        phase3_started,
+                        result_count=len(document_recall_operatives),
+                        authority_result_count=sum(
+                            item.document_id in set(authority_document_ids)
+                            for item in document_recall_operatives
+                        ),
+                        public_document_numbers=sorted({
+                            str(item.document_number or "")
+                            for item in document_recall_operatives
+                            if str(item.document_number or "")
+                        })[:16],
+                    )
                     # Formal statutes may use a different collocation from
                     # the user's phrase (for example “cơ sở cấp chuyên sâu”
                     # instead of “bệnh viện tuyến tỉnh”). A second bounded
@@ -2510,10 +2524,6 @@ class GraphRagRuntime:
                     route_plan.risk == "high"
                     and route_plan.route != "deep"
                     and authority_document_ids
-                    and not any(
-                        item.document_id in set(authority_document_ids)
-                        for item in document_recall_operatives
-                    )
                     and hasattr(hydration_repository, "search_document_operatives")
                 ):
                     try:
