@@ -3799,17 +3799,30 @@ class GraphRagRuntime:
         except GraphRagUnavailableError:
             raise
         except (OSError, RuntimeError, ValueError) as exc:
-            # Optional graph/operative channels must fail open. Returning an
-            # empty verified bundle lets the guardrail produce a safe
-            # abstention instead of converting a transient pool/provider
-            # error into a user-visible 500.
+            # Optional graph/vector channels must fail open without discarding
+            # lexical evidence that was already collected.  The previous
+            # empty-bundle fallback converted a transient Qdrant outage into
+            # a false retrieval miss (and caused valid legal answers to
+            # abstain). Preserve whatever verified partial candidates exist.
             logger.warning("GraphRAG optional retrieval degraded: %s", type(exc).__name__, exc_info=True)
             metrics.inc("retrieval_degraded_total", reason=type(exc).__name__)
-            return RetrievalBundle(evidence=[], relations=[])
+            partial: list[RetrievalResult] = []
+            for name in ("fused_evidence", "document_recall_operatives", "lexical_results", "semantic_results"):
+                value = locals().get(name)
+                if isinstance(value, Sequence):
+                    partial.extend(item for item in value if isinstance(item, RetrievalResult))
+            unique = {item.chunk_id: item for item in partial if item.chunk_id}
+            return RetrievalBundle(evidence=_verified_evidence(list(unique.values())), relations=[])
         except Exception as exc:
             logger.warning("GraphRAG retrieval degraded: %s", type(exc).__name__, exc_info=True)
             metrics.inc("retrieval_degraded_total", reason=type(exc).__name__)
-            return RetrievalBundle(evidence=[], relations=[])
+            partial = []
+            for name in ("fused_evidence", "document_recall_operatives", "lexical_results", "semantic_results"):
+                value = locals().get(name)
+                if isinstance(value, Sequence):
+                    partial.extend(item for item in value if isinstance(item, RetrievalResult))
+            unique = {item.chunk_id: item for item in partial if item.chunk_id}
+            return RetrievalBundle(evidence=_verified_evidence(list(unique.values())), relations=[])
 
     async def generate(
         self, query: str, context: str, *, timeout_seconds: float | None = None
