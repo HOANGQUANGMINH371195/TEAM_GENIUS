@@ -691,25 +691,6 @@ class GraphRepository:
             for row in result
         ]
 
-    async def search_legal_unit_phrases(self, query: str, *, dataset_id: str, limit: int = 12) -> list[RetrievalResult]:
-        """Recall canonical parsed provisions when chunk text is incomplete."""
-        phrases = [p for p in lexical_phrases(query, limit=16) if len(p.split()) >= 2]
-        if not phrases:
-            return []
-        result = await self.session.execute(text("""
-            SELECT u.unit_id, u.document_id, COALESCE(NULLIF(u.text,''), substring(d.content_text from u.source_start+1 for u.source_end-u.source_start)) AS text,
-                   COALESCE(u.heading,u.label,'') AS heading, u.source_start, u.source_end,
-                   encode(digest(COALESCE(NULLIF(u.text,''), substring(d.content_text from u.source_start+1 for u.source_end-u.source_start)),'sha256'),'hex') AS text_sha256,
-                   d.title, COALESCE(d.payload->'metadata'->>'so_ky_hieu',d.payload->>'so_ky_hieu','') AS document_number,
-                   ts_rank_cd(to_tsvector('simple',coalesce(u.label,'')||' '||coalesce(u.heading,'')||' '||coalesce(u.text,'')), to_tsquery('simple',:disjunction)) AS phrase_score
-            FROM legal_units u JOIN documents d ON d.dataset_id=u.dataset_id AND d.id=u.document_id
-            WHERE u.dataset_id=:dataset_id AND NOT d.is_external AND COALESCE((d.payload->'metadata'->>'answer_ready')::boolean,FALSE) IS TRUE
-              AND u.source_start IS NOT NULL AND u.source_end IS NOT NULL
-              AND to_tsvector('simple',coalesce(u.label,'')||' '||coalesce(u.heading,'')||' '||coalesce(u.text,'')) @@ to_tsquery('simple',:disjunction)
-            ORDER BY phrase_score DESC, u.source_start, u.unit_id LIMIT :limit
-        """), {"dataset_id": dataset_id, "disjunction": lexical_disjunction(query, limit=24), "limit": max(1,min(limit,24))})
-        return [RetrievalResult(chunk_id=f"unit:{r.unit_id}", document_id=str(r.document_id), dataset_id=dataset_id, content=str(r.text or ''), source=str(r.document_id), title=str(r.title or ''), document_number=str(r.document_number or ''), section_title=str(r.heading or ''), unit_id=str(r.unit_id), source_start=r.source_start, source_end=r.source_end, text_sha256=str(r.text_sha256 or ''), channels=['canonical_unit'], score=1.0) for r in result]
-
     async def document_ranking_metadata(
         self, document_ids: Sequence[str], *, dataset_id: str
     ) -> dict[str, dict[str, object]]:

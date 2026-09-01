@@ -2211,17 +2211,6 @@ class GraphRagRuntime:
                 "lexical": lexical_results,
                 "semantic": semantic_results,
             }
-            if route_plan.risk == "high" and hasattr(hydration_repository, "search_legal_unit_phrases"):
-                try:
-                    canonical_units = await bounded_db(
-                        hydration_repository.search_legal_unit_phrases(query, dataset_id=dataset_id, limit=settings.max_llm_evidence),
-                        "canonical_unit_rescue",
-                    )
-                    if canonical_units:
-                        _apply_document_ranking_metadata(canonical_units, ranking_metadata)
-                        channels["canonical_unit"] = rerank_legal_candidates(query, canonical_units)
-                except Exception:
-                    canonical_units = []
             if table_fact_task is not None:
                 try:
                     table_results = await asyncio.wait_for(
