@@ -3527,6 +3527,14 @@ class GraphRagRuntime:
                     _apply_document_ranking_metadata(authority_rows, ranking_metadata)
                     authority_rows = _verified_evidence(authority_rows)
                     if authority_rows:
+                        # Feed the rescued canonical rows into the same
+                        # last-mile selector as the primary operative channel;
+                        # otherwise the selector could immediately replace
+                        # this floor with a stale lexical anchor.
+                        document_recall_operatives = authority_rows + [
+                            item for item in document_recall_operatives
+                            if item.chunk_id not in {row.chunk_id for row in authority_rows}
+                        ]
                         fused_evidence = authority_rows + fused_evidence
                 except Exception:
                     metrics.inc("retrieval_optional_failures", stage="final_authority_floor")
