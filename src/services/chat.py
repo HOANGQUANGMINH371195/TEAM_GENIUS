@@ -2496,6 +2496,11 @@ class GraphRagRuntime:
                             item.document_id in set(authority_document_ids)
                             for item in document_recall_operatives
                         ),
+                        authority_head_match_count=sum(
+                            bool(authority_document_ids)
+                            and item.document_id == authority_document_ids[0]
+                            for item in document_recall_operatives
+                        ),
                         public_document_numbers=sorted({
                             str(item.document_number or "")
                             for item in document_recall_operatives
