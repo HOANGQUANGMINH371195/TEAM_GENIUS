@@ -1050,11 +1050,37 @@ async def guardrail_node(state: AgentState) -> dict:
     # during the guardrail pass. Rebuild citations from the same evidence for
     # source-derived output; reserve direct citations for provider answers.
     deterministic_response = response.startswith("-") or response.startswith("Các điều/khoản")
-    citations = (
-        _citations_from_evidence(evidence, preserve_order=deterministic_response)
-        if deterministic_response
-        else state.get("direct_citations") or _citations_from_evidence(evidence)
-    )
+    if requires_evidence_verification(state.get("query", "")):
+        # Provider/direct citations may come from an earlier shortlist and
+        # omit a governing authority that is present in the final evidence.
+        # Rebuild from the verified bundle and reserve one slot for the best
+        # primary/current source before applying the citation cap.
+        ordered = _citations_from_evidence(evidence, preserve_order=True)
+        authority_items = [
+            item for item in evidence
+            if item.document_number and item.source_start is not None and item.source_end is not None
+        ]
+        authority_items.sort(
+            key=lambda item: (
+                bool(item.legal_status_verified),
+                any(marker in f"{item.document_type} {item.title}".casefold()
+                    for marker in ("luật", "nghị định", "văn bản hợp nhất")),
+                float(item.score),
+            ),
+            reverse=True,
+        )
+        if authority_items:
+            authority_citation = _citations_from_evidence(authority_items[:1], preserve_order=True)
+            if authority_citation:
+                authority_id = authority_citation[0].chunk_id
+                ordered = authority_citation + [item for item in ordered if item.chunk_id != authority_id]
+        citations = ordered[: get_settings().max_citations]
+    else:
+        citations = (
+            _citations_from_evidence(evidence, preserve_order=deterministic_response)
+            if deterministic_response
+            else state.get("direct_citations") or _citations_from_evidence(evidence)
+        )
     if deterministic_response:
         citations = _select_supported_citations(
             citations,
