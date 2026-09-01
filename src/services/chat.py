@@ -450,8 +450,8 @@ class GraphRagRuntime:
                 item
                 for bundle in valid
                 for item in bundle.evidence
-                if item.legal_status_verified
-                and item.document_id
+                if item.document_id
+                and item.document_number
                 and item.source_start is not None
                 and item.source_end is not None
             ]
