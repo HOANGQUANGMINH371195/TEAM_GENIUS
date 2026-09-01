@@ -138,6 +138,17 @@ def build_route_plan(query: str, *, settings) -> RoutePlan:
             "so sánh các quy định", "quy định trên toàn quốc",
         )
     )
+    numeric_shape = any(
+        token in normalized
+        for token in (
+            "bao nhiêu", "phần trăm", "tỷ lệ", "mức đóng", "mức hỗ trợ",
+            "giá trị", "số tiền", "tính", "chi phí",
+        )
+    )
+    temporal_status_shape = any(
+        token in normalized
+        for token in ("hiệu lực", "còn hiệu lực", "hết hiệu lực", "từ ngày", "thay đổi theo năm")
+    )
     if deep_shape:
         route = "deep"
     elif global_shape:
@@ -146,19 +157,13 @@ def build_route_plan(query: str, *, settings) -> RoutePlan:
     # and temporal qualifiers must retain their specialized retrieval path so
     # Neo4j can contribute bounded, typed edges before evidence is rehydrated
     # from the authoritative stores.
-    elif intent == "temporal":
+    elif intent == "temporal" and not (numeric_shape and not temporal_status_shape):
         route = "temporal"
     elif intent == "relational":
         route = "relational"
     elif extract_document_numbers(query) or intent == "lookup":
         route = "exact"
-    elif any(
-        token in normalized
-        for token in (
-            "bao nhiêu", "phần trăm", "tỷ lệ", "mức đóng", "mức hỗ trợ",
-            "giá trị", "số tiền", "tính", "chi phí",
-        )
-    ):
+    elif numeric_shape:
         route = "table"
     else:
         route = "topical"
