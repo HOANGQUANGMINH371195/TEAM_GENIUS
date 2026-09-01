@@ -3511,10 +3511,14 @@ class GraphRagRuntime:
                         hydration_repository.search_document_operatives(
                             floor_document_ids,
                             dataset_id=dataset_id,
+                                # Keep the floor probe index-friendly: the
+                                # previous OR portfolio included nearly every
+                                # query token and often hit the 6s statement
+                                # timeout before returning the governing row.
                                 terms=list(dict.fromkeys([
-                                    *extract_query_phrases(query, limit=8),
+                                    *extract_query_phrases(query, limit=3),
                                     " ".join(extract_query_terms(query, limit=8)[:2]),
-                                    *extract_query_terms(query, limit=16),
+                                    *extract_query_terms(query, limit=6),
                                 ])),
                             # Keep enough rows for every authority candidate;
                             # the repository enforces per-document diversity
