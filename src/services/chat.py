@@ -1424,8 +1424,15 @@ class GraphRagRuntime:
                         async with self._high_risk_sql_semaphore:
                             current_authority_ids = await asyncio.wait_for(
                                 authority_recall_task,
+                                # The authority projection is indexed but can
+                                # cold-start under concurrent requests.  A
+                                # 2.5s ceiling routinely expired before the
+                                # current statute reached fusion, causing
+                                # high-risk answers to fall back to stale
+                                # lexical hits. Keep this bounded and only on
+                                # the high-risk route.
                                 timeout=min(
-                                    2.5, max(0.1, route_deadline - time.perf_counter())
+                                    5.0, max(0.1, route_deadline - time.perf_counter())
                                 ),
                             )
                     except Exception:
@@ -3485,17 +3492,24 @@ class GraphRagRuntime:
             # document, recover a few canonical operative rows directly from
             # the already selected authority set. This is a bounded fallback
             # for provider/reranker variance, not a question-to-document map.
-            if (
-                route_plan.risk == "high"
-                and authority_document_ids
-            ):
+            if route_plan.risk == "high" and (authority_document_ids or document_recall_ids):
                 try:
                     # Reuse the already-open hydration session. Opening a
                     # second pooled connection here was the last source of
                     # authority-floor timeouts under concurrent requests.
+                    # Include the query-specific document recall head as well
+                    # as the current-authority seed.  The authority projection
+                    # intentionally excludes instruments marked “partially
+                    # effective”; those can still be the accepted source for
+                    # a historical/exception clause.  Keeping this bounded
+                    # preserves latency while preventing exact legal phrases
+                    # from being evicted by generic RRF candidates.
+                    floor_document_ids = list(dict.fromkeys(
+                        [*authority_document_ids, *document_recall_ids]
+                    ))[:24]
                     authority_rows = await asyncio.wait_for(
                         hydration_repository.search_document_operatives(
-                            authority_document_ids[:16],
+                            floor_document_ids,
                             dataset_id=dataset_id,
                                 terms=list(dict.fromkeys([
                                     *extract_query_phrases(query, limit=8),
