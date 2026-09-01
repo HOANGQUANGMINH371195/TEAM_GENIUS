@@ -1138,6 +1138,7 @@ async def guardrail_node(state: AgentState) -> dict:
                 claim.get("verification") == "entailed" for claim in claims
             ),
             "guardrail_response_chars": len(response),
+            "guardrail_evidence_count": len(evidence),
             "numeric_coverage_added": numeric_coverage_added,
             "guardrail_ms": round((time.perf_counter() - started) * 1000, 2),
         }
