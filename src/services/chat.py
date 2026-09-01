@@ -1196,7 +1196,7 @@ class GraphRagRuntime:
                                 *document_recall_ids,
                             ]
                         )
-                    )[: settings.retrieval_candidate_k]
+                    )[: min(120, max(24, settings.retrieval_candidate_k * 2))]
                 document_semantic_candidate_ids = list(
                     dict.fromkeys(
                         [
@@ -1205,7 +1205,7 @@ class GraphRagRuntime:
                             *document_recall_ids,
                         ]
                     )
-                )[: settings.retrieval_candidate_k]
+                )[: min(120, max(24, settings.retrieval_candidate_k * 2))]
                 # The document-wide lexical scan is more expensive than a
                 # Qdrant filter.  It needs only the strongest candidates;
                 # the full recall set is still used by the dense re-query
