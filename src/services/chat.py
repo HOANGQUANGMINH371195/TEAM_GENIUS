@@ -2355,12 +2355,12 @@ class GraphRagRuntime:
                     operative_document_ids = list(
                         dict.fromkeys(
                             [
-                                *phrase_seed_ids,
                                 # Verified-current authorities are a safety
                                 # floor even when ranking metadata is cold;
                                 # keep them before the broad recall head so
                                 # the governing law cannot be truncated away.
                                 *authority_document_ids[:16],
+                                *phrase_seed_ids,
                                 # The query-derived document projection is
                                 # the strongest signal for an exception or
                                 # exclusion clause; preserve its head before
@@ -3187,6 +3187,27 @@ class GraphRagRuntime:
                     promoted = [item for item in numeric_candidates if item.chunk_id in numeric_ids]
                     fused_evidence = promoted + [
                         item for item in fused_evidence if item.chunk_id not in numeric_ids
+                    ]
+            # Never allow a verified-current authority returned by the
+            # release projection to disappear solely because concurrent
+            # reranking favored a subordinate passage.  The row still must be
+            # canonical/hash-verified; this only preserves one source anchor
+            # for citation and lets synthesis decide the final wording.
+            if authority_document_ids and document_recall_operatives:
+                authority_set = set(authority_document_ids)
+                authority_rows = [
+                    item
+                    for item in document_recall_operatives
+                    if item.document_id in authority_set
+                    and item.source_start is not None
+                    and item.source_end is not None
+                ]
+                if authority_rows:
+                    authority_rows = rerank_legal_candidates(query, authority_rows)
+                    keep = authority_rows[: min(4, settings.max_llm_evidence)]
+                    keep_ids = {item.chunk_id for item in keep}
+                    fused_evidence = keep + [
+                        item for item in fused_evidence if item.chunk_id not in keep_ids
                     ]
             # Keep a small, source-derived rescue set after the final fusion
             # and authority filters.  RRF can otherwise evict the decisive
