@@ -1571,6 +1571,9 @@ class GraphRagRuntime:
                 document_recall_enabled=document_recall_enabled,
                 document_recall_count=len(document_recall_ids),
                 authority_recall_count=len(authority_document_ids),
+                authority_id_digest=hashlib.sha256(
+                    "|".join(str(value) for value in authority_document_ids).encode()
+                ).hexdigest()[:16],
                 early_operative_count=len(early_operative_rows),
             )
 
