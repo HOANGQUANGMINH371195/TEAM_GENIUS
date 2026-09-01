@@ -3488,21 +3488,25 @@ class GraphRagRuntime:
                 and authority_document_ids
             ):
                 try:
-                    async with session_scope() as authority_session:
-                        authority_repository = GraphRepository(authority_session)
-                        authority_rows = await asyncio.wait_for(
-                            authority_repository.search_document_operatives(
-                                authority_document_ids[:16],
-                                dataset_id=dataset_id,
-                                terms=list(dict.fromkeys([
-                                    *extract_query_phrases(query, limit=8),
-                                    " ".join(extract_query_terms(query, limit=8)[:2]),
-                                ])),
-                                limit=min(4, settings.max_llm_evidence),
-                                minimum_matches=1,
-                            ),
-                            timeout=5.0,
-                        )
+                    # Reuse the already-open hydration session. Opening a
+                    # second pooled connection here was the last source of
+                    # authority-floor timeouts under concurrent requests.
+                    authority_rows = await asyncio.wait_for(
+                        hydration_repository.search_document_operatives(
+                            authority_document_ids[:16],
+                            dataset_id=dataset_id,
+                            terms=list(dict.fromkeys([
+                                *extract_query_phrases(query, limit=8),
+                                " ".join(extract_query_terms(query, limit=8)[:2]),
+                            ])),
+                            # Keep enough rows for every authority candidate;
+                            # the repository enforces per-document diversity
+                            # and the public context is capped later.
+                            limit=min(48, settings.retrieval_candidate_k * 2),
+                            minimum_matches=1,
+                        ),
+                        timeout=5.0,
+                    )
                     _apply_document_ranking_metadata(authority_rows, ranking_metadata)
                     authority_rows = _verified_evidence(authority_rows)
                     if authority_rows:
