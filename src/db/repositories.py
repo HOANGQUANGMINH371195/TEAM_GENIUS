@@ -1128,10 +1128,14 @@ class GraphRepository:
             ),
             {"dataset_id": dataset_id, "phrases": phrases},
         )
+        anchor_ids = [str(row.id) for row in anchor_result]
+        ids_result = anchor_ids + ids_result
         for row in anchor_result:
             value = str(row.id)
-            if value not in ids_result:
-                ids_result.append(value)
+            # The concatenation above intentionally promotes phrase anchors;
+            # deduplicate while preserving that priority order.
+            if ids_result.count(value) > 1:
+                ids_result.remove(value)
         return ids_result[: max(limit, min(120, limit * 2))]
 
     async def resolve_legal_units(
