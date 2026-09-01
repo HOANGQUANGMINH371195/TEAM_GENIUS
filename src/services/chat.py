@@ -2752,11 +2752,11 @@ class GraphRagRuntime:
             # empty verified bundle lets the guardrail produce a safe
             # abstention instead of converting a transient pool/provider
             # error into a user-visible 500.
-            logger.warning("GraphRAG optional retrieval degraded: %s", type(exc).__name__)
+            logger.warning("GraphRAG optional retrieval degraded: %s", type(exc).__name__, exc_info=True)
             metrics.inc("retrieval_degraded_total", reason=type(exc).__name__)
             return RetrievalBundle(evidence=[], relations=[])
         except Exception as exc:
-            logger.warning("GraphRAG retrieval degraded: %s", type(exc).__name__)
+            logger.warning("GraphRAG retrieval degraded: %s", type(exc).__name__, exc_info=True)
             metrics.inc("retrieval_degraded_total", reason=type(exc).__name__)
             return RetrievalBundle(evidence=[], relations=[])
 

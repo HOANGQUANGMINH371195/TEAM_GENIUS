@@ -1085,7 +1085,6 @@ class GraphRepository:
                 -- authority/currentness resolve near-ties rather than
                 -- replacing relevance with a closed hierarchy.
                 ORDER BY current_verified_rank DESC,
-                         release_seed DESC,
                          authority_rank DESC,
                          (anchors.document_id IS NOT NULL) DESC,
                          score DESC, ranked.document_id
