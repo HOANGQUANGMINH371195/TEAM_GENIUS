@@ -142,7 +142,7 @@ def build_route_plan(query: str, *, settings) -> RoutePlan:
         token in normalized
         for token in (
             "bao nhiêu", "phần trăm", "tỷ lệ", "mức đóng", "mức hỗ trợ",
-            "giá trị", "số tiền", "tính", "chi phí",
+            "giá trị", "số tiền", "tính",
         )
     )
     temporal_status_shape = any(
