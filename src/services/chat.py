@@ -3486,20 +3486,22 @@ class GraphRagRuntime:
             if (
                 route_plan.risk == "high"
                 and authority_document_ids
-                and not any(item.document_id in set(authority_document_ids) for item in fused_evidence)
             ):
                 try:
                     async with session_scope() as authority_session:
                         authority_repository = GraphRepository(authority_session)
                         authority_rows = await asyncio.wait_for(
                             authority_repository.search_document_operatives(
-                                authority_document_ids[:8],
+                                authority_document_ids[:16],
                                 dataset_id=dataset_id,
-                                terms=extract_query_phrases(query, limit=8),
+                                terms=list(dict.fromkeys([
+                                    *extract_query_phrases(query, limit=8),
+                                    " ".join(extract_query_terms(query, limit=8)[:2]),
+                                ])),
                                 limit=min(4, settings.max_llm_evidence),
                                 minimum_matches=1,
                             ),
-                            timeout=min(2.0, max(0.1, route_deadline - time.perf_counter())),
+                            timeout=5.0,
                         )
                     _apply_document_ranking_metadata(authority_rows, ranking_metadata)
                     authority_rows = _verified_evidence(authority_rows)
