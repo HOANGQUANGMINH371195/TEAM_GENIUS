@@ -1364,11 +1364,19 @@ class GraphRagRuntime:
                     if document_recall_enabled and hasattr(repository, "search_lexical_document_ids")
                     else None
                 )
+                # Start the current-authority lookup concurrently with
+                # document recall.  Waiting for the two lexical probes first
+                # consumed the route deadline, so the authority task was
+                # cancelled before its result could enter fusion.
+                authority_recall_task = (
+                    asyncio.create_task(isolated_authority_recall())
+                    if route_plan.risk == "high" and not exact_document_ids
+                    else None
+                )
                 # Do not start two corpus-wide Postgres scans against the same
                 # small pool. The lexical document projection is sufficient
                 # for most questions; only fall back to the authority
                 # projection when it returns no seed.
-                authority_recall_task = None
                 if document_recall_enabled and hasattr(repository, "search_lexical_document_ids"):
                     try:
                         # Optional document-level rescue is bounded so a slow
@@ -1398,8 +1406,7 @@ class GraphRagRuntime:
                             document_recall_task.cancel()
                             await asyncio.gather(document_recall_task, return_exceptions=True)
                         document_recall_ids = []
-                if route_plan.risk == "high" and not exact_document_ids:
-                    authority_recall_task = asyncio.create_task(isolated_authority_recall())
+                if authority_recall_task is not None:
                     # High-risk questions often use colloquial wording that is
                     # absent from the current statute (for example emergency
                     # care without a referral). Seed a tiny set of verified
