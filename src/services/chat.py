@@ -1396,6 +1396,7 @@ class GraphRagRuntime:
                         logger.warning("Optional document recall skipped (%s)", type(exc).__name__)
                         if document_recall_task is not None and not document_recall_task.done():
                             document_recall_task.cancel()
+                            await asyncio.gather(document_recall_task, return_exceptions=True)
                         document_recall_ids = []
                 if route_plan.risk == "high" and not exact_document_ids:
                     authority_recall_task = asyncio.create_task(isolated_authority_recall())
@@ -1430,6 +1431,7 @@ class GraphRagRuntime:
                     except Exception:
                         if authority_recall_task is not None and not authority_recall_task.done():
                             authority_recall_task.cancel()
+                            await asyncio.gather(authority_recall_task, return_exceptions=True)
                         current_authority_ids = []
                     authority_document_ids = list(current_authority_ids)
                     # Keep phrase-recall order first: it is the strongest
