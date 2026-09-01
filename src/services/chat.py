@@ -4063,7 +4063,13 @@ def _apply_document_ranking_metadata(
         if not values:
             continue
         for field in fields:
-            setattr(item, field, values.get(field, getattr(item, field)))
+            value = values.get(field)
+            # Ranking metadata is an optional projection and may contain an
+            # empty placeholder while the operative row already carries the
+            # canonical value (notably document_number from the SQL join).
+            # Never overwrite verified row data with an empty projection.
+            if value not in (None, ""):
+                setattr(item, field, value)
 
 
 def _limit_evidence(evidence: list, limit: int) -> list:
