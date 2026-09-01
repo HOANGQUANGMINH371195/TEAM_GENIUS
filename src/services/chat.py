@@ -3647,6 +3647,36 @@ class GraphRagRuntime:
                     fused_evidence = [anchor] + [
                         item for item in fused_evidence if item.chunk_id != anchor.chunk_id
                     ]
+                # Preserve a bounded authority portfolio after the final
+                # selector as well.  The selector's single-anchor rule can
+                # otherwise evict the governing statute when several stale
+                # instruments have stronger lexical overlap.
+                if authority_document_ids:
+                    authority_pool = [
+                        item for item in verified_operatives
+                        if item.document_id in set(authority_document_ids)
+                    ]
+                    authority_pool.sort(
+                        key=lambda item: (
+                            sum(p.casefold() in f"{item.section_title} {item.content}".casefold() for p in phrases),
+                            float(item.score),
+                        ),
+                        reverse=True,
+                    )
+                    authority_head: list[RetrievalResult] = []
+                    seen_authority_docs: set[str] = set()
+                    for item in authority_pool:
+                        if item.document_id in seen_authority_docs:
+                            continue
+                        seen_authority_docs.add(item.document_id)
+                        authority_head.append(item)
+                        if len(authority_head) >= 4:
+                            break
+                    if authority_head:
+                        head_ids = {item.chunk_id for item in authority_head}
+                        fused_evidence = authority_head + [
+                            item for item in fused_evidence if item.chunk_id not in head_ids
+                        ]
                 _record_trace_event(
                     "retrieval:rerank_select",
                     phase3_started,
