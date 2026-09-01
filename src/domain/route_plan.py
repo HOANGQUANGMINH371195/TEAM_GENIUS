@@ -95,7 +95,7 @@ def apply_model_route(
         risk=resolved_risk,  # type: ignore[arg-type]
         providers=tuple(providers),
         retrieval_budget_ms=(
-            15_000 if route in {"temporal", "relational", "global", "deep"} or resolved_risk == "high" else 8_000
+            20_000 if route in {"temporal", "relational", "global", "deep"} or resolved_risk == "high" else 8_000
         ),
         max_candidates=min(
             int(getattr(settings, "retrieval_candidate_k", plan.max_candidates)),
@@ -197,12 +197,12 @@ def build_route_plan(query: str, *, settings) -> RoutePlan:
         required_facts=required_facts,
         providers=tuple(providers),
         # High-risk entitlement/payment questions need the document-bounded
-        # rescue and currentness checks before a safe synthesis.  Giving that
-        # bounded cascade the same 15s ceiling as temporal/relational routes
+        # rescue and currentness checks before a safe synthesis.  Give that
+        # bounded cascade a 20s ceiling on a cold managed Postgres connection
         # avoids an empty lexical fallback when a managed Postgres connection
         # is cold; low-risk topical lookups retain the 8s fast path.
         retrieval_budget_ms=(
-            15_000
+            20_000
             if route in {"temporal", "relational", "global", "deep"} or risk == "high"
             else 8_000
         ),
