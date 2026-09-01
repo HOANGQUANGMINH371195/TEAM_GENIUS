@@ -2242,6 +2242,11 @@ class GraphRagRuntime:
                         ).hexdigest()[:16],
                         clause_expansion=requires_clause_expansion(query),
                         high_risk=route_plan.risk == "high",
+                        operative_document_numbers=sorted({
+                            str(item.document_number or "")
+                            for item in document_recall_operatives
+                            if str(item.document_number or "")
+                        })[:16],
                     )
                     recall_order = list(
                         dict.fromkeys(
