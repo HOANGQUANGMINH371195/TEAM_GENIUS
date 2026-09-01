@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from datetime import date
 from functools import lru_cache
 from uuid import uuid4
+import hashlib
 
 from src.agents.prompts import NO_EVIDENCE_RESPONSE, SYSTEM_PROMPT
 from src.agents.state import AgentState
@@ -55,6 +56,43 @@ _HIGH_RISK_MARKERS = (
     "chuyển tuyến", "liên tục",
 )
 _OFFICIAL_STATUS_MARKERS = ("hiệu lực", "còn hiệu lực", "hết hiệu lực", "bãi bỏ", "thay thế")
+
+
+def _evidence_diagnostic(item: RetrievalResult, rank: int) -> dict[str, object]:
+    """Return bounded lineage for offline evaluation without leaking DB keys.
+
+    The diagnostic artifact is intentionally internal: public API responses
+    still expose only source citations.  Hashing identifiers makes it possible
+    to compare deduplication/authority behaviour across runs without emitting
+    raw chunk or document primary keys into logs.
+    """
+    def digest(value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12] if value else ""
+
+    return {
+        "rank": rank,
+        "document_key": digest(item.document_id),
+        "chunk_key": digest(item.chunk_id),
+        "document_number": item.document_number,
+        "title": item.title[:240],
+        "section_title": item.section_title[:240],
+        "channels": sorted(set(item.channels)),
+        "score": round(float(item.score), 6),
+        "rank_details": {key: round(float(value), 6) for key, value in item.rank_details.items()},
+        "authority": {
+            "status": item.legal_status,
+            "status_verified": bool(item.legal_status_verified),
+            "issuer": item.issuer,
+            "jurisdiction": item.jurisdiction,
+            "effective_from": item.effective_from,
+            "effective_to": item.effective_to,
+        },
+        "provenance": {
+            "dataset_present": bool(item.dataset_id),
+            "source_span_present": item.source_start is not None and item.source_end is not None,
+            "content_hash_present": bool(item.text_sha256),
+        },
+    }
 
 
 async def intake_node(state: AgentState) -> dict:
@@ -210,6 +248,13 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
             "planner_ms": round((time.perf_counter() - planner_started) * 1000, 2),
             "grounded_plan": grounded_plan.as_dict(),
             "experience_hint_count": len(experience_hints),
+            # Internal-only lineage used by eval/observability.  The API
+            # deliberately strips metadata and continues returning public
+            # citations only.
+            "evidence_diagnostics": [
+                _evidence_diagnostic(item, index)
+                for index, item in enumerate(evidence, start=1)
+            ],
         }
     )
     return {

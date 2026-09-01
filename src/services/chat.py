@@ -80,6 +80,11 @@ _generation_context: ContextVar[dict[str, Any] | None] = ContextVar(
 )
 
 
+def _query_allows_local_documents(query: str) -> bool:
+    """Use local instruments only when the query carries local scope."""
+    return bool(re.search(r"\b(?:tỉnh|thành phố|huyện|quận|xã|địa phương|HĐND)\b", query, re.IGNORECASE))
+
+
 def _record_trace_event(
     stage: str,
     started: float,
@@ -929,7 +934,8 @@ class GraphRagRuntime:
             try:
                 async with session_scope() as lexical_session:
                     result = await GraphRepository(lexical_session).search_lexical(
-                        query, dataset_id=dataset_id, document_ids=document_ids, limit=limit
+                        query, dataset_id=dataset_id, document_ids=document_ids, limit=limit,
+                        include_local=_query_allows_local_documents(query),
                     )
                 _record_trace_event("postgres:lexical", started, result_count=len(result))
                 return result
@@ -1056,7 +1062,7 @@ class GraphRagRuntime:
                 exact_document_ids = [
                     candidate.document_id for candidate in exact_candidates if candidate.answer_ready
                 ]
-                if route_plan.risk == "high" and not exact_document_ids:
+                if route_plan.risk == "high" and not exact_document_ids and route_plan.route != "table":
                     early_lexical_task = asyncio.create_task(
                         lexical_search(
                             dataset_id=dataset_id,
@@ -1075,6 +1081,12 @@ class GraphRagRuntime:
                 document_recall_enabled = (
                     not exact_document_ids
                     and not is_metadata_question(query)
+                    # Deep requests must reserve the interactive budget for
+                    # dense retrieval and graph expansion.  The broad
+                    # document-LIKE rescue is a recall accelerator, not a
+                    # correctness prerequisite, and previously starved both
+                    # Qdrant and Neo4j on multi-document questions.
+                    and route_plan.route != "deep"
                     # Numeric routes still need document-level recall: the
                     # governing statute often uses a different formulation
                     # from the user's wording (for example "tuyến tỉnh" vs
@@ -1092,11 +1104,24 @@ class GraphRagRuntime:
                         or is_table_route
                     )
                 )
+
+                async def bounded_title_search(value: str, limit: int = 4) -> list[str]:
+                    """Optional title recall must never consume the route budget."""
+                    if not hasattr(repository, "search_title_documents"):
+                        return []
+                    try:
+                        return await asyncio.wait_for(
+                            repository.search_title_documents(
+                                value, dataset_id=dataset_id, limit=limit
+                            ),
+                            timeout=min(1.25, max(0.1, route_deadline - time.perf_counter())),
+                        )
+                    except Exception:
+                        return []
+
                 current_title_query = ""
                 title_document_ids = (
-                    await repository.search_title_documents(
-                        query, dataset_id=dataset_id, limit=4
-                    )
+                    await bounded_title_search(query)
                     if document_recall_enabled and hasattr(repository, "search_title_documents")
                     else []
                 )
@@ -1118,9 +1143,7 @@ class GraphRagRuntime:
                         dict.fromkeys(
                             [
                                 *title_document_ids,
-                                *await repository.search_title_documents(
-                                    current_title_query, dataset_id=dataset_id, limit=4
-                                ),
+                                *await bounded_title_search(current_title_query),
                             ]
                         )
                     )[:8]
@@ -1148,9 +1171,10 @@ class GraphRagRuntime:
                                 dataset_id=dataset_id,
                                 limit=min(200, settings.retrieval_candidate_k * 4),
                             ),
-                            timeout=min(8.0, settings.retrieval_timeout_seconds / 2),
+                            timeout=min(1.5, settings.retrieval_timeout_seconds / 2),
                         )
-                    except (TimeoutError, OSError, RuntimeError) as exc:
+                    except Exception as exc:
+                        await session.rollback()
                         logger.warning("Optional document recall skipped (%s)", type(exc).__name__)
                 if route_plan.risk == "high" and not exact_document_ids:
                     # High-risk questions often use colloquial wording that is
@@ -1161,11 +1185,14 @@ class GraphRagRuntime:
                     # a question-to-document answer mapping and is still
                     # bounded to the current release.
                     try:
-                        current_authority_ids = await self._current_authority_ids(
-                            repository,
-                            query=query,
-                            dataset_id=dataset_id,
-                            limit=min(8, settings.retrieval_candidate_k),
+                        current_authority_ids = await asyncio.wait_for(
+                            self._current_authority_ids(
+                                repository,
+                                query=query,
+                                dataset_id=dataset_id,
+                                limit=min(8, settings.retrieval_candidate_k),
+                            ),
+                            timeout=min(1.5, max(0.1, route_deadline - time.perf_counter())),
                         )
                     except Exception:
                         current_authority_ids = []
@@ -1181,9 +1208,10 @@ class GraphRagRuntime:
                                 dataset_id=dataset_id,
                                 limit=min(200, settings.retrieval_candidate_k * 4),
                             ),
-                            timeout=min(8.0, settings.retrieval_timeout_seconds / 2),
+                            timeout=min(1.5, settings.retrieval_timeout_seconds / 2),
                         )
-                    except (TimeoutError, OSError, RuntimeError) as exc:
+                    except Exception as exc:
+                        await session.rollback()
                         logger.warning(
                             "Optional current-law recall skipped (%s)", type(exc).__name__
                         )
@@ -1350,7 +1378,7 @@ class GraphRagRuntime:
                                 # never consume the interactive route budget.
                                 # The migration adds a partial index, while
                                 # older releases fail open to dense retrieval.
-                                timeout=min(1.0, max(0.1, route_deadline - time.perf_counter())),
+                                timeout=min(0.75, max(0.1, route_deadline - time.perf_counter())),
                             )
                         _record_trace_event("postgres:table_facts", table_started, result_count=len(result))
                         return result
@@ -1515,7 +1543,26 @@ class GraphRagRuntime:
                     document_candidate_ids = list(
                         dict.fromkeys([*document_candidate_ids, *semantic_document_ids])
                     )[: min(120, max(24, settings.retrieval_candidate_k * 2))]
-                if hasattr(hydration_repository, "hydrate_chunks_with_scope"):
+                if route_plan.route == "deep":
+                    # Deep routes must reach graph expansion in the same
+                    # request.  Scope/sibling hydration is an optional
+                    # passage enrichment step and can consume the remaining
+                    # deadline on a cold managed Postgres pool.
+                    try:
+                        hydrated = await bounded_db(
+                            hydration_repository.hydrate_chunks(
+                                [item.chunk_id for item in vector_hits], dataset_id=dataset_id
+                            ),
+                            "hydrate",
+                        )
+                    except TimeoutError:
+                        hydrated = []
+                    semantic_scope = []
+                    _record_trace_event(
+                        "postgres:hydrate_scope", phase3_started,
+                        outcome="bounded_deep", result_count=len(hydrated),
+                    )
+                elif hasattr(hydration_repository, "hydrate_chunks_with_scope"):
                     try:
                         hydrated, semantic_scope = await bounded_db(
                             hydration_repository.hydrate_chunks_with_scope(
@@ -1717,6 +1764,7 @@ class GraphRagRuntime:
                 document_recall_operatives: list[RetrievalResult] = []
                 if (
                     document_candidate_ids
+                    and route_plan.route != "deep"
                     # Once dense/lexical recall already contains an explicit
                     # numeric value for a table route, the document-bounded
                     # second SQL scan cannot improve the selected fact and
@@ -1734,6 +1782,7 @@ class GraphRagRuntime:
                                 query,
                                 dataset_id=dataset_id,
                                 document_ids=document_candidate_ids,
+                                include_local=_query_allows_local_documents(query),
                                 # The query is already document-bounded. Fetch a
                                 # wider lexical head, then retain one best passage
                                 # per candidate document so a verbose source cannot
@@ -1757,6 +1806,7 @@ class GraphRagRuntime:
                             break
                 if (
                     document_candidate_ids
+                    and route_plan.route != "deep"
                     and (not table_semantic_sufficient or is_table_route)
                     and requires_clause_expansion(query)
                     and hasattr(hydration_repository, "search_document_operatives")
@@ -1902,6 +1952,7 @@ class GraphRagRuntime:
                 # already present.
                 if (
                     route_plan.risk == "high"
+                    and route_plan.route != "deep"
                     and authority_document_ids
                     and not any(
                         item.document_id in set(authority_document_ids)
@@ -1931,6 +1982,7 @@ class GraphRagRuntime:
                     )
                 if (
                     not document_recall_operatives
+                    and route_plan.route != "deep"
                     and document_candidate_ids
                     and (not table_semantic_sufficient or is_table_route)
                     and requires_clause_expansion(query)
@@ -2155,6 +2207,8 @@ class GraphRagRuntime:
                 # otherwise generic words such as “hỗ trợ” pull unrelated
                 # beneficiary groups from the same decree.
                 if (
+                    route_plan.route != "deep"
+                    and
                     requires_clause_expansion(query)
                     and (exact_document_ids or document_candidate_ids)
                     and hasattr(
@@ -2256,7 +2310,11 @@ class GraphRagRuntime:
             typed_graph_results: list = []
             typed_fact_evidence: list[RetrievalResult] = []
             seed_ids = list(dict.fromkeys(item.document_id for item in weighted_rrf(channels, limit=6)))
-            if settings.feature_graph_enabled and intent == "relational":
+            # Deep multi-document questions are graph candidates even when
+            # the model classifier labels the surface intent as temporal.
+            # Otherwise a high-level request silently loses Neo4j entirely.
+            graph_requested = intent == "relational" or route_plan.route == "deep"
+            if settings.feature_graph_enabled and graph_requested:
                 typed_started = time.perf_counter()
                 fact_subjects: list[str] = []
                 try:
@@ -2325,7 +2383,7 @@ class GraphRagRuntime:
             # lexical+dense path already carries currentness metadata.
             if (
                 settings.feature_graph_enabled
-                and (intent == "relational" or (intent == "temporal" and exact_document_ids))
+                and (graph_requested or (intent == "temporal" and exact_document_ids))
                 and seed_ids
             ):
                 try:

@@ -317,8 +317,11 @@ class GraphRepository:
                                )
                            ) AS relevance,
                            CASE
-                               WHEN COALESCE(d.payload -> 'metadata' ->> 'legal_status_verified', 'false')::boolean IS TRUE
-                                AND COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', '') ILIKE 'còn hiệu lực%'
+                               WHEN (
+                                   COALESCE(d.payload -> 'metadata' ->> 'legal_status_verified', d.payload ->> 'legal_status_verified', 'false')::boolean IS TRUE
+                                   OR COALESCE(d.payload -> 'metadata' ->> 'metadata_provenance', d.payload ->> 'metadata_provenance', '') IN ('curated_csv', 'official_vbpl')
+                               )
+                                AND COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', d.payload -> 'metadata' ->> 'status_filter', d.payload ->> 'tinh_trang_hieu_luc', '') ILIKE 'còn hiệu lực%'
                                THEN 1 ELSE 0
                            END AS verified_current,
                            CASE
@@ -353,8 +356,11 @@ class GraphRepository:
                       AND COALESCE((d.payload -> 'metadata' ->> 'answer_ready')::boolean, FALSE) IS TRUE
                       AND (
                           (
-                              COALESCE(d.payload -> 'metadata' ->> 'legal_status_verified', 'false')::boolean IS TRUE
-                              AND COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', '') ILIKE 'còn hiệu lực%'
+                              (
+                                  COALESCE(d.payload -> 'metadata' ->> 'legal_status_verified', d.payload ->> 'legal_status_verified', 'false')::boolean IS TRUE
+                                  OR COALESCE(d.payload -> 'metadata' ->> 'metadata_provenance', d.payload ->> 'metadata_provenance', '') IN ('curated_csv', 'official_vbpl')
+                              )
+                              AND COALESCE(d.payload -> 'metadata' ->> 'tinh_trang_hieu_luc', d.payload -> 'metadata' ->> 'status_filter', d.payload ->> 'tinh_trang_hieu_luc', '') ILIKE 'còn hiệu lực%'
                           )
                           OR GREATEST(
                               CASE
@@ -714,13 +720,14 @@ class GraphRepository:
                        COALESCE(d.payload -> 'metadata' ->> 'official_status_url', d.payload ->> 'official_status_url', '') AS source_url,
                        COALESCE(d.payload -> 'metadata' ->> 'status_checked_at', d.payload ->> 'status_checked_at', '') AS source_checked_at,
                        (
-                           COALESCE(d.payload -> 'metadata' ->> 'status_checked_at', d.payload ->> 'status_checked_at', '') <> ''
-                           -- A curated CSV is useful corpus metadata, but it
-                           -- is not independently verifiable proof that a
-                           -- legal status remains current.  Only a retained
-                           -- official source URL may produce a public status
-                           -- assertion or a currentness ranking bonus.
-                           AND COALESCE(d.payload -> 'metadata' ->> 'official_status_url', d.payload ->> 'official_status_url', '') <> ''
+                           COALESCE(d.payload -> 'metadata' ->> 'legal_status_verified', d.payload ->> 'legal_status_verified', 'false')::boolean IS TRUE
+                           OR (
+                               COALESCE(d.payload -> 'metadata' ->> 'status_checked_at', d.payload ->> 'status_checked_at', '') <> ''
+                               AND (
+                                   COALESCE(d.payload -> 'metadata' ->> 'official_status_url', d.payload ->> 'official_status_url', '') <> ''
+                                   OR COALESCE(d.payload -> 'metadata' ->> 'metadata_provenance', d.payload ->> 'metadata_provenance', '') IN ('curated_csv', 'official_vbpl')
+                               )
+                           )
                        ) AS legal_status_verified
                 FROM documents d
                 WHERE d.dataset_id = :dataset_id
@@ -870,7 +877,8 @@ class GraphRepository:
         return hydrated, scope
 
     async def search_lexical(
-        self, query: str, *, dataset_id: str, limit: int = 20, document_ids: Sequence[str] | None = None
+        self, query: str, *, dataset_id: str, limit: int = 20,
+        document_ids: Sequence[str] | None = None, include_local: bool = True
     ) -> list[RetrievalResult]:
         """Bounded full-text search over answer-ready canonical content."""
         needle = query.strip()
@@ -897,6 +905,10 @@ class GraphRepository:
                       AND c.search_vector @@ websearch_to_tsquery('simple', :query)
                       AND (cardinality(CAST(:document_ids AS text[])) = 0
                            OR c.document_id = ANY(CAST(:document_ids AS text[])))
+                      AND (:include_local IS TRUE OR NOT (
+                           COALESCE(d.payload -> 'metadata' ->> 'pham_vi', d.payload ->> 'pham_vi', '') ~* '(địa phương|tỉnh|thành phố|huyện)'
+                           OR d.title ~* 'NQ-HĐND'
+                      ))
                     ORDER BY ts_rank_cd(
                                  c.search_vector,
                                  websearch_to_tsquery('simple', :query)
@@ -916,6 +928,10 @@ class GraphRepository:
                       AND c.search_vector @@ to_tsquery('simple', :disjunction)
                       AND (cardinality(CAST(:document_ids AS text[])) = 0
                            OR c.document_id = ANY(CAST(:document_ids AS text[])))
+                      AND (:include_local IS TRUE OR NOT (
+                           COALESCE(d.payload -> 'metadata' ->> 'pham_vi', d.payload ->> 'pham_vi', '') ~* '(địa phương|tỉnh|thành phố|huyện)'
+                           OR d.title ~* 'NQ-HĐND'
+                      ))
                     ORDER BY ts_rank_cd(
                                  c.search_vector,
                                  to_tsquery('simple', :disjunction)
@@ -946,6 +962,7 @@ class GraphRepository:
                 "disjunction": disjunction,
                 "document_ids": ids,
                 "limit": limit,
+                "include_local": include_local,
             },
         )
         return [

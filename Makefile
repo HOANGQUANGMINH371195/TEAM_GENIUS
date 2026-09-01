@@ -15,7 +15,7 @@ SWEEP_FIXTURE ?= eval/cases/accuracy-bhyt-30.jsonl
 .DEFAULT_GOAL := help
 .PHONY: help env-check env-check-production setup typegen typecheck lint test check verify-plan implementation-gate promotion-gate verify-attestation verify-release-artifacts typed-facts-export typed-facts-check typed-facts-stage calibrate-claims research-worker collect-production-evidence migrate plan-completion \
 	build up dev down restart logs health deploy-contract retrieval-sweep \
-	build-worker deploy-vercel aws-config aws-up aws-migrate ansible-bootstrap promptfoo clean
+	build-worker deploy-vercel aws-config aws-up aws-migrate ansible-bootstrap promptfoo clean diagnose-queries
 
 PROD_COMPOSE ?= ops/compose/production.yml
 ANSIBLE_INVENTORY ?= ops/ansible/inventory.ini
@@ -43,6 +43,7 @@ help:
 	@echo "  make up-research-worker Start the local worker container profile"
 	@echo "  make collect-production-evidence Collect live SSE latency/TTFT evidence (ENDPOINT/FIXTURE/OUTPUT)"
 	@echo "  make retrieval-sweep   Run 30 real-provider retrieval/token/reasoning cases with redacted traces"
+	@echo "  make diagnose-queries  Run per-query route/evidence/authority/stage diagnostics"
 	@echo "  make deploy-vercel      Deploy the Next.js frontend to the linked Vercel project"
 	@echo "  make aws-config        Validate the immutable AWS Compose profile"
 	@echo "  make aws-up            Start the AWS single-host Compose profile"
@@ -160,6 +161,10 @@ collect-production-evidence: implementation-gate
 
 retrieval-sweep:
 	$(PYTHON) eval/run_retrieval_sweep.py --fixture "$(SWEEP_FIXTURE)" --limit "$(or $(SWEEP_LIMIT),30)" --dataset-id "$(or $(SWEEP_DATASET_ID),snapshot-c439751724ab7f10)" --qdrant-collection "$(or $(SWEEP_QDRANT_COLLECTION),medical_legal_hybrid_snapshot-c439751724ab7f10)" --concurrency "$(or $(SWEEP_CONCURRENCY),4)" --out "$(or $(SWEEP_OUTPUT),eval/results)" $(if $(SWEEP_DISABLE_REMOTE_TRACING),--disable-remote-tracing,)
+
+diagnose-queries:
+	@test -n "$(DIAG_QUERY)" || { echo "Set DIAG_QUERY"; exit 2; }
+	$(PYTHON) scripts/diagnose_queries.py --query "$(DIAG_QUERY)" --output "$(or $(DIAG_OUTPUT),eval/results/query-diagnostics.jsonl)"
 
 typed-facts-export:
 	@test -n "$(FACTS_FILE)" -a -n "$(RELEASE_ID)" || { echo "Set FACTS_FILE and RELEASE_ID"; exit 2; }
