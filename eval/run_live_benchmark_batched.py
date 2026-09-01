@@ -40,6 +40,12 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument(
+        "--case-id",
+        action="append",
+        default=[],
+        help="Run only the named case; repeat for multiple cases.",
+    )
     args = parser.parse_args()
     if not args.dataset_id.startswith("snapshot-") or "snapshot-" not in args.qdrant_collection:
         raise SystemExit("Only immutable physical snapshots are allowed")
@@ -52,6 +58,13 @@ def main() -> int:
 
     get_settings.cache_clear()
     _manifest, cases = _read_fixture(args.fixture)
+    if args.case_id:
+        requested = list(dict.fromkeys(args.case_id))
+        by_id = {str(case.get("case_id")): case for case in cases}
+        missing = [case_id for case_id in requested if case_id not in by_id]
+        if missing:
+            raise SystemExit(f"Unknown case ids: {', '.join(missing)}")
+        cases = [by_id[case_id] for case_id in requested]
     run_id = datetime.now(UTC).strftime("live-benchmark-%Y%m%dT%H%M%SZ")
     started = time.perf_counter()
     batch_size = max(1, args.batch_size)
@@ -81,6 +94,7 @@ def main() -> int:
             "trace_schema_version": 1,
             "eval_concurrency": max(1, args.concurrency),
             "eval_batch_size": batch_size,
+            "selected_case_ids": [str(case.get("case_id")) for case in cases],
         },
         "deterministic_summary": {
             "cases": len(records),

@@ -6,6 +6,7 @@ from src.services.retrieval import (
     decompose_query,
     exclude_unverified_legacy_subordinate_sources,
     extract_document_numbers,
+    extract_query_phrases,
     filter_current_authority_candidates,
     filter_relations_by_query,
     is_metadata_question,
@@ -21,6 +22,26 @@ from src.services.retrieval import (
     semantic_document_focus,
     weighted_rrf,
 )
+
+
+def test_query_phrases_preserve_real_contiguous_boundaries():
+    cosmetic = extract_query_phrases(
+        "Theo luật hiện hành, BHYT có chi trả dịch vụ thẩm mỹ không?",
+        limit=12,
+    )
+    continuous = extract_query_phrases(
+        "Quyền lợi BHYT 5 năm liên tục được tính như thế nào?",
+        limit=12,
+    )
+    referral = extract_query_phrases(
+        "Cấp cứu nội trú không có giấy chuyển tuyến thì được hưởng gì?",
+        limit=12,
+    )
+
+    assert "dịch vụ thẩm mỹ" in cosmetic
+    assert "5 năm liên tục" in continuous
+    assert "giấy chuyển tuyến" in referral
+    assert all("nội trú giấy" not in phrase for phrase in referral)
 
 
 def test_complex_document_questions_do_not_use_lookup_fast_path():

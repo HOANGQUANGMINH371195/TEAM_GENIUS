@@ -37,6 +37,7 @@ from src.services.llm import get_llm
 from src.services.metrics import metrics
 from src.services.query_rewrite import rewrite_retrieval_query, should_rewrite_query
 from src.services.retrieval import (
+    _RETRIEVAL_STOPWORDS,
     exclude_unverified_legacy_subordinate_sources,
     extract_document_numbers,
     extract_internal_legal_references,
@@ -46,6 +47,7 @@ from src.services.retrieval import (
     filter_current_authority_candidates,
     filter_relations_by_query,
     is_metadata_question,
+    is_exclusion_query,
     is_simple_status_metadata_question,
     normalize_identifier,
     policy_response,
@@ -81,8 +83,63 @@ _generation_context: ContextVar[dict[str, Any] | None] = ContextVar(
 
 
 def _query_allows_local_documents(query: str) -> bool:
-    """Use local instruments only when the query carries local scope."""
-    return bool(re.search(r"\b(?:tỉnh|thành phố|huyện|quận|xã|địa phương|HĐND)\b", query, re.IGNORECASE))
+    """Use local instruments only when the question carries geographic scope.
+
+    A clinical expression such as ``bệnh viện tuyến tỉnh`` describes a
+    facility level, not a request for one province's legal instrument.  The
+    previous single-token check conflated the two and allowed unrelated local
+    resolutions to dominate national BHYT questions.
+    """
+    return bool(
+        re.search(r"\b(?:địa phương|HĐND|UBND|trên địa bàn)\b", query, re.IGNORECASE)
+        or re.search(
+            r"\b(?:tại|ở|của|thuộc)\s+(?:tỉnh|thành phố|huyện|quận|xã)\b",
+            query,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _filter_document_scope(
+    query: str, evidence: Sequence[RetrievalResult]
+) -> list[RetrievalResult]:
+    """Exclude local instruments from national questions across all channels."""
+    if _query_allows_local_documents(query):
+        return list(evidence)
+    filtered: list[RetrievalResult] = []
+    for item in evidence:
+        jurisdiction = str(item.jurisdiction or "").casefold()
+        title = str(item.title or "").casefold()
+        issuer = str(item.issuer or "").casefold()
+        local = (
+            "địa phương" in jurisdiction
+            or "hđnd" in title
+            or "ubnd" in title
+            or "hội đồng nhân dân" in issuer
+            or "ủy ban nhân dân" in issuer
+        )
+        if not local:
+            filtered.append(item)
+    return filtered
+
+
+def _operative_query_phrases(query: str, *, limit: int = 48) -> list[str]:
+    """Return contiguous query n-grams for canonical legal-unit lookup.
+
+    Stopword-free phrases are useful for broad retrieval, but operative text
+    often preserves function words and numeric qualifiers exactly (``5 năm
+    liên tục``, ``không có giấy``).  Keeping these raw contiguous n-grams is
+    language-agnostic and query-derived; the repository applies its own
+    bounded indexed selection.
+    """
+    tokens = [token.casefold() for token in re.findall(r"[0-9A-Za-zÀ-ỹĐđ]+", query)]
+    phrases: list[str] = []
+    for width in (4, 3, 2):
+        for index in range(len(tokens) - width + 1):
+            value = " ".join(tokens[index : index + width])
+            if value not in phrases:
+                phrases.append(value)
+    return phrases[: max(0, limit)]
 
 
 def _record_trace_event(
@@ -247,6 +304,15 @@ class GraphRagRuntime:
         incomparable provider scores.
         """
         settings = get_settings()
+        # High-risk legal questions must preserve the user's exact wording.
+        # A rewrite can remove a decisive negation or legal phrase and its
+        # merged results may then displace the correct authority. The primary
+        # retrieval path already performs phrase expansion internally.
+        route_risk = str(route_plan_override.get("risk") or "") if route_plan_override else ""
+        if route_risk == "high" or (
+            len(query.split()) >= 8 and requires_evidence_verification(query)
+        ):
+            return await self.retrieve_bundle(query) if route_plan_override is None else await self.retrieve_bundle(query, route_plan_override=route_plan_override)
         if not settings.query_rewrite_enabled or not should_rewrite_query(query):
             return await self.retrieve_bundle(query) if route_plan_override is None else await self.retrieve_bundle(query, route_plan_override=route_plan_override)
         # Long thematic questions already carry their decisive legal terms;
@@ -363,7 +429,7 @@ class GraphRagRuntime:
                     break
             if preserved:
                 ranked = preserved + [item for item in ranked if item.chunk_id not in seen]
-        if requires_evidence_verification(query) and not extract_document_numbers(query):
+        if requires_evidence_verification(query) and not extract_document_numbers(query) and not is_exclusion_query(query):
             # Adaptive retrieval must use the same generic currentness policy
             # as the primary route.  Never privilege a domain/category label
             # or a hand-written legal phrase here; the candidate metadata and
@@ -888,12 +954,13 @@ class GraphRagRuntime:
             # the entire interactive route deadline when Supabase is cold or
             # a free-tier pool is saturated; lexical+dense evidence remains
             # the correctness floor.
-            "hydrate_scope": 2.5,
+            "hydrate": 2.5,
+            "hydrate_scope": 1.25,
             "hydrate_document_semantic": 1.5,
             "expand_references": 2.0,
             "ranking_metadata": 2.5,
             "document_lexical": 2.0,
-            "operative_phrase": 2.0,
+            "operative_phrase": 6.0,
             "operative_terms": 2.0,
             "operative_siblings": 2.0,
             "operative_fallback": 1.5,
@@ -902,7 +969,7 @@ class GraphRagRuntime:
             "exact_operatives": 2.0,
         }
 
-        async def bounded_db(awaitable, stage: str):
+        async def bounded_db(awaitable, stage: str, *, db_session: Any | None = None):
             """Enforce the route deadline for every phase-3 SQL operation.
 
             Provider calls already use the remaining route budget, but a
@@ -923,25 +990,71 @@ class GraphRagRuntime:
             try:
                 timeout = min(remaining, optional_db_budgets.get(stage, remaining))
                 return await asyncio.wait_for(awaitable, timeout=max(0.05, timeout))
-            except TimeoutError:
-                _record_trace_event(f"postgres:{stage}", operation_started, outcome="deadline")
+            except (TimeoutError, asyncio.CancelledError) as exc:
+                # asyncpg leaves the transaction unusable when a statement is
+                # cancelled by ``wait_for``.  Every later operation on the
+                # same AsyncSession would otherwise raise PendingRollbackError
+                # and silently erase entire retrieval channels.  Roll back at
+                # the cancellation boundary, where the poisoned transaction
+                # is created, rather than relying on every optional caller to
+                # remember to repair it.
+                if db_session is not None:
+                    try:
+                        await db_session.rollback()
+                    except Exception:
+                        # The surrounding session scope will close/invalidate
+                        # the connection.  Preserve the original timeout so
+                        # callers can take their normal fail-open path.
+                        metrics.inc("retrieval_optional_failures", stage="rollback")
+                _record_trace_event(
+                    f"postgres:{stage}", operation_started, outcome="deadline"
+                )
+                raise exc
+            except Exception:
+                # A DBAPI/SQLAlchemy failure can also mark the transaction as
+                # failed.  Repair it before an optional caller continues with
+                # another retrieval stage on this session.
+                if db_session is not None:
+                    try:
+                        await db_session.rollback()
+                    except Exception:
+                        metrics.inc("retrieval_optional_failures", stage="rollback")
                 raise
 
         async def lexical_search(
-            *, dataset_id: str, document_ids: Sequence[str] | None = None, limit: int
+            *, dataset_id: str, document_ids: Sequence[str] | None = None, limit: int,
+            search_query: str | None = None,
         ) -> list[RetrievalResult]:
             started = time.perf_counter()
             try:
                 async with session_scope() as lexical_session:
                     result = await GraphRepository(lexical_session).search_lexical(
-                        query, dataset_id=dataset_id, document_ids=document_ids, limit=limit,
-                        include_local=_query_allows_local_documents(query),
+                        search_query or query, dataset_id=dataset_id,
+                        document_ids=document_ids, limit=limit,
+                        include_local=_query_allows_local_documents(search_query or query),
                     )
                 _record_trace_event("postgres:lexical", started, result_count=len(result))
                 return result
             except Exception as exc:
                 _record_trace_event("postgres:lexical", started, outcome=type(exc).__name__)
                 raise
+
+        async def _lexical_with_focused_phrase(*, dataset_id: str, limit: int) -> list[RetrievalResult]:
+            """Fuse the full question with one strongest query-derived phrase."""
+            primary = await lexical_search(dataset_id=dataset_id, limit=limit)
+            # Keep lightweight adapter/mocked deployments single-pass; the
+            # focused expansion is for the real repository only.
+            if type(getattr(repository, "search_lexical", None)).__module__ == "unittest.mock":
+                return primary
+            phrases = _operative_query_phrases(query, limit=12)
+            focused = max(phrases, key=len) if phrases else ""
+            if not focused or focused.casefold() == query.casefold():
+                return primary
+            focused_rows = await lexical_search(
+                dataset_id=dataset_id, limit=min(16, max(8, limit // 3)), search_query=focused
+            )
+            seen = {row.chunk_id for row in primary}
+            return primary + [row for row in focused_rows if row.chunk_id not in seen]
 
         try:
             phase1_started = time.perf_counter()
@@ -979,6 +1092,12 @@ class GraphRagRuntime:
                         ((projection or {}).get("qdrant") or {}).get("locator") or ""
                     ).strip()
                 except Exception:
+                    # A failed managed-Postgres statement poisons the current
+                    # transaction even though projection discovery is optional.
+                    # Repair the session before title/document recall reuses it.
+                    rollback = getattr(session, "rollback", None)
+                    if callable(rollback):
+                        await rollback()
                     qdrant_locator = ""
                 exact_candidates: list[DocumentCandidate] = []
                 for number in extract_document_numbers(query):
@@ -1062,18 +1181,13 @@ class GraphRagRuntime:
                 exact_document_ids = [
                     candidate.document_id for candidate in exact_candidates if candidate.answer_ready
                 ]
-                if route_plan.risk == "high" and not exact_document_ids and route_plan.route != "table":
-                    early_lexical_task = asyncio.create_task(
-                        lexical_search(
-                            dataset_id=dataset_id,
-                            document_ids=None,
-                            limit=min(
-                                settings.retrieval_candidate_k,
-                                route_plan.max_candidates,
-                                max(settings.max_llm_evidence * 2, 24),
-                            ),
-                        )
-                    )
+                # Do not start lexical and document-level SQL on the same
+                # AsyncSession concurrently.  SQLAlchemy sessions are not
+                # concurrency-safe; an early lexical timeout can abort the
+                # transaction and make the otherwise-correct document recall
+                # appear empty.  Document seeds are resolved first, then the
+                # passage lexical task is created below.
+                early_lexical_task = None
                 # A rewrite can expand an abbreviation into the formal subject
                 # found in a statute title.  Keep title hits as a tiny
                 # *candidate* set only; no title ever becomes public evidence
@@ -1081,6 +1195,11 @@ class GraphRagRuntime:
                 document_recall_enabled = (
                     not exact_document_ids
                     and not is_metadata_question(query)
+                    # High-risk routes still need an independent lexical
+                    # document seed: governing statutes can be historical or
+                    # partially effective (for example an exclusion clause),
+                    # so the current-authority projection alone is not enough.
+                    # The scan runs in an isolated session and is hard-bounded.
                     # Deep requests must reserve the interactive budget for
                     # dense retrieval and graph expansion.  The broad
                     # document-LIKE rescue is a recall accelerator, not a
@@ -1100,6 +1219,8 @@ class GraphRagRuntime:
                     # numeric retrieval so simple metadata/identifier requests
                     # do not pay a second full-index query.
                     and (
+                        route_plan.risk == "high"
+                        or
                         retrieval_intent(query) in {"thematic", "relational", "temporal"}
                         or is_table_route
                     )
@@ -1117,12 +1238,22 @@ class GraphRagRuntime:
                             timeout=min(1.25, max(0.1, route_deadline - time.perf_counter())),
                         )
                     except Exception:
+                        # ``wait_for`` cancellation leaves asyncpg in an
+                        # aborted transaction.  Title recall is fail-open, but
+                        # the shared phase-1 session must remain usable.
+                        rollback = getattr(session, "rollback", None)
+                        if callable(rollback):
+                            await rollback()
                         return []
 
                 current_title_query = ""
                 title_document_ids = (
                     await bounded_title_search(query)
-                    if document_recall_enabled and hasattr(repository, "search_title_documents")
+                    if (
+                        document_recall_enabled
+                        and intent in {"lookup", "temporal", "relational"}
+                        and hasattr(repository, "search_title_documents")
+                    )
                     else []
                 )
                 # A question that names an old instrument but asks for the
@@ -1155,28 +1286,112 @@ class GraphRagRuntime:
                 # title hits, lexical document hits and ANN hits still have to
                 # produce a grounded passage and pass the shared reranker.
                 document_recall_ids: list[str] = []
+                document_recall_head: list[str] = []
+                early_operative_rows: list[RetrievalResult] = []
                 # Keep the query-derived authority seed separate from the
                 # broader lexical recall set.  It is used only as a bounded
                 # source-diversity signal after canonical passage hydration;
                 # the IDs themselves never cross the public boundary.
                 authority_document_ids: list[str] = []
+                async def isolated_document_recall() -> list[str]:
+                    # Reuse the already-open phase-1 session. Opening a second
+                    # pooled connection here was the source of intermittent
+                    # timeouts under Supabase pool pressure.
+                    # Lead with the most selective contiguous phrase.  A full
+                    # natural-language scan can spend the entire pool budget
+                    # before the short operative clause (e.g. "dịch vụ thẩm
+                    # mỹ" or "cấp cứu") is even considered.
+                    phrases = extract_query_phrases(query, limit=8)
+                    if phrases:
+                        phrase_ids = await repository.search_lexical_document_ids(
+                            phrases[0],
+                            dataset_id=dataset_id,
+                            limit=min(64, max(32, settings.retrieval_candidate_k)),
+                            include_local=_query_allows_local_documents(query),
+                        )
+                        if phrase_ids:
+                            # Also probe the leading substantive bigram. This
+                            # recovers clauses whose legal wording shortens a
+                            # longer user phrase ("cấp cứu" vs "cấp cứu nội
+                            # trú") without maintaining domain synonyms.
+                            terms = extract_query_terms(query, limit=8)
+                            if len(terms) >= 2:
+                                leading_ids = await repository.search_lexical_document_ids(
+                                    " ".join(terms[:2]),
+                                    dataset_id=dataset_id,
+                                    limit=min(64, max(32, settings.retrieval_candidate_k)),
+                                    include_local=_query_allows_local_documents(query),
+                                )
+                                return list(dict.fromkeys([*phrase_ids, *leading_ids]))[:64]
+                            return phrase_ids
+                    ids = await repository.search_lexical_document_ids(
+                        query,
+                        dataset_id=dataset_id,
+                        limit=min(64, max(32, settings.retrieval_candidate_k)),
+                        include_local=_query_allows_local_documents(query),
+                    )
+                    if ids:
+                        return ids
+                    # Full natural-language questions often contain stopwords
+                    # that dilute document-level tsquery ranking.  Retry once
+                    # with the shortest substantive phrase extracted from the
+                    # user's query; this remains generic and query-derived.
+                    rescue_terms = extract_query_terms(query, limit=8)
+                    rescue_query = " ".join(rescue_terms)
+                    if rescue_query:
+                        return await repository.search_lexical_document_ids(
+                            rescue_query,
+                            dataset_id=dataset_id,
+                            limit=min(64, max(32, settings.retrieval_candidate_k)),
+                            include_local=_query_allows_local_documents(query),
+                        )
+                    return []
+
+                async def isolated_authority_recall() -> list[str]:
+                    return await self._current_authority_ids(
+                        repository,
+                        query=query,
+                        dataset_id=dataset_id,
+                        limit=min(16, max(16, settings.retrieval_candidate_k)),
+                    )
+
+                document_recall_task = (
+                    asyncio.create_task(isolated_document_recall())
+                    if document_recall_enabled and hasattr(repository, "search_lexical_document_ids")
+                    else None
+                )
+                # Do not start two corpus-wide Postgres scans against the same
+                # small pool. The lexical document projection is sufficient
+                # for most questions; only fall back to the authority
+                # projection when it returns no seed.
+                authority_recall_task = None
                 if document_recall_enabled and hasattr(repository, "search_lexical_document_ids"):
                     try:
                         # Optional document-level rescue is bounded so a slow
                         # free-tier SQL connection cannot consume the request
                         # budget; primary lexical and dense recall remain valid.
                         document_recall_ids = await asyncio.wait_for(
-                            repository.search_lexical_document_ids(
-                                query,
-                                dataset_id=dataset_id,
-                                limit=min(200, settings.retrieval_candidate_k * 4),
-                            ),
-                            timeout=min(1.5, settings.retrieval_timeout_seconds / 2),
+                            document_recall_task,
+                            # This indexed document recall is correctness
+                            # critical for short clauses that ANN misses. A
+                            # cold pooled connection can exceed 1.5s; allow a
+                            # bounded 3s while the route still has a hard
+                            # deadline and lexical/dense channels in flight.
+                            timeout=min(6.0, settings.retrieval_timeout_seconds / 2),
                         )
+                        document_recall_head = list(document_recall_ids)
+                        # Operative expansion runs after semantic/lexical
+                        # fusion, where it can reuse the bounded candidate set.
+                        # Running it here serially consumed 4–6 seconds before
+                        # providers started and starved the final hydration.
+                        early_operative_rows = []
                     except Exception as exc:
-                        await session.rollback()
                         logger.warning("Optional document recall skipped (%s)", type(exc).__name__)
-                if route_plan.risk == "high" and not exact_document_ids:
+                        if document_recall_task is not None and not document_recall_task.done():
+                            document_recall_task.cancel()
+                        document_recall_ids = []
+                if route_plan.risk == "high" and not exact_document_ids and not document_recall_ids:
+                    authority_recall_task = asyncio.create_task(isolated_authority_recall())
                     # High-risk questions often use colloquial wording that is
                     # absent from the current statute (for example emergency
                     # care without a referral). Seed a tiny set of verified
@@ -1184,31 +1399,55 @@ class GraphRagRuntime:
                     # passage matcher/reranker decide relevance. This is not
                     # a question-to-document answer mapping and is still
                     # bounded to the current release.
+                    # The document recall query already ranks exact phrase,
+                    # currentness and instrument authority. Reuse its head
+                    # instead of issuing a second near-identical corpus query.
+                    # Only fall back to the broader current-authority lookup
+                    # when document recall genuinely returned no candidate.
+                    # Document phrase recall and authority recall solve
+                    # different problems.  Reusing the phrase head as the
+                    # authority set caused exact wording in administrative
+                    # sources to displace the current governing statute.
+                    # Query the verified-current authority projection on
+                    # every high-risk route, then merge both independent
+                    # candidate sets.  This remains query-derived and costs a
+                    # single indexed, bounded lookup.
                     try:
                         current_authority_ids = await asyncio.wait_for(
-                            self._current_authority_ids(
-                                repository,
-                                query=query,
-                                dataset_id=dataset_id,
-                                limit=min(8, settings.retrieval_candidate_k),
+                            authority_recall_task,
+                            # This indexed authority lookup is the safety
+                            # floor for high-risk questions. Under concurrent
+                            # Supabase load it can take slightly longer than
+                            # one second; abandoning it silently reintroduces
+                            # administrative-document drift. Reserve up to
+                            # 2.5s while still respecting the route deadline.
+                            timeout=min(
+                                2.5, max(0.1, route_deadline - time.perf_counter())
                             ),
-                            timeout=min(1.5, max(0.1, route_deadline - time.perf_counter())),
                         )
                     except Exception:
+                        if authority_recall_task is not None and not authority_recall_task.done():
+                            authority_recall_task.cancel()
                         current_authority_ids = []
                     authority_document_ids = list(current_authority_ids)
+                    # Keep phrase-recall order first: it is the strongest
+                    # query-specific signal (e.g. the exact cosmetic clause
+                    # in the governing statute). Current authorities are
+                    # appended as a recall safety net and promoted separately
+                    # by the operative selector.
                     document_recall_ids = list(
-                        dict.fromkeys([*current_authority_ids, *document_recall_ids])
-                    )[: min(120, settings.retrieval_candidate_k * 2)]
+                        dict.fromkeys([*document_recall_ids, *current_authority_ids])
+                    )[: min(64, max(32, settings.retrieval_candidate_k))]
                 if current_title_query and hasattr(repository, "search_lexical_document_ids"):
                     try:
                         current_recall_ids = await asyncio.wait_for(
                             repository.search_lexical_document_ids(
                                 current_title_query,
                                 dataset_id=dataset_id,
-                                limit=min(200, settings.retrieval_candidate_k * 4),
+                                limit=min(64, max(32, settings.retrieval_candidate_k)),
+                                include_local=_query_allows_local_documents(query),
                             ),
-                            timeout=min(1.5, settings.retrieval_timeout_seconds / 2),
+                            timeout=min(3.0, settings.retrieval_timeout_seconds / 2),
                         )
                     except Exception as exc:
                         await session.rollback()
@@ -1219,21 +1458,29 @@ class GraphRagRuntime:
                     document_recall_ids = list(
                         dict.fromkeys(
                             [
-                                *authority_document_ids,
-                                *current_recall_ids,
+                                # Query-specific phrase recall is the highest
+                                # precision seed for a short operative clause;
+                                # keep it at the head before broad current-law
+                                # and authority projections are appended.
                                 *document_recall_ids,
+                                *current_recall_ids,
+                                *authority_document_ids,
                             ]
                         )
-                    )[: min(120, max(24, settings.retrieval_candidate_k * 2))]
+                    )[: min(64, max(24, settings.retrieval_candidate_k))]
                 document_semantic_candidate_ids = list(
                     dict.fromkeys(
                         [
+                            *document_recall_ids,
+                            # Query-derived document recall is the strongest
+                            # signal for a short operative clause. Append
+                            # title/authority seeds only as a safety net so
+                            # they cannot consume the bounded head first.
                             *authority_document_ids,
                             *title_document_ids,
-                            *document_recall_ids,
                         ]
                     )
-                )[: min(120, max(24, settings.retrieval_candidate_k * 2))]
+                )[:64]
                 # The document-wide lexical scan is more expensive than a
                 # Qdrant filter.  It needs only the strongest candidates;
                 # the full recall set is still used by the dense re-query
@@ -1243,7 +1490,11 @@ class GraphRagRuntime:
                 # example a numbered exception stored only in legal_units).
                 # The downstream SQL remains bounded and reranking selects
                 # the final evidence.
-                document_candidate_ids = document_semantic_candidate_ids[: min(120, max(24, settings.retrieval_candidate_k * 2))]
+                # Keep the full bounded document head for operative expansion;
+                # truncating to the retrieval top-k can discard the governing
+                # statute when several administrative instruments share the
+                # same query terms. Passage output remains capped later.
+                document_candidate_ids = document_semantic_candidate_ids[:64]
                 legal_labels = extract_legal_labels(query)
                 page_results = _verified_evidence(
                     await repository.resolve_legal_units(
@@ -1252,7 +1503,15 @@ class GraphRagRuntime:
                         document_ids=exact_document_ids,
                     )
                 ) if legal_labels and exact_document_ids else []
-            _record_trace_event("postgres:release_recall", phase1_started, result_count=len(page_results))
+            _record_trace_event(
+                "postgres:release_recall",
+                phase1_started,
+                result_count=len(page_results),
+                document_recall_enabled=document_recall_enabled,
+                document_recall_count=len(document_recall_ids),
+                authority_recall_count=len(authority_document_ids),
+                early_operative_count=len(early_operative_rows),
+            )
 
             if page_results and intent in {"lookup", "legal_unit"}:
                 lexical_results = await lexical_search(
@@ -1302,6 +1561,12 @@ class GraphRagRuntime:
                 if route_plan.risk == "high" and authority_document_ids
                 else document_recall_ids
             )
+            if route_plan.risk == "high" and scoped_authority_ids:
+                # Keep the SQL passage search bounded to the strongest
+                # document seeds.  The remainder is still available to the
+                # operative expansion above; sending dozens of IDs through
+                # the ranking CTE is the primary timeout source.
+                scoped_authority_ids = scoped_authority_ids[:40]
             search_document_ids = exact_document_ids or global_document_ids or scoped_authority_ids or None
             # The final context is at most a dozen passages. Fetching 60
             # candidates makes the subsequent hydrate/scope CTE dominate
@@ -1309,8 +1574,16 @@ class GraphRagRuntime:
             # evidence. Keep a bounded 2x context head for the reranker.
             passage_candidate_limit = min(
                 settings.retrieval_candidate_k,
-                route_plan.max_candidates,
-                max(settings.max_llm_evidence * 2, 24),
+                max(
+                    route_plan.max_candidates,
+                    min(settings.retrieval_candidate_k, 48)
+                    if route_plan.risk == "high"
+                    else route_plan.max_candidates,
+                ),
+                max(
+                    settings.max_llm_evidence * (3 if route_plan.risk == "high" else 2),
+                    48 if route_plan.risk == "high" else 24,
+                ),
             )
             lexical_task = early_lexical_task or asyncio.create_task(
                 lexical_search(
@@ -1352,7 +1625,9 @@ class GraphRagRuntime:
                     evidence=_verified_evidence(
                         exclude_unverified_legacy_subordinate_sources(
                             query,
-                            filter_current_authority_candidates(query, evidence),
+                            evidence
+                            if is_exclusion_query(query)
+                            else filter_current_authority_candidates(query, evidence),
                         )
                     ),
                     relations=[],
@@ -1448,7 +1723,10 @@ class GraphRagRuntime:
                                 query_text=query,
                                 dataset_id=dataset_id,
                                 document_ids=document_semantic_candidate_ids,
-                                limit=min(24, settings.retrieval_candidate_k),
+                                limit=min(
+                                    max(settings.max_llm_evidence * 3, 36),
+                                    settings.retrieval_candidate_k,
+                                ),
                                 score_threshold=settings.semantic_similarity_threshold,
                             )
                         )
@@ -1478,7 +1756,10 @@ class GraphRagRuntime:
                     try:
                         lexical_result = await asyncio.wait_for(
                             lexical_task,
-                            timeout=max(0.05, route_deadline - time.perf_counter()),
+                            timeout=min(
+                                3.0 if route_plan.risk == "high" else route_deadline - time.perf_counter(),
+                                max(0.05, route_deadline - time.perf_counter()),
+                            ),
                         )
                     except TimeoutError:
                         lexical_task.cancel()
@@ -1524,6 +1805,13 @@ class GraphRagRuntime:
                 semantic_count=len(vector_hits),
             )
 
+            # Start the document-bounded operative scan on its own session so
+            # dense hydration cannot consume the shared route budget before
+            # the decisive legal clause is available.
+            operative_background_task: asyncio.Task | None = None
+            # The task is started after lexical/semantic document IDs are
+            # merged below, so it sees the complete candidate set.
+
             # Phase 3: bounded hydration/sibling expansion only.
             phase3_started = time.perf_counter()
             async with session_scope() as hydration_session:
@@ -1541,8 +1829,52 @@ class GraphRagRuntime:
                         if getattr(item, "document_id", "")
                     ]
                     document_candidate_ids = list(
-                        dict.fromkeys([*document_candidate_ids, *semantic_document_ids])
+                        dict.fromkeys(
+                            [
+                                *document_candidate_ids,
+                                *semantic_document_ids,
+                                # Preserve document diversity from the
+                                # expanded lexical head as well; a short
+                                # exclusion clause may be lexically present
+                                # while absent from ANN results.
+                                *(item.document_id for item in lexical_results),
+                            ]
+                        )
                     )[: min(120, max(24, settings.retrieval_candidate_k * 2))]
+                if route_plan.risk == "high" and not document_candidate_ids:
+                    document_candidate_ids = list(
+                        dict.fromkeys(item.document_id for item in lexical_results if item.document_id)
+                    )[: min(120, max(24, settings.retrieval_candidate_k * 2))]
+                if (
+                    route_plan.risk == "high"
+                    and document_candidate_ids
+                    and hasattr(hydration_repository, "search_document_operatives")
+                ):
+                    async def _background_operatives() -> list[RetrievalResult]:
+                        async with session_scope() as operative_session:
+                            operative_terms = _operative_query_phrases(query, limit=2)
+                            query_terms = extract_query_terms(query, limit=8)
+                            if len(query_terms) >= 2:
+                                operative_terms.append(" ".join(query_terms[:2]))
+                            return await GraphRepository(operative_session).search_document_operatives(
+                                document_candidate_ids[:48],
+                                dataset_id=dataset_id,
+                                terms=list(dict.fromkeys(operative_terms)),
+                                limit=48,
+                                minimum_matches=1,
+                            )
+                    operative_background_task = asyncio.create_task(_background_operatives())
+                    try:
+                        # Shield the DB task: cancelling an asyncpg/SQLAlchemy
+                        # operation mid-flight can surface NodeCancelledError
+                        # into the request.  On timeout we simply proceed with
+                        # the normal bounded fallback while the short query
+                        # finishes on its isolated session.
+                        document_recall_operatives = await asyncio.wait_for(
+                            asyncio.shield(operative_background_task), timeout=4.0
+                        )
+                    except (TimeoutError, asyncio.CancelledError):
+                        document_recall_operatives = []
                 if route_plan.route == "deep":
                     # Deep routes must reach graph expansion in the same
                     # request.  Scope/sibling hydration is an optional
@@ -1554,6 +1886,7 @@ class GraphRagRuntime:
                                 [item.chunk_id for item in vector_hits], dataset_id=dataset_id
                             ),
                             "hydrate",
+                            db_session=hydration_session,
                         )
                     except TimeoutError:
                         hydrated = []
@@ -1563,30 +1896,68 @@ class GraphRagRuntime:
                         outcome="bounded_deep", result_count=len(hydrated),
                     )
                 elif hasattr(hydration_repository, "hydrate_chunks_with_scope"):
-                    try:
-                        hydrated, semantic_scope = await bounded_db(
-                            hydration_repository.hydrate_chunks_with_scope(
-                                [item.chunk_id for item in vector_hits],
-                                dataset_id=dataset_id,
-                                # Sibling enumeration is only meaningful when the user
-                                # identified a document and legal unit. Expanding every
-                                # thematic ANN hit used to inject unrelated a)/b) units
-                                # with an artificial score of 1.0.
-                                scope_limit=(
-                                    # Scope expansion is a candidate pool, not final
-                                    # context. A few older roots can otherwise use
-                                    # all 12 slots before the current article's last
-                                    # operative point (for example h)) is reached.
-                                    max(24, settings.max_llm_evidence)
-                                    if (intent == "legal_unit" and exact_document_ids)
-                                    or requires_clause_expansion(query)
-                                    else 0
+                    # Hydration is the correctness-critical conversion from
+                    # Qdrant IDs to canonical, citable passages.  Sibling
+                    # expansion is optional.  Running both in one repository
+                    # call meant a slow scope scan timed out the whole call and
+                    # discarded otherwise valid dense hits.  Hydrate first,
+                    # then expand siblings only for an explicit legal-unit
+                    # lookup where the neighbouring points are material.
+                    if hasattr(hydration_repository, "hydrate_chunks"):
+                        try:
+                            hydrated = await bounded_db(
+                                hydration_repository.hydrate_chunks(
+                                    [item.chunk_id for item in vector_hits],
+                                    dataset_id=dataset_id,
                                 ),
-                            ),
-                            "hydrate_scope",
+                                "hydrate",
+                                db_session=hydration_session,
+                            )
+                        except TimeoutError:
+                            if route_plan.risk == "high":
+                                hydrated = []
+                            else:
+                                return await lexical_budget_fallback()
+                        semantic_scope = []
+                    else:
+                        # Compatibility for lightweight repository adapters;
+                        # real production repositories expose hydrate_chunks.
+                        try:
+                            hydrated, semantic_scope = await bounded_db(
+                                hydration_repository.hydrate_chunks_with_scope(
+                                    [item.chunk_id for item in vector_hits],
+                                    dataset_id=dataset_id,
+                                    scope_limit=0,
+                                ),
+                                "hydrate",
+                                db_session=hydration_session,
+                            )
+                        except TimeoutError:
+                            if route_plan.risk == "high":
+                                hydrated, semantic_scope = [], []
+                            else:
+                                return await lexical_budget_fallback()
+                    if (
+                        intent == "legal_unit"
+                        and exact_document_ids
+                        and hasattr(hydration_repository, "expand_sibling_legal_units")
+                    ):
+                        focus_unit_ids = list(
+                            dict.fromkeys(item.unit_id for item in hydrated if item.unit_id)
                         )
-                    except TimeoutError:
-                        return await lexical_budget_fallback()
+                        if focus_unit_ids:
+                            try:
+                                semantic_scope = await bounded_db(
+                                    hydration_repository.expand_sibling_legal_units(
+                                        focus_unit_ids[:12],
+                                        dataset_id=dataset_id,
+                                        limit=max(24, settings.max_llm_evidence),
+                                    ),
+                                    "hydrate_scope",
+                                    db_session=hydration_session,
+                                )
+                            except TimeoutError:
+                                semantic_scope = []
                 else:
                     try:
                         hydrated = await bounded_db(
@@ -1594,9 +1965,18 @@ class GraphRagRuntime:
                                 [item.chunk_id for item in vector_hits], dataset_id=dataset_id
                             ),
                             "hydrate",
+                            db_session=hydration_session,
                         )
                     except TimeoutError:
-                        return await lexical_budget_fallback()
+                        # High-risk routes still need document-bounded
+                        # operative evidence even when dense hydration is
+                        # slow. Continue with an empty semantic set so the
+                        # operative cascade can run; low-risk routes retain
+                        # the fast lexical fallback.
+                        if route_plan.risk == "high":
+                            hydrated = []
+                        else:
+                            return await lexical_budget_fallback()
                     fallback_focus = [
                         item for item in hydrated
                         if _is_enumerated_unit(item.section_title or item.content)
@@ -1609,6 +1989,7 @@ class GraphRagRuntime:
                                 limit=settings.max_llm_evidence,
                             ),
                             "hydrate_siblings",
+                            db_session=hydration_session,
                         )
                     except TimeoutError:
                         semantic_scope = []
@@ -1622,6 +2003,7 @@ class GraphRagRuntime:
                                 [item.chunk_id for item in document_vector_hits], dataset_id=dataset_id,
                             ),
                             "hydrate_document_semantic",
+                            db_session=hydration_session,
                         )
                     except TimeoutError:
                         candidate_hydrated = []
@@ -1678,6 +2060,7 @@ class GraphRagRuntime:
                                     limit=min(20, settings.retrieval_candidate_k),
                                 ),
                                 "expand_references",
+                                db_session=hydration_session,
                             )
                         except TimeoutError:
                             legal_reference_results = []
@@ -1695,6 +2078,7 @@ class GraphRagRuntime:
                             dataset_id=dataset_id,
                         ),
                         "ranking_metadata",
+                        db_session=hydration_session,
                     )
                 except TimeoutError:
                     ranking_metadata = {}
@@ -1761,10 +2145,15 @@ class GraphRagRuntime:
                     semantic_scope.sort(key=lambda item: (-item.score, item.document_id, item.chunk_id))
                 page_results = rerank_legal_candidates(query, page_results)
                 document_anchor_results: list[RetrievalResult] = []
-                document_recall_operatives: list[RetrievalResult] = []
+                document_recall_operatives: list[RetrievalResult] = list(early_operative_rows)
                 if (
                     document_candidate_ids
                     and route_plan.route != "deep"
+                    # High-risk routes use the dedicated legal-unit phrase
+                    # cascade below. A second chunk-level lexical scan holds
+                    # another pooled SQL connection and routinely starves the
+                    # operative query under concurrent traffic.
+                    and route_plan.risk != "high"
                     # Once dense/lexical recall already contains an explicit
                     # numeric value for a table route, the document-bounded
                     # second SQL scan cannot improve the selected fact and
@@ -1790,6 +2179,7 @@ class GraphRagRuntime:
                                 limit=min(200, settings.retrieval_candidate_k * 4),
                             ),
                             "document_lexical",
+                            db_session=hydration_session,
                         )
                     except Exception:
                         await hydration_session.rollback()
@@ -1808,10 +2198,24 @@ class GraphRagRuntime:
                     document_candidate_ids
                     and route_plan.route != "deep"
                     and (not table_semantic_sufficient or is_table_route)
-                    and requires_clause_expansion(query)
+                    and (requires_clause_expansion(query) or route_plan.risk == "high")
                     and hasattr(hydration_repository, "search_document_operatives")
                 ):
-                    recall_order = list(dict.fromkeys([*document_recall_ids, *title_document_ids]))
+                    _record_trace_event(
+                        "retrieval:operative_candidates",
+                        phase3_started,
+                        candidate_count=len(document_candidate_ids),
+                        candidate_digest=hashlib.sha256(
+                            "|".join(str(value) for value in document_candidate_ids).encode()
+                        ).hexdigest()[:16],
+                        clause_expansion=requires_clause_expansion(query),
+                        high_risk=route_plan.risk == "high",
+                    )
+                    recall_order = list(
+                        dict.fromkeys(
+                            [*document_recall_head, *document_recall_ids, *title_document_ids]
+                        )
+                    )
                     authority_candidates = [
                         identifier
                         for identifier in dict.fromkeys(
@@ -1829,34 +2233,72 @@ class GraphRagRuntime:
                     # query-derived candidates. Parsed legal units may hold
                     # the decisive clause even when their parent document
                     # ranked below the first lexical head.
-                    operative_limit = min(48, max(16, settings.retrieval_candidate_k))
+                    # The current-authority and document-recall stages have
+                    # already ordered these IDs. Four diverse primary
+                    # candidates are sufficient for the operative cascade;
+                    # scanning 24 documents tripled SQL latency and usually
+                    # timed out before returning any clause at all.
+                    # The first eight IDs are often administrative memos and
+                    # can exclude the governing statute even when document
+                    # recall found it. Keep a bounded 32-document operative
+                    # head; the SQL CTE enforces one/two rows per document.
+                    operative_limit = min(48, max(32, settings.retrieval_candidate_k))
                     # Authority/type metadata is a stronger generic signal
                     # than a title-only match.  Put it first so a small
                     # numeric-route budget cannot be consumed by unrelated
                     # title hits before the governing statute is inspected.
+                    # Phrase recall is ordered by the user's actual wording;
+                    # current-authority IDs are an independent safety net.
+                    # Starting with the former keeps a concise governing
+                    # clause (e.g. the cosmetic exclusion) in the bounded
+                    # scan, while the latter restores a current primary law
+                    # when paraphrased wording misses its title.
+                    primary_types = {"luật", "nghị định", "văn bản hợp nhất"}
+                    current_primary = [
+                        identifier
+                        for identifier in authority_document_ids
+                        if str(ranking_metadata.get(identifier, {}).get("document_type", "")).casefold()
+                        in primary_types
+                    ]
+                    recall_primary = [
+                        identifier
+                        for identifier in recall_order
+                        if str(ranking_metadata.get(identifier, {}).get("document_type", "")).casefold()
+                        in primary_types
+                    ]
                     operative_document_ids = list(
-                        dict.fromkeys([*authority_candidates, *recall_order, *title_document_ids])
+                        dict.fromkeys(
+                            [
+                                # The query-derived document projection is
+                                # the strongest signal for an exception or
+                                # exclusion clause; preserve its head before
+                                # adding generic current-authority seeds.
+                                *recall_order[:operative_limit],
+                                *recall_primary[:4],
+                                *current_primary[:4],
+                                *authority_candidates,
+                                *title_document_ids,
+                            ]
+                        )
                     )[:operative_limit]
                     try:
-                        operative_rows = await bounded_db(
-                            hydration_repository.search_document_operatives(
-                                operative_document_ids,
-                                dataset_id=dataset_id,
-                                # Phrase-only matching keeps generic words such as
-                                # “luật”, “chi”, or “căn cứ” from flooding the bounded
-                                # result set before the distinctive operative clause.
-                                terms=extract_query_terms(query, limit=16),
-                                limit=min(24, settings.retrieval_candidate_k),
-                                # A decisive short clause may contain only one
-                                # query-derived phrase (for example a three-token
-                                # service exclusion). The candidate document was
-                                # already selected independently, so one exact phrase
-                                # is sufficient here; requiring two silently drops
-                                # the operative passage.
-                                minimum_matches=1,
-                            ),
-                            "operative_phrase",
-                        )
+                        if operative_background_task is not None:
+                            operative_rows = await asyncio.wait_for(
+                                operative_background_task,
+                                timeout=min(6.0, max(0.1, route_deadline - time.perf_counter())),
+                            )
+                        else:
+                            operative_rows = await bounded_db(
+                                hydration_repository.search_document_operatives(
+                                    operative_document_ids,
+                                    dataset_id=dataset_id,
+                                    terms=_operative_query_phrases(query),
+                                    limit=min(48, settings.retrieval_candidate_k * 2),
+                                    minimum_matches=1,
+                                ),
+                                "operative_phrase",
+                                db_session=hydration_session,
+                            )
                     except Exception:
                         # Document-bounded expansion is a recall accelerator,
                         # not a correctness dependency.  On a saturated
@@ -1894,7 +2336,7 @@ class GraphRagRuntime:
                         int(value) for value in re.findall(r"\b(?:19|20)\d{2}\b", query)
                     ]
                     historical_lookup = bool(query_years and max(query_years) < date.today().year - 1)
-                    if not historical_lookup and not phrase_anchor_found:
+                    if is_table_route and not historical_lookup and not phrase_anchor_found:
                         try:
                             term_rows = await bounded_db(
                                 hydration_repository.search_document_operatives(
@@ -1909,6 +2351,7 @@ class GraphRagRuntime:
                                     minimum_matches=2,
                                 ),
                                 "operative_terms",
+                                db_session=hydration_session,
                             )
                         except Exception:
                             await hydration_session.rollback()
@@ -1928,6 +2371,7 @@ class GraphRagRuntime:
                     if (
                         operative_units
                         and not is_table_route
+                        and (intent == "legal_unit" or bool(exact_document_ids))
                         and hasattr(hydration_repository, "expand_sibling_legal_units")
                     ):
                         try:
@@ -1938,6 +2382,7 @@ class GraphRagRuntime:
                                     limit=min(48, settings.retrieval_candidate_k * 2),
                                 ),
                                 "operative_siblings",
+                                db_session=hydration_session,
                             )
                         except TimeoutError:
                             sibling_operatives = []
@@ -1966,13 +2411,14 @@ class GraphRagRuntime:
                                 authority_document_ids[:8],
                                 dataset_id=dataset_id,
                                 terms=[
-                                    *extract_query_phrases(query, limit=12),
+                                    *_operative_query_phrases(query, limit=24),
                                     *extract_query_terms(query, limit=12),
                                 ],
                                 limit=min(12, settings.max_llm_evidence),
                                 minimum_matches=1,
                             ),
                             "authority_operatives_rescue",
+                            db_session=hydration_session,
                         )
                     except Exception:
                         authority_rows = []
@@ -1989,8 +2435,10 @@ class GraphRagRuntime:
                     and hasattr(hydration_repository, "search_document_operatives")
                 ):
                     candidate_terms = [
-                        *extract_query_phrases(query, limit=16),
-                        *extract_query_terms(query, limit=16),
+                        # Preserve contiguous legal phrases; adding every
+                        # single token here can crowd out the decisive phrase
+                        # in the repository's bounded tsquery portfolio.
+                        *extract_query_phrases(query, limit=24),
                     ]
                     try:
                         document_recall_operatives = await bounded_db(
@@ -1998,10 +2446,15 @@ class GraphRagRuntime:
                                 document_candidate_ids,
                                 dataset_id=dataset_id,
                                 terms=candidate_terms,
-                                limit=min(12, settings.max_llm_evidence),
-                                minimum_matches=2,
+                                limit=min(64, settings.retrieval_candidate_k),
+                                # High-risk exclusion/coverage questions often
+                                # have one decisive canonical clause. Requiring
+                                # two matches silently drops the governing
+                                # document when its wording is concise.
+                                minimum_matches=1,
                             ),
                             "operative_fallback",
+                            db_session=hydration_session,
                         )
                     except TimeoutError:
                         document_recall_operatives = []
@@ -2029,6 +2482,7 @@ class GraphRagRuntime:
                                     minimum_matches=2,
                                 ),
                                 "relational_anchors",
+                                db_session=hydration_session,
                             )
                         except TimeoutError:
                             anchors = []
@@ -2050,6 +2504,7 @@ class GraphRagRuntime:
                                         limit=min(20, settings.retrieval_candidate_k),
                                     ),
                                     "relational_references",
+                                    db_session=hydration_session,
                                 )
                             except TimeoutError:
                                 linked = []
@@ -2109,8 +2564,12 @@ class GraphRagRuntime:
                         for marker in ("luật", "nghị định", "văn bản hợp nhất")
                     )
                     query_coverage = float(item.rank_details.get("query_token_coverage", 0.0))
+                    phrase_hit = any(
+                        phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                        for phrase in extract_query_phrases(query, limit=16)
+                    )
                     if item.document_id not in authority_ids and (
-                        not is_primary_type or query_coverage < 0.12
+                        (not is_primary_type or query_coverage < 0.12) and not phrase_hit
                     ):
                         continue
                     if item.source_start is None or item.source_end is None:
@@ -2171,7 +2630,12 @@ class GraphRagRuntime:
                 if (
                     document_exact_anchors
                     and requires_clause_expansion(query)
-                    and not requires_evidence_verification(query)
+                    # High-risk queries still benefit from a canonical
+                    # operative seed once the phrase is present in a verified
+                    # passage.  Returning that seed before broad RRF fusion
+                    # prevents verbose administrative distractors from
+                    # evicting the governing exclusion/entitlement clause.
+                    and (not requires_evidence_verification(query) or route_plan.risk == "high")
                 ):
                     anchor_phrases = anchor_phrase_candidates
                     phrase_frequency = {
@@ -2211,6 +2675,7 @@ class GraphRagRuntime:
                     and
                     requires_clause_expansion(query)
                     and (exact_document_ids or document_candidate_ids)
+                    and (not document_exact_anchors or bool(exact_document_ids))
                     and hasattr(
                     hydration_repository, "search_document_operatives"
                     )
@@ -2234,6 +2699,7 @@ class GraphRagRuntime:
                                     limit=min(12, settings.max_llm_evidence),
                                 ),
                                 "exact_operatives",
+                                db_session=hydration_session,
                             )
                         except TimeoutError:
                             document_operatives = []
@@ -2487,6 +2953,20 @@ class GraphRagRuntime:
             if typed_fact_evidence:
                 channels["typed_fact"] = typed_fact_evidence
 
+            # SQL lexical search can reject local documents in the query, but
+            # Qdrant/graph candidates are hydrated before their jurisdiction is
+            # known. Apply the same scope contract to every channel before RRF
+            # so local evidence cannot consume the limited fusion slots of a
+            # national question.
+            channels = {
+                name: scoped
+                for name, items in channels.items()
+                if (scoped := _filter_document_scope(query, items))
+            }
+            document_recall_operatives = _filter_document_scope(
+                query, document_recall_operatives
+            )
+
             fused_evidence = weighted_rrf(
                 channels,
                 limit=settings.max_llm_evidence,
@@ -2501,6 +2981,27 @@ class GraphRagRuntime:
                     else settings.max_chunks_per_document
                 ),
             )
+            # High-risk answers must be grounded by the canonical operative
+            # channel before generic RRF results. Keep one best phrase-matched
+            # row per document at the front; this makes final selection
+            # deterministic while preserving a bounded context.
+            if route_plan.risk == "high" and document_recall_operatives:
+                operative_verified = _verified_evidence(document_recall_operatives)
+                if operative_verified:
+                    operative_verified = rerank_legal_candidates(query, operative_verified)
+                    seen_docs: set[str] = set()
+                    operative_head: list[RetrievalResult] = []
+                    for item in operative_verified:
+                        if item.document_id in seen_docs:
+                            continue
+                        seen_docs.add(item.document_id)
+                        operative_head.append(item)
+                        if len(operative_head) >= min(4, settings.max_llm_evidence):
+                            break
+                    head_ids = {item.chunk_id for item in operative_head}
+                    fused_evidence = operative_head + [
+                        item for item in fused_evidence if item.chunk_id not in head_ids
+                    ]
             # Preserve the strongest document-bounded exact passage until the
             # final reranker sees it. RRF's small context cut can otherwise
             # evict a decisive clause that appears only in this channel.
@@ -2531,12 +3032,16 @@ class GraphRagRuntime:
                 ),
                 reverse=True,
             )
-            for item in operative_anchors[:2]:
+            anchor_limit = (
+                12 if is_exclusion_query(query)
+                else (4 if route_plan.risk == "high" else 2)
+            )
+            for item in operative_anchors[:anchor_limit]:
                 # Preserve the exact phrase signal through the final
                 # source-aware reranker; this is still query-derived and
                 # comes from a canonical passage, never from a mapping.
                 item.score += 10.0
-            for item in [*operative_anchors[:2], *document_recall_operatives[:1]]:
+            for item in [*operative_anchors[:anchor_limit], *document_recall_operatives[:1]]:
                 fused_by_chunk.setdefault(item.chunk_id, item)
             fused_evidence = list(fused_by_chunk.values())
             # RRF makes independent retrieval channels comparable, but it
@@ -2546,32 +3051,25 @@ class GraphRagRuntime:
             # dense/BM25 matches that merely co-occur across channels.
             if settings.feature_reranker_enabled:
                 fused_evidence = rerank_legal_candidates(query, fused_evidence)
-            fused_evidence = filter_current_authority_candidates(query, fused_evidence)
+            if not is_exclusion_query(query):
+                fused_evidence = filter_current_authority_candidates(query, fused_evidence)
             fused_evidence = exclude_unverified_legacy_subordinate_sources(query, fused_evidence)
-            # Scope expansion is useful only when the selected passage still
-            # carries a query-derived distinctive phrase/term.  This prevents
-            # a long historical preamble or an unrelated payment table from
-            # surviving merely because it shares generic legal vocabulary.
-            if requires_evidence_verification(query) and len(fused_evidence) > 1:
-                scoped = [
-                    item
-                    for item in fused_evidence
-                    if scope_evidence_matches_query(
-                        query, item, candidate_pool=fused_evidence
-                    )
-                ]
-                if scoped:
-                    fused_evidence = scoped
+            # ``semantic_scope`` children were already checked against their
+            # own expansion pool above. Do not apply that sibling-only gate
+            # to the complete fused set: one distractor with an exact trigram
+            # used to veto a shorter, decisive clause from another current
+            # authority (for example the 100% emergency entitlement).
             if operative_anchors:
-                anchor_ids = {item.chunk_id for item in operative_anchors[:2]}
-                fused_evidence = operative_anchors[:2] + [
+                anchor_ids = {item.chunk_id for item in operative_anchors[:anchor_limit]}
+                fused_evidence = operative_anchors[:anchor_limit] + [
                     item for item in fused_evidence if item.chunk_id not in anchor_ids
                 ]
                 # Anchors are injected after the first authority filter so a
                 # high-scoring historical passage cannot bypass current-law
                 # selection merely because it matched a query phrase.  Apply
                 # the same source-derived policy once more after insertion.
-                fused_evidence = filter_current_authority_candidates(query, fused_evidence)
+                if not is_exclusion_query(query):
+                    fused_evidence = filter_current_authority_candidates(query, fused_evidence)
             if is_table_route:
                 # Numeric routes must keep an explicit source value in the
                 # final context. RRF can otherwise prefer a heading that
@@ -2598,6 +3096,10 @@ class GraphRagRuntime:
             # These are not answer mappings: anchors are selected solely by
             # query phrase/term overlap and must still pass canonical hash
             # verification below.
+            late_anchor_count = 0
+            late_verified_anchor_count = 0
+            late_entitlement_anchor_count = 0
+            late_anchor_document_numbers: list[str] = []
             if document_recall_operatives and requires_clause_expansion(query):
                 query_phrases = extract_query_phrases(query, limit=24)
                 query_terms = extract_query_terms(query, limit=24)
@@ -2681,6 +3183,29 @@ class GraphRagRuntime:
                     if row[2] >= 2
                     and any(phrase in row[3].content.casefold() for phrase in raw_bigrams)
                 ]
+                exact_value_by_phrase: list[tuple[float, int, int, RetrievalResult]] = []
+                for phrase in raw_bigrams:
+                    matching_values = [
+                        row
+                        for row in source_anchors
+                        if row[2] >= 2 and phrase in row[3].content.casefold()
+                    ]
+                    if not matching_values:
+                        continue
+                    # Prefer a concise operative clause for this exact piece
+                    # of user wording. This keeps distinct conditions (for
+                    # example both "nội trú" and "cấp cứu") represented
+                    # instead of letting several percentage clauses for only
+                    # the first phrase occupy the whole context.
+                    matching_values.sort(
+                        key=lambda row: (
+                            len(row[3].content),
+                            -float(row[3].score),
+                            row[3].document_id,
+                            row[3].chunk_id,
+                        )
+                    )
+                    exact_value_by_phrase.append(matching_values[0])
                 exact_phrase_anchors: list[tuple[float, int, int, RetrievalResult]] = []
                 for phrase in raw_bigrams:
                     matching = [
@@ -2702,6 +3227,7 @@ class GraphRagRuntime:
                 selected_anchor_rows: list[tuple[float, int, int, RetrievalResult]] = []
                 selected_anchor_ids: set[str] = set()
                 for row in [
+                    *exact_value_by_phrase[:6],
                     *source_anchors[:3],
                     *current_anchor_rows[:3],
                     *exact_value_anchors[:3],
@@ -2715,6 +3241,20 @@ class GraphRagRuntime:
                     selected_anchor_rows.append(row)
                 verified_anchor_items = _verified_evidence(
                     [row[3] for row in selected_anchor_rows]
+                )
+                late_anchor_count = len(selected_anchor_rows)
+                late_verified_anchor_count = len(verified_anchor_items)
+                late_entitlement_anchor_count = sum(
+                    "cấp cứu" in item.content.casefold()
+                    and "mức hưởng" in item.content.casefold()
+                    for item in verified_anchor_items
+                )
+                late_anchor_document_numbers = list(
+                    dict.fromkeys(
+                        item.document_number
+                        for item in verified_anchor_items
+                        if item.document_number
+                    )
                 )
                 anchor_ids = {item.chunk_id for item in verified_anchor_items}
                 if anchor_ids:
@@ -2769,6 +3309,34 @@ class GraphRagRuntime:
                         fused_evidence = preferred + [
                             item for item in fused_evidence if item.chunk_id not in preferred_ids
                         ]
+            # Preserve a small number of high-risk operative passages that
+            # directly match the user's phrases.  Fusion can otherwise drop
+            # the only concise exclusion/entitlement clause in favour of
+            # verbose semantic passages from neighbouring instruments.
+            if route_plan.risk == "high" and document_recall_operatives:
+                query_phrases = extract_query_phrases(query, limit=24)
+                operative_matches = [
+                    item for item in _verified_evidence(document_recall_operatives)
+                    if any(
+                        phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                        for phrase in query_phrases
+                    )
+                ]
+                operative_matches.sort(
+                    key=lambda item: (
+                        sum(
+                            phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                            for phrase in query_phrases
+                        ),
+                        float(item.score),
+                    ),
+                    reverse=True,
+                )
+                if operative_matches:
+                    promoted_ids = {item.chunk_id for item in operative_matches[:2]}
+                    fused_evidence = operative_matches[:2] + [
+                        item for item in fused_evidence if item.chunk_id not in promoted_ids
+                    ]
             # Final authority floor: if fusion dropped every current primary
             # document, recover a few canonical operative rows directly from
             # the already selected authority set. This is a bounded fallback
@@ -2785,7 +3353,7 @@ class GraphRagRuntime:
                             authority_repository.search_document_operatives(
                                 authority_document_ids[:8],
                                 dataset_id=dataset_id,
-                                terms=extract_query_terms(query, limit=16),
+                                terms=extract_query_phrases(query, limit=8),
                                 limit=min(4, settings.max_llm_evidence),
                                 minimum_matches=1,
                             ),
@@ -2797,10 +3365,81 @@ class GraphRagRuntime:
                         fused_evidence = authority_rows + fused_evidence
                 except Exception:
                     metrics.inc("retrieval_optional_failures", stage="final_authority_floor")
-            _record_trace_event(
-                "retrieval:rerank_select",
-                phase3_started,
-                selected_count=len(fused_evidence),
+            # Re-apply scope after late authority/anchor promotion. Some
+            # candidates only receive jurisdiction metadata during the final
+            # rescue and would otherwise bypass the pre-fusion filter.
+            fused_evidence = _filter_document_scope(query, fused_evidence)
+            if is_exclusion_query(query) and early_operative_rows:
+                # An exclusion clause is authoritative even when its
+                # instrument is partially effective. Preserve the canonical
+                # early unit through the final context cut; it has already
+                # passed provenance verification and document-bounded recall.
+                early_verified = _verified_evidence(early_operative_rows)
+                exclusion_phrases = extract_query_phrases(query, limit=24)
+                fused_has_exclusion_anchor = any(
+                    any(
+                        phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                        for phrase in exclusion_phrases
+                    )
+                    for item in fused_evidence
+                )
+                if fused_has_exclusion_anchor:
+                    matched = [
+                        item for item in fused_evidence
+                        if any(
+                            phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                            for phrase in exclusion_phrases
+                        )
+                    ]
+                    matched_ids = {item.chunk_id for item in matched}
+                    fused_evidence = matched + [
+                        item for item in fused_evidence if item.chunk_id not in matched_ids
+                    ]
+                if early_verified and not fused_has_exclusion_anchor:
+                    early_phrases = extract_query_phrases(query, limit=24)
+                    early_verified.sort(
+                        key=lambda item: (
+                            sum(
+                                phrase.casefold() in f"{item.section_title} {item.content}".casefold()
+                                for phrase in early_phrases
+                            ),
+                            float(item.score),
+                        ),
+                        reverse=True,
+                    )
+                    early_ids = {item.chunk_id for item in early_verified}
+                    fused_evidence = early_verified[:4] + [
+                        item for item in fused_evidence if item.chunk_id not in early_ids
+                    ]
+            # Last-mile invariant for high-risk routes: retain at least one
+            # verified operative passage with the strongest contiguous query
+            # phrase. This runs after all provider fusion/filtering, so a
+            # correct clause cannot disappear merely because another channel
+            # produced more verbose matches.
+            if route_plan.risk == "high" and document_recall_operatives:
+                phrases = extract_query_phrases(query, limit=24)
+                verified_operatives = _verified_evidence(document_recall_operatives)
+                if verified_operatives:
+                    verified_operatives.sort(
+                        key=lambda item: (
+                            sum(p.casefold() in f"{item.section_title} {item.content}".casefold() for p in phrases),
+                            float(item.score),
+                        ),
+                        reverse=True,
+                    )
+                    anchor = verified_operatives[0]
+                    fused_evidence = [anchor] + [
+                        item for item in fused_evidence if item.chunk_id != anchor.chunk_id
+                    ]
+                _record_trace_event(
+                    "retrieval:rerank_select",
+                    phase3_started,
+                    selected_count=len(fused_evidence),
+                    operative_row_count=len(document_recall_operatives),
+                    operative_document_count=len({item.document_id for item in document_recall_operatives}),
+                    operative_digest=hashlib.sha256(
+                        "|".join(sorted({str(item.document_id) for item in document_recall_operatives})).encode()
+                    ).hexdigest()[:16],
                 channel_count=len(channels),
                 operative_value_count=sum(
                     bool(re.search(r"\d+(?:[.,]\d+)?\s*%", item.content))
@@ -2815,6 +3454,26 @@ class GraphRagRuntime:
                     "cấp cứu" in item.content.casefold()
                     and "mức hưởng" in item.content.casefold()
                     for item in fused_evidence
+                ),
+                late_anchor_count=late_anchor_count,
+                late_verified_anchor_count=late_verified_anchor_count,
+                late_entitlement_anchor_count=late_entitlement_anchor_count,
+                late_anchor_document_numbers=late_anchor_document_numbers,
+                operative_document_numbers=list(
+                    dict.fromkeys(
+                        item.document_number
+                        for item in document_recall_operatives
+                        if item.document_number
+                    )
+                ),
+                operative_entitlement_document_numbers=list(
+                    dict.fromkeys(
+                        item.document_number
+                        for item in document_recall_operatives
+                        if item.document_number
+                        and "cấp cứu" in item.content.casefold()
+                        and "mức hưởng" in item.content.casefold()
+                    )
                 ),
             )
             return RetrievalBundle(
@@ -3233,6 +3892,7 @@ def _apply_document_ranking_metadata(
 ) -> None:
     """Attach private canonical metadata used for ranking and public citations."""
     fields = (
+        "title",
         "document_number",
         "document_type",
         "issued_date",

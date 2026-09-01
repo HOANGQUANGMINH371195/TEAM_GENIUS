@@ -104,7 +104,7 @@ def requires_clause_expansion(query: str) -> bool:
     normalized = " ".join(query.casefold().split())
     return bool(
         re.search(
-            r"\b(?:bao\s+nhiêu|bao\s+lâu|khi\s+nào|từ\s+khi\s+nào|trường\s+hợp\s+nào|điều\s+kiện\s+nào|quyền\s+lợi\s+gì|mức\s+hưởng|được\s+hưởng|cách\s+nào|được\s+tính|có\s+được)\b|\b(?:thay\s+đổi|được\s+tính)\s+(?:như\s+)?thế\s+nào\b|\bcó\b[\s\S]{0,100}\bkhông\b|%",
+            r"\b(?:bao\s+nhiêu|bao\s+lâu|khi\s+nào|từ\s+khi\s+nào|trường\s+hợp\s+nào|điều\s+kiện\s+nào|quyền\s+lợi\s+gì|mức\s+hưởng|được\s+hưởng|cách\s+nào|được\s+tính|có\s+được)\b|\b(?:thay\s+đổi|được\s+tính)\s+(?:như\s+)?thế\s+nào\b|\bcó\b[\s\S]{0,100}\bkhông\b|\b(?:không\s+(?:thanh\s+toán|được\s+hưởng|thuộc\s+phạm\s+vi))\b|%",
             normalized,
         )
     )
@@ -117,12 +117,33 @@ def extract_query_phrases(query: str, *, limit: int = 6) -> list[str]:
     tokens from the user's own wording.  Longer phrases rank ahead because
     they are normally more selective in a legal corpus.
     """
-    tokens = [
-        token.casefold()
-        for token in _RETRIEVAL_TOKEN.findall(query)
-        if len(token) > 1 and token.casefold() not in _RETRIEVAL_STOPWORDS
-    ]
-    phrases = [" ".join(tokens[index : index + width]) for width in (3, 2) for index in range(len(tokens) - width + 1)]
+    # Stopwords are phrase boundaries, not merely removable tokens. Removing
+    # them and then joining the survivors created expressions that the user
+    # never wrote (for example joining facts across “không có”), which made
+    # legal-unit search both slower and less precise.
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for raw_token in _RETRIEVAL_TOKEN.findall(query):
+        token = raw_token.casefold()
+        if (len(token) <= 1 and not token.isdigit()) or token in _RETRIEVAL_STOPWORDS:
+            if current:
+                segments.append(current)
+                current = []
+            continue
+        current.append(token)
+    if current:
+        segments.append(current)
+
+    phrases: list[str] = []
+    for width in (4, 3, 2):
+        for tokens in segments:
+            # Vietnamese noun phrases usually become more selective toward
+            # their head at the end. Enumerating windows right-to-left keeps
+            # “dịch vụ thẩm mỹ” ahead of the generic “chi phí dịch vụ”.
+            phrases.extend(
+                " ".join(tokens[index : index + width])
+                for index in range(len(tokens) - width, -1, -1)
+            )
     return list(dict.fromkeys(phrases))[: max(0, limit)]
 
 
@@ -475,6 +496,21 @@ def requires_evidence_verification(query: str) -> bool:
     ))
 
 
+def is_exclusion_query(query: str) -> bool:
+    """Detect a user asking what is excluded/not payable."""
+    lowered = query.casefold()
+    return bool(
+        re.search(
+            r"\b(?:không\s+(?:thanh\s+toán|được\s+hưởng|thuộc\s+phạm\s+vi)|ngoài\s+phạm\s+vi|loại\s+trừ)\b",
+            lowered,
+        )
+        or (
+            re.search(r"\bcó\b[\s\S]{0,100}\bkhông\b", lowered)
+            and re.search(r"\b(?:thuộc|phạm\s+vi|chi\s+trả|thanh\s+toán|hưởng)\b", lowered)
+        )
+    )
+
+
 def semantic_document_focus(
     hits: Sequence[RetrievalResult], *, documents: int = 1, chunks_per_document: int = 3
 ) -> list[RetrievalResult]:
@@ -541,6 +577,14 @@ def rerank_legal_candidates(
         marker in query.casefold()
         for marker in ("trước ngày", "tại ngày", "vào năm", "thời điểm đó", "lịch sử")
     )
+    # Negative coverage/exclusion questions require the statutory exclusion
+    # clause even when the source metadata says the instrument is only
+    # partially effective. Do not let that metadata penalty erase the only
+    # passage that states what the fund does not cover.
+    exclusion_query = bool(re.search(
+        r"\b(?:không|ngoài|loại trừ|không thuộc|không được)\b[^.?!]{0,100}\b(?:chi trả|thanh toán|hưởng|phạm vi)\b",
+        query.casefold(),
+    ))
     ranked: list[RetrievalResult] = []
     query_terms = set(unique_tokens)
     triple_frequency: defaultdict[tuple[str, str, str], int] = defaultdict(int)
@@ -635,6 +679,7 @@ def rerank_legal_candidates(
             item.legal_status_verified
             and not historical_query
             and any(marker in known_status for marker in ("hết hiệu lực", "bãi bỏ", "thay thế"))
+            and not exclusion_query
         ):
             status_penalty = -0.45
         year_values = [
@@ -682,13 +727,16 @@ def rerank_legal_candidates(
         title = item.title.strip().casefold()
         document_type = item.document_type.strip().casefold()
         if "luật" in document_type or title.startswith(("luật ", "bộ luật ")):
-            authority_bonus = 0.35
+            # Primary statutes must remain visible when an administrative
+            # memo happens to repeat more query tokens. The weight is a
+            # generic source-authority feature, not a document mapping.
+            authority_bonus = 0.80
         elif "nghị định" in document_type or title.startswith("nghị định"):
-            authority_bonus = 0.25
+            authority_bonus = 0.50
         elif "văn bản hợp nhất" in authority:
-            authority_bonus = 0.20
+            authority_bonus = 0.40
         elif any(value in authority for value in ("thông tư", "nghị quyết")):
-            authority_bonus = 0.12
+            authority_bonus = 0.20
         elif "quyết định" in authority:
             authority_bonus = 0.05
         rerank_score = (

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
@@ -187,9 +188,17 @@ async def trace_span(
 def flush_langfuse() -> None:
     if not _configured and not tracing_enabled():
         return
-    try:
-        from langfuse import get_client
+    def _flush() -> None:
+        try:
+            from langfuse import get_client
+            get_client().flush()
+        except Exception:
+            logger.debug("Langfuse flush skipped", exc_info=True)
 
-        get_client().flush()
-    except Exception:
-        logger.debug("Langfuse flush skipped", exc_info=True)
+    # Never hold application shutdown (or a short-lived benchmark process)
+    # on a remote telemetry exporter. The SDK may retry a dead endpoint for
+    # several seconds; a daemon thread preserves best-effort delivery without
+    # adding latency to the user request.
+    worker = threading.Thread(target=_flush, name="langfuse-flush", daemon=True)
+    worker.start()
+    worker.join(timeout=0.05)

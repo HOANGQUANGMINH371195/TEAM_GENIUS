@@ -22,6 +22,7 @@ from src.services.request_router import classify_request, input_guardrail
 from src.services.retrieval import (
     decompose_query,
     extract_query_terms,
+    is_exclusion_query,
     no_answer_response,
     requires_evidence_verification,
     rerank_legal_candidates,
@@ -150,6 +151,7 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
     started = time.perf_counter()
     subqueries = decompose_query(query)
     route_override = (state.get("metadata") or {}).get("route_plan")
+    high_risk_route = str((route_override or {}).get("risk") or "").casefold() == "high"
     # Adaptive retrieval preserves the complete user question and pairs it
     # with a clause-shaped rewrite. Running deterministic decomposition first
     # used to discard cross-condition facts (e.g. “mức đóng *và* hỗ trợ”),
@@ -162,7 +164,7 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
         # rewrite is retrieval-only and the final source-aware reranker still
         # audits both views.  Long questions retain the single-pass path in
         # ``retrieve_bundle_adaptive`` to protect latency.
-        if get_settings().query_rewrite_enabled:
+        if get_settings().query_rewrite_enabled and not high_risk_route:
             bundle = await runtime.retrieve_bundle_adaptive(
                 query, route_plan_override=route_override
             )
@@ -822,6 +824,7 @@ def _select_supported_citations(
     response_triples = set(
         zip(response_sequence, response_sequence[1:], response_sequence[2:])
     )
+    query_tokens = set(_CLAIM_TOKEN.findall(query.casefold()))
     scored: list[tuple[float, int, Citation]] = []
     for index, citation in enumerate(citations):
         source = " ".join(
@@ -839,8 +842,28 @@ def _select_supported_citations(
         # two answer tokens removes neighbouring retrieval noise while keeping
         # extractive source responses citeable.
         triple_overlap = len(response_triples & source_triples)
-        if triple_overlap or answer_overlap >= 4:
-            score = float(3 * triple_overlap + answer_overlap)
+        query_overlap = len(query_tokens & source_tokens)
+        if (
+            triple_overlap
+            or answer_overlap >= 4
+            or (is_exclusion_query(query) and query_overlap >= 2)
+            or (
+                is_exclusion_query(query)
+                and citation.evidence_kind == "legal_unit"
+                and query_overlap >= 1
+            )
+            or (
+                requires_evidence_verification(query)
+                and citation.evidence_kind == "legal_unit"
+                and query_overlap >= 2
+            )
+        ):
+            score = float(
+                3 * triple_overlap
+                + answer_overlap
+                + (query_overlap * 2.0 if is_exclusion_query(query) else 0)
+                + (2.0 if is_exclusion_query(query) and citation.evidence_kind == "legal_unit" else 0)
+            )
             scored.append((score, index, citation))
     if not scored:
         return []

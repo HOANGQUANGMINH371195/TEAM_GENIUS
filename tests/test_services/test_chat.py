@@ -15,8 +15,10 @@ from src.services.chat import (
     RetrievalBundle,
     _answer_cache_allowed,
     _apply_document_ranking_metadata,
+    _filter_document_scope,
     _format_metadata_answer,
     _limit_evidence,
+    _query_allows_local_documents,
     render_grounded_answer,
 )
 
@@ -37,6 +39,33 @@ def test_limit_evidence_uses_internal_budget():
     assert len(selected) == 10
     assert selected[0].chunk_id == "chunk-11"
     assert selected[-1].chunk_id == "chunk-2"
+
+
+def test_clinical_tuyen_tinh_does_not_enable_local_law_scope():
+    assert not _query_allows_local_documents(
+        "Khám ngoại trú trái tuyến ở bệnh viện tuyến tỉnh được hưởng bao nhiêu?"
+    )
+    assert _query_allows_local_documents("Mức hỗ trợ BHYT tại tỉnh Quảng Ninh là bao nhiêu?")
+
+
+def test_local_semantic_evidence_is_removed_from_national_question():
+    national = RetrievalResult(
+        chunk_id="national",
+        document_id="law",
+        title="Luật Bảo hiểm y tế",
+        content="Quy định chung.",
+        jurisdiction="Trung ương",
+    )
+    local = RetrievalResult(
+        chunk_id="local",
+        document_id="resolution",
+        title="Nghị quyết 01/2026/NQ-HĐND",
+        content="Mức hỗ trợ tại địa phương.",
+        jurisdiction="Địa phương",
+    )
+
+    assert _filter_document_scope("Quyền lợi BHYT là gì?", [local, national]) == [national]
+    assert _filter_document_scope("Mức hỗ trợ BHYT tại tỉnh Quảng Ninh?", [local]) == [local]
 
 
 def test_lexical_passage_metadata_is_available_for_public_citations():
