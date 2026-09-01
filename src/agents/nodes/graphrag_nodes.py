@@ -1081,6 +1081,30 @@ async def guardrail_node(state: AgentState) -> dict:
     }
     if evidence and not deterministic_response:
         citations = [citation for citation in citations if citation.chunk_id in supported_ids]
+    # The support filter above is claim-oriented and can remove a valid
+    # authority citation when the model paraphrases rather than quotes the
+    # operative clause. Re-attach one verified, public-numbered source after
+    # that filter so high-risk answers never lose their governing authority.
+    if requires_evidence_verification(state.get("query", "")) and evidence:
+        cited_ids = {citation.chunk_id for citation in citations}
+        authority_evidence = [
+            item for item in evidence
+            if item.chunk_id not in cited_ids
+            and item.document_number
+            and item.source_start is not None
+            and item.source_end is not None
+        ]
+        if authority_evidence:
+            authority_evidence.sort(
+                key=lambda item: (
+                    bool(item.legal_status_verified),
+                    any(marker in f"{item.document_type} {item.title}".casefold()
+                        for marker in ("luật", "nghị định", "văn bản hợp nhất")),
+                    float(item.score),
+                ),
+                reverse=True,
+            )
+            citations.extend(_citations_from_evidence(authority_evidence[:1], preserve_order=True))
     # High-risk legal answers must retain at least one source citation even
     # when the claim auditor cannot align every generated sentence to a
     # citation.  Select dynamically from the verified evidence (authority
