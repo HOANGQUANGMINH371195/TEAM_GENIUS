@@ -2166,11 +2166,9 @@ class GraphRagRuntime:
                     )
                     primary_document_ids = list(
                         dict.fromkeys(
-                            item.document_id
-                            for item in primary_seed
-                            if item.document_id
+                            [*(item.document_id for item in primary_seed if item.document_id), *document_candidate_ids]
                         )
-                    )[: min(12, max(2, settings.retrieval_candidate_k // 4))]
+                    )[: min(24, max(8, settings.retrieval_candidate_k // 2))]
                     query_phrases = extract_query_phrases(query)
                     if primary_document_ids and query_phrases:
                         try:
@@ -2200,6 +2198,18 @@ class GraphRagRuntime:
                                 "document_parent_relevance": inherited,
                             }
                         document_operatives.sort(key=lambda item: (-item.score, item.document_id, item.chunk_id))
+                        # Operative rescue runs after the initial authority
+                        # pool construction; promote its canonical passages
+                        # into the authority channel before final fusion.
+                        for item in document_operatives:
+                            if item.source_start is None or item.source_end is None:
+                                continue
+                            if item.document_id in seen_authority_documents:
+                                continue
+                            seen_authority_documents.add(item.document_id)
+                            authority_anchor_results.append(item)
+                            if len(authority_anchor_results) >= min(8, settings.max_llm_evidence):
+                                break
 
             _record_trace_event(
                 "postgres:hydrate_rank",
