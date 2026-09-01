@@ -192,6 +192,10 @@ class GraphRagRuntime:
         self._embedding_inflight: dict[str, asyncio.Task] = {}
         self._embedding_lock = asyncio.Lock()
         self._provider_semaphore = asyncio.Semaphore(max(1, get_settings().provider_concurrency))
+        # Supabase free-tier pools are small; serialise only the correctness-
+        # critical authority/operative scans while leaving embeddings and
+        # Qdrant concurrent. This prevents cross-request pool starvation.
+        self._high_risk_sql_semaphore = asyncio.Semaphore(1)
         self._embedding_breaker = AsyncCircuitBreaker(
             failure_threshold=get_settings().provider_circuit_failure_threshold,
             cooldown_seconds=get_settings().provider_circuit_cooldown_seconds,
@@ -1416,18 +1420,13 @@ class GraphRagRuntime:
                     # candidate sets.  This remains query-derived and costs a
                     # single indexed, bounded lookup.
                     try:
-                        current_authority_ids = await asyncio.wait_for(
-                            authority_recall_task,
-                            # This indexed authority lookup is the safety
-                            # floor for high-risk questions. Under concurrent
-                            # Supabase load it can take slightly longer than
-                            # one second; abandoning it silently reintroduces
-                            # administrative-document drift. Reserve up to
-                            # 2.5s while still respecting the route deadline.
-                            timeout=min(
-                                2.5, max(0.1, route_deadline - time.perf_counter())
-                            ),
-                        )
+                        async with self._high_risk_sql_semaphore:
+                            current_authority_ids = await asyncio.wait_for(
+                                authority_recall_task,
+                                timeout=min(
+                                    2.5, max(0.1, route_deadline - time.perf_counter())
+                                ),
+                            )
                     except Exception:
                         if authority_recall_task is not None and not authority_recall_task.done():
                             authority_recall_task.cancel()
@@ -1894,17 +1893,18 @@ class GraphRagRuntime:
                         # session.  This avoids pool starvation on the free
                         # managed Postgres tier, where a second session can
                         # wait behind hydration and never return a clause.
-                        document_recall_operatives = await bounded_db(
-                            hydration_repository.search_document_operatives(
-                                document_candidate_ids[:64],
-                                dataset_id=dataset_id,
-                                terms=list(dict.fromkeys(_operative_query_phrases(query, limit=2))),
-                                limit=48,
-                                minimum_matches=1,
-                            ),
-                            "operative_pre_hydrate",
-                            db_session=hydration_session,
-                        )
+                        async with self._high_risk_sql_semaphore:
+                            document_recall_operatives = await bounded_db(
+                                hydration_repository.search_document_operatives(
+                                    document_candidate_ids[:64],
+                                    dataset_id=dataset_id,
+                                    terms=list(dict.fromkeys(_operative_query_phrases(query, limit=2))),
+                                    limit=48,
+                                    minimum_matches=1,
+                                ),
+                                "operative_pre_hydrate",
+                                db_session=hydration_session,
+                            )
                     except (TimeoutError, asyncio.CancelledError):
                         document_recall_operatives = []
                 if route_plan.route == "deep":
@@ -1915,7 +1915,10 @@ class GraphRagRuntime:
                     try:
                         hydrated = await bounded_db(
                             hydration_repository.hydrate_chunks(
-                                [item.chunk_id for item in vector_hits], dataset_id=dataset_id
+                                [item.chunk_id for item in (
+                                    vector_hits[:16] if route_plan.risk == "high" else vector_hits
+                                )],
+                                dataset_id=dataset_id,
                             ),
                             "hydrate",
                             db_session=hydration_session,
@@ -1939,7 +1942,9 @@ class GraphRagRuntime:
                         try:
                             hydrated = await bounded_db(
                                 hydration_repository.hydrate_chunks(
-                                    [item.chunk_id for item in vector_hits],
+                                    [item.chunk_id for item in (
+                                        vector_hits[:16] if route_plan.risk == "high" else vector_hits
+                                    )],
                                     dataset_id=dataset_id,
                                 ),
                                 "hydrate",
@@ -2359,8 +2364,16 @@ class GraphRagRuntime:
                                 # floor even when ranking metadata is cold;
                                 # keep them before the broad recall head so
                                 # the governing law cannot be truncated away.
-                                *authority_document_ids[:16],
-                                *phrase_seed_ids,
+                                *(
+                                    phrase_seed_ids[:32]
+                                    if is_exclusion_query(query)
+                                    else authority_document_ids[:16]
+                                ),
+                                *(
+                                    authority_document_ids[:16]
+                                    if is_exclusion_query(query)
+                                    else phrase_seed_ids[:32]
+                                ),
                                 # The query-derived document projection is
                                 # the strongest signal for an exception or
                                 # exclusion clause; preserve its head before
@@ -2506,13 +2519,13 @@ class GraphRagRuntime:
                     try:
                         authority_rows = await bounded_db(
                             hydration_repository.search_document_operatives(
-                                authority_document_ids[:8],
+                                authority_document_ids[:16],
                                 dataset_id=dataset_id,
-                                terms=[
-                                    *_operative_query_phrases(query, limit=24),
-                                    *extract_query_terms(query, limit=12),
-                                ],
-                                limit=min(12, settings.max_llm_evidence),
+                                terms=list(dict.fromkeys([
+                                    *extract_query_phrases(query, limit=12),
+                                    " ".join(extract_query_terms(query, limit=8)[:2]),
+                                ])),
+                                limit=min(24, settings.max_llm_evidence * 2),
                                 minimum_matches=1,
                             ),
                             "authority_operatives_rescue",
