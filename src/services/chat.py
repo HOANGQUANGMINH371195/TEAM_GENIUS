@@ -1352,12 +1352,19 @@ class GraphRagRuntime:
                     return []
 
                 async def isolated_authority_recall() -> list[str]:
-                    return await self._current_authority_ids(
-                        repository,
-                        query=query,
-                        dataset_id=dataset_id,
-                        limit=min(16, max(16, settings.retrieval_candidate_k)),
-                    )
+                    # This task can outlive the phase-1 session while the
+                    # document probe is awaited.  Never retain that session
+                    # across the context manager boundary: under load it
+                    # produced empty authority seeds and leaked a pooled
+                    # asyncpg connection.  Give the short lookup its own
+                    # lifecycle instead.
+                    async with session_scope() as authority_session:
+                        return await self._current_authority_ids(
+                            GraphRepository(authority_session),
+                            query=query,
+                            dataset_id=dataset_id,
+                            limit=min(16, max(16, settings.retrieval_candidate_k)),
+                        )
 
                 document_recall_task = (
                     asyncio.create_task(isolated_document_recall())
