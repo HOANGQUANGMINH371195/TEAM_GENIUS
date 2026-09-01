@@ -1341,8 +1341,20 @@ class GraphRagRuntime:
                     # mỹ" or "cấp cứu") is even considered.
                     phrases = extract_query_phrases(query, limit=8)
                     if phrases:
+                        query_terms = extract_query_terms(query, limit=16)
+                        trigram_candidates = [
+                            " ".join(query_terms[index : index + 3])
+                            for index in range(max(0, len(query_terms) - 2))
+                        ]
+                        focused_phrase = max(
+                            [*phrases, *trigram_candidates],
+                            key=lambda value: (
+                                sum(token not in _RETRIEVAL_STOPWORDS for token in value.split()),
+                                len(value.split()),
+                            ),
+                        )
                         phrase_ids = await repository.search_lexical_document_ids(
-                            phrases[0],
+                            focused_phrase,
                             dataset_id=dataset_id,
                             limit=min(64, max(32, settings.retrieval_candidate_k)),
                             include_local=_query_allows_local_documents(query),
