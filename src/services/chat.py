@@ -3497,10 +3497,11 @@ class GraphRagRuntime:
                         hydration_repository.search_document_operatives(
                             authority_document_ids[:16],
                             dataset_id=dataset_id,
-                            terms=list(dict.fromkeys([
-                                *extract_query_phrases(query, limit=8),
-                                " ".join(extract_query_terms(query, limit=8)[:2]),
-                            ])),
+                                terms=list(dict.fromkeys([
+                                    *extract_query_phrases(query, limit=8),
+                                    " ".join(extract_query_terms(query, limit=8)[:2]),
+                                    *extract_query_terms(query, limit=16),
+                                ])),
                             # Keep enough rows for every authority candidate;
                             # the repository enforces per-document diversity
                             # and the public context is capped later.
