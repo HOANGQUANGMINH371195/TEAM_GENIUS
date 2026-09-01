@@ -1449,11 +1449,12 @@ class GraphRagRuntime:
                                     5.0, max(0.1, route_deadline - time.perf_counter())
                                 ),
                             )
-                    except Exception:
+                    except Exception as exc:
                         if authority_recall_task is not None and not authority_recall_task.done():
                             authority_recall_task.cancel()
                             await asyncio.gather(authority_recall_task, return_exceptions=True)
                         current_authority_ids = []
+                        logger.warning("Current authority recall skipped (%s)", type(exc).__name__)
                     authority_document_ids = list(current_authority_ids)
                     # Keep phrase-recall order first: it is the strongest
                     # query-specific signal (e.g. the exact cosmetic clause
@@ -3508,6 +3509,20 @@ class GraphRagRuntime:
             # for provider/reranker variance, not a question-to-document map.
             if route_plan.risk == "high" and (authority_document_ids or document_recall_ids):
                 try:
+                    if not authority_document_ids:
+                        # A concurrent pool timeout must not silently erase
+                        # the authority channel. Retry once on a fresh,
+                        # short-lived session before the final floor probe.
+                        async with session_scope() as authority_session:
+                            authority_document_ids = await asyncio.wait_for(
+                                self._current_authority_ids(
+                                    GraphRepository(authority_session),
+                                    query=query,
+                                    dataset_id=dataset_id,
+                                    limit=min(16, max(16, settings.retrieval_candidate_k)),
+                                ),
+                                timeout=8.0,
+                            )
                     # Reuse the already-open hydration session. Opening a
                     # second pooled connection here was the last source of
                     # authority-floor timeouts under concurrent requests.
