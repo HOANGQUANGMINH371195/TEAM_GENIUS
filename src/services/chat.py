@@ -2156,7 +2156,7 @@ class GraphRagRuntime:
                 # beneficiary groups from the same decree.
                 if (
                     requires_clause_expansion(query)
-                    and exact_document_ids
+                    and (exact_document_ids or document_candidate_ids)
                     and hasattr(
                     hydration_repository, "search_document_operatives"
                     )
@@ -2170,7 +2170,7 @@ class GraphRagRuntime:
                             for item in primary_seed
                             if item.document_id
                         )
-                    )[:2]
+                    )[: min(12, max(2, settings.retrieval_candidate_k // 4))]
                     query_phrases = extract_query_phrases(query)
                     if primary_document_ids and query_phrases:
                         try:
