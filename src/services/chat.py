@@ -1197,6 +1197,15 @@ class GraphRagRuntime:
                             ]
                         )
                     )[: min(120, max(24, settings.retrieval_candidate_k * 2))]
+                if hasattr(repository, "search_phrase_document_ids"):
+                    try:
+                        phrase_ids = await asyncio.wait_for(
+                            repository.search_phrase_document_ids(query, dataset_id=dataset_id, limit=32),
+                            timeout=min(3.0, settings.retrieval_timeout_seconds / 4),
+                        )
+                        document_recall_ids = list(dict.fromkeys([*phrase_ids, *document_recall_ids]))
+                    except (TimeoutError, OSError, RuntimeError):
+                        pass
                 document_semantic_candidate_ids = list(
                     dict.fromkeys(
                         [

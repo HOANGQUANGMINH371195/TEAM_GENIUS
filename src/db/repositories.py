@@ -1138,6 +1138,23 @@ class GraphRepository:
                 ids_result.remove(value)
         return ids_result[: max(limit, min(120, limit * 2))]
 
+    async def search_phrase_document_ids(self, query: str, *, dataset_id: str, limit: int = 32) -> list[str]:
+        phrases = [p for p in lexical_phrases(query, limit=16) if len(p.split()) >= 2]
+        if not phrases:
+            return []
+        result = await self.session.execute(text("""
+            WITH hits AS (
+              SELECT d.id, max(ts_rank_cd(d.document_search_vector, phraseto_tsquery('simple', p.phrase))) AS score
+              FROM documents d CROSS JOIN LATERAL unnest(CAST(:phrases AS text[])) p(phrase)
+              WHERE d.dataset_id=:dataset_id AND NOT d.is_external
+                AND COALESCE((d.payload->'metadata'->>'answer_ready')::boolean,FALSE) IS TRUE
+                AND cardinality(regexp_split_to_array(p.phrase,'\\s+')) >= 2
+                AND d.document_search_vector @@ phraseto_tsquery('simple', p.phrase)
+              GROUP BY d.id
+            ) SELECT id FROM hits ORDER BY score DESC, id LIMIT :limit
+        """), {"dataset_id": dataset_id, "phrases": phrases, "limit": max(1,min(limit,64))})
+        return [str(r.id) for r in result]
+
     async def resolve_legal_units(
         self, labels: Sequence[str], *, dataset_id: str, document_ids: Sequence[str], limit: int = 8
     ) -> list[RetrievalResult]:
