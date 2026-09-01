@@ -2458,9 +2458,14 @@ class GraphRagRuntime:
                                     # Use normalized lexical phrases so the
                                     # decisive noun phrase survives query
                                     # wording such as "chi phí ... thuộc".
+                                    # Keep the operative CTE selective.  A
+                                    # dozen OR phrases caused statement
+                                    # timeouts on the managed pool before the
+                                    # governing row could be returned.
                                     terms=list(dict.fromkeys([
-                                        *extract_query_phrases(query, limit=12),
+                                        *extract_query_phrases(query, limit=3),
                                         " ".join(extract_query_terms(query, limit=8)[:2]),
+                                        *extract_query_terms(query, limit=6),
                                     ])),
                                     limit=min(48, settings.retrieval_candidate_k * 2),
                                     minimum_matches=1,
