@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.agents.nodes.graphrag_nodes import _pack_context, _source_backed_fallback
+from src.agents.nodes.graphrag_nodes import _pack_context
 from src.integrations.qdrant import VectorHit
 from src.models.graph import DocumentCandidate, RetrievalResult
 from src.models.schemas import GroundedAnswer
@@ -99,30 +99,6 @@ def test_lexical_passage_metadata_is_available_for_public_citations():
 
     assert passage.document_number == "51/2024/QH15"
     assert passage.legal_status_verified is True
-
-
-def test_source_backed_fallback_never_invents_missing_numeric_value():
-    evidence = [
-        RetrievalResult(
-            chunk_id="chunk-1",
-            document_id="doc-1",
-            dataset_id="release-1",
-            section_title="Mức đóng và hỗ trợ",
-            content="Học sinh, sinh viên tự đóng và được ngân sách nhà nước hỗ trợ một phần mức đóng.",
-            text_sha256=sha256(
-                "Học sinh, sinh viên tự đóng và được ngân sách nhà nước hỗ trợ một phần mức đóng.".encode()
-            ).hexdigest(),
-        )
-    ]
-
-    fallback = _source_backed_fallback(
-        "Học sinh tham gia BHYT năm 2026 phải đóng bao nhiêu và được Nhà nước hỗ trợ thế nào?",
-        evidence,
-    )
-
-    assert "ngân sách nhà nước hỗ trợ" in fallback
-    assert "2026" not in fallback
-    assert "số tiền cụ thể" in fallback
 
 
 def test_metadata_status_fails_closed_without_verified_source():

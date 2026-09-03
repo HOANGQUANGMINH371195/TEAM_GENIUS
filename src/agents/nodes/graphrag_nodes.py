@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 import time
 from collections.abc import Sequence
 from datetime import date
 from functools import lru_cache
 from uuid import uuid4
-import hashlib
 
 from src.agents.prompts import NO_EVIDENCE_RESPONSE, SYSTEM_PROMPT
 from src.agents.state import AgentState
@@ -21,7 +21,6 @@ from src.services.planner import evidence_gap_plan, followup_queries
 from src.services.request_router import classify_request, input_guardrail
 from src.services.retrieval import (
     decompose_query,
-    extract_query_terms,
     is_exclusion_query,
     no_answer_response,
     requires_evidence_verification,
@@ -51,11 +50,6 @@ _CLAIM_STOPWORDS = {
     "khi", "để", "một", "các", "những", "về", "không", "người", "việc", "tại", "đến",
     "thì", "bị", "sẽ", "đã", "hay", "hoặc", "nếu", "cần", "phải", "nên", "được",
 }
-_HIGH_RISK_MARKERS = (
-    "hiệu lực", "bãi bỏ", "thay thế", "mức hưởng", "mức chi trả", "được chi trả",
-    "bao nhiêu tiền", "thanh toán", "quyền lợi", "thủ tục", "điều kiện",
-    "chuyển tuyến", "liên tục",
-)
 _OFFICIAL_STATUS_MARKERS = ("hiệu lực", "còn hiệu lực", "hết hiệu lực", "bãi bỏ", "thay thế")
 
 
@@ -156,20 +150,12 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
     # with a clause-shaped rewrite. Running deterministic decomposition first
     # used to discard cross-condition facts (e.g. “mức đóng *và* hỗ trợ”),
     # bypassing both HyDE and the current-law reranker.
-    if requires_evidence_verification(query):
-        # Keep the complete question as one semantic unit, but allow the
-        # bounded HyDE rewrite to run alongside it for short high-risk
-        # questions.  Colloquial wording such as “chuyển tuyến” or “5 năm
-        # liên tục” often differs from the operative statutory phrasing; the
-        # rewrite is retrieval-only and the final source-aware reranker still
-        # audits both views.  Long questions retain the single-pass path in
-        # ``retrieve_bundle_adaptive`` to protect latency.
-        if get_settings().query_rewrite_enabled and not high_risk_route:
-            bundle = await runtime.retrieve_bundle_adaptive(
-                query, route_plan_override=route_override
-            )
-        else:
-            bundle = await runtime.retrieve_bundle(query, route_plan_override=route_override)
+    if high_risk_route:
+        # Preserve the complete question and use the single bounded retrieval
+        # plan.  The staged retriever already runs lexical+dense recall and
+        # phrase expansion concurrently; a second HyDE pass here duplicates
+        # provider work and can displace a decisive negation.
+        bundle = await runtime.retrieve_bundle(query, route_plan_override=route_override)
     elif get_settings().query_rewrite_enabled:
         bundle = await runtime.retrieve_bundle_adaptive(query, route_plan_override=route_override)
     elif len(subqueries) > 1:
@@ -269,7 +255,7 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
         # shortcut.
         "response": (
             bundle.direct_response
-            if (not requires_evidence_verification(query) or metadata_shortcut)
+            if (not high_risk_route or metadata_shortcut)
             else ""
         ),
         "direct_citations": bundle.direct_citations or [],
@@ -333,7 +319,21 @@ def _pack_context(
     parts: list[str] = []
     used = 0
     used_tokens = 0
-    for index, item in enumerate(evidence, start=1):
+    seen_evidence: set[tuple[str, str]] = set()
+    source_index = 0
+    for item in evidence:
+        # Fusion can return the same canonical legal unit through lexical,
+        # dense and graph channels.  Sending it repeatedly wastes tokens and
+        # makes the model over-copy one passage.  Dedupe on stable provenance,
+        # falling back to normalized public content for legacy rows.
+        identity = (
+            item.document_id,
+            item.unit_id or item.chunk_id or " ".join(item.content.casefold().split()),
+        )
+        if identity in seen_evidence:
+            continue
+        seen_evidence.add(identity)
+        source_index += 1
         metadata_lines = []
         if item.document_type:
             metadata_lines.append(f"LOẠI VĂN BẢN: {item.document_type}")
@@ -347,8 +347,8 @@ def _pack_context(
         if metadata:
             metadata += "\n"
         block = (
-            f"NGUỒN THỨ {index}\n"
-            f"ƯU TIÊN NGỮ CẢNH: {index}\n"
+            f"NGUỒN THỨ {source_index}\n"
+            f"ƯU TIÊN NGỮ CẢNH: {source_index}\n"
             f"TÊN VĂN BẢN: {item.title}\n"
             f"SỐ/KÝ HIỆU CÔNG KHAI: {item.document_number}\n"
             f"{metadata}"
@@ -406,7 +406,13 @@ async def verify_evidence_node(state: AgentState) -> dict:
     metadata = dict(state.get("metadata") or {})
     metadata["verification_evidence_count"] = len(evidence)
     metadata["verification_ms"] = 0.0
-    if not requires_evidence_verification(query):
+    route_plan = metadata.get("route_plan") or {}
+    strict_verification = (
+        route_plan.get("verifier_policy") == "strict"
+        if route_plan
+        else requires_evidence_verification(query)
+    )
+    if not strict_verification:
         metadata["verification_failed"] = False
         metadata["verification_ms"] = round((time.perf_counter() - started) * 1000, 2)
         return {"verification_failed": False, "metadata": metadata}
@@ -691,82 +697,6 @@ def _deduplicate_response_lines(value: str) -> str:
     return "\n".join(kept).strip()
 
 
-def _ensure_numeric_coverage(
-    response: str, query: str, evidence: Sequence[RetrievalResult]
-) -> tuple[str, bool]:
-    """Keep a source-backed percentage visible in a numeric answer."""
-    if build_route_plan(query, settings=get_settings()).route != "table":
-        return response, False
-    if re.search(r"\d+(?:[.,]\d+)?\s*%", response):
-        return response, False
-    query_tokens = {
-        token.casefold()
-        for token in _CLAIM_TOKEN.findall(query)
-        if len(token) > 2 and token.casefold() not in _CLAIM_STOPWORDS
-    }
-    candidates: list[tuple[int, int, str]] = []
-    for item in evidence:
-        source = " ".join((item.section_title, item.content)).strip()
-        for sentence in re.split(r"(?<=[.!?。！？;])\s+|\n+", source):
-            sentence = " ".join(sentence.split())
-            if not re.search(r"\d+(?:[.,]\d+)?\s*%", sentence) or len(sentence) < 12:
-                continue
-            tokens = {token.casefold() for token in _CLAIM_TOKEN.findall(sentence)}
-            overlap = len(query_tokens & tokens)
-            if overlap >= 2:
-                candidates.append((overlap, -len(sentence), sentence[:480]))
-    if not candidates:
-        return response, False
-    _, _, sentence = max(candidates)
-    return f"{response}\n- Mức phần trăm được nguồn xác nhận: {sentence}".strip(), True
-
-
-def _source_backed_fallback(
-    query: str, evidence: Sequence[RetrievalResult]
-) -> str:
-    """Render a compact source excerpt when synthesis returns empty.
-
-    The fallback is extractive and query-derived: it never supplies a missing
-    amount or legal conclusion. It only keeps a citation-bearing answer when
-    a model emits the generic empty-result sentence despite valid evidence.
-    """
-    terms = extract_query_terms(query, limit=16)
-    if not terms:
-        return ""
-    candidates: list[tuple[int, int, int, str]] = []
-    for item in evidence:
-        source = " ".join((item.section_title, item.content)).strip()
-        if not source:
-            continue
-        segments = [
-            " ".join(segment.split())
-            for segment in re.split(r"\n+|(?<=[.!?;])\s+", source)
-            if segment.strip()
-        ]
-        for segment in segments:
-            overlap = sum(term in segment.casefold() for term in terms)
-            if overlap < 2:
-                continue
-            has_value = bool(
-                re.search(
-                    r"\d+(?:[.,]\d+)?\s*%|\b\d+\s*(?:đồng|năm|tháng|ngày)\b",
-                    segment.casefold(),
-                )
-            )
-            # Keep the safety fallback clearly shorter than a raw passage;
-            # the normal model/renderer path remains responsible for synthesis.
-            excerpt = segment[:180].rstrip()
-            candidates.append((2 if has_value else 1, overlap, -len(segment), excerpt))
-    if not candidates:
-        return ""
-    candidates.sort(key=lambda row: (-row[0], -row[1], row[2], row[3]))
-    return (
-        "Nguồn pháp lý hiện có ghi nhận: "
-        + candidates[0][3]
-        + "\nGiới hạn thông tin: nguồn được cung cấp chưa đủ dữ liệu để khẳng định mọi điều kiện hoặc số tiền cụ thể."
-    )
-
-
 def _citations_from_evidence(
     evidence: list[RetrievalResult], *, preserve_order: bool = False
 ) -> list[Citation]:
@@ -944,21 +874,15 @@ def _audit_claims(response: str, citations: Sequence[Citation], query: str = "")
             overlap = len(tokens & evidence_tokens)
             if overlap > best_overlap:
                 best_id, best_overlap = citation_id, overlap
-        risk_markers = [marker for marker in _HIGH_RISK_MARKERS if marker in sentence.casefold()]
         requires_official_status = any(marker in query.casefold() for marker in _OFFICIAL_STATUS_MARKERS)
         official_status_supported = any(
             citation.evidence_kind == "document_metadata" and citation.provenance_verified
             for citation in citations
         )
-        risk_supported = not risk_markers or any(
-            all(marker in value for marker in risk_markers) for value in source_text.values()
-        )
-        if requires_official_status and risk_markers:
-            risk_supported = risk_supported and official_status_supported
         if not tokens:
             verification, reason = "unsupported", "claim has no verifiable content"
-        elif not risk_supported:
-            verification, reason = "unsupported", "high-risk marker is absent from cited evidence"
+        elif requires_official_status and not official_status_supported:
+            verification, reason = "unsupported", "official status provenance is unavailable"
         elif not best_id or not _claim_facts_supported(sentence, [source_text[best_id]]):
             verification, reason = "unsupported", "facts are not supported by one cited source"
         elif best_overlap >= 2:
@@ -1002,11 +926,18 @@ def _retain_supported_claims(claims: Sequence[dict]) -> tuple[str, list[dict]]:
     Partial/unsupported sentences are therefore removed independently; if no
     sentence survives, the system abstains cleanly.
     """
-    supported = [claim for claim in claims if claim.get("verification") == "entailed"]
+    # Keep independently supported model sentences.  ``partial`` is retained
+    # in diagnostics for review but is not strong enough to publish: a single
+    # shared word can be incidental in a large legal corpus.
+    supported = [
+        claim for claim in claims
+        if claim.get("verification") == "entailed"
+        and claim.get("evidence_ids")
+    ]
     if not supported:
         return NO_EVIDENCE_RESPONSE, []
     return "\n".join(
-        f"- {str(claim.get('text') or '').strip().strip('*_')}" for claim in supported
+        str(claim.get("text") or "").strip().strip("*_") for claim in supported
     ), supported
 
 
@@ -1037,9 +968,11 @@ async def guardrail_node(state: AgentState) -> dict:
         # normally prevents this path; this second check protects against
         # stale caches/provider regressions and fails closed.
         response = no_answer_response(state.get("query", ""), reason="unverified")
-    response, numeric_coverage_added = _ensure_numeric_coverage(
-        response, state.get("query", ""), evidence
-    )
+    # Never append an extractive sentence to compensate for a missing number.
+    # Numeric completeness belongs to retrieval + the single synthesis call;
+    # copying a candidate passage here previously leaked raw chunks and could
+    # turn a ranking mistake into a confident legal answer.
+    numeric_coverage_added = False
     # Extractive/deterministic responses are built from the final evidence
     # list. A direct-citation shortcut may belong to an earlier document
     # anchor and causes the claim auditor to discard the correct sentence
@@ -1049,7 +982,14 @@ async def guardrail_node(state: AgentState) -> dict:
     # response is extractive.  Only an explicitly marked route may bypass the
     # normal claim-entailment audit.
     deterministic_response = bool((state.get("metadata") or {}).get("deterministic_response"))
-    if requires_evidence_verification(state.get("query", "")):
+    metadata = dict(state.get("metadata") or {})
+    route_plan = metadata.get("route_plan") or {}
+    strict_verification = (
+        route_plan.get("verifier_policy") == "strict"
+        if route_plan
+        else requires_evidence_verification(state.get("query", ""))
+    )
+    if strict_verification:
         # Provider/direct citations may come from an earlier shortlist and
         # omit a governing authority that is present in the final evidence.
         # Rebuild from the verified bundle and reserve one slot for the best
@@ -1106,7 +1046,6 @@ async def guardrail_node(state: AgentState) -> dict:
     }
     if evidence and not deterministic_response:
         citations = [citation for citation in citations if citation.chunk_id in supported_ids]
-    metadata = dict(state.get("metadata") or {})
     metadata.update(
         {
             "citation_count": len(citations),

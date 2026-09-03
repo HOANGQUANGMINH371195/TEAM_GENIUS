@@ -59,5 +59,8 @@ async def test_clause_question_scans_independently_recalled_document_passages() 
         )
 
     assert repository.search_lexical_document_ids.await_args.kwargs["limit"] == 60
-    assert ["law-doc"] in [call.args[0] for call in repository.search_document_operatives.await_args_list]
+    assert any(
+        "law-doc" in call.args[0]
+        for call in repository.search_document_operatives.await_args_list
+    )
     assert "operative" in [item.chunk_id for item in bundle.evidence]

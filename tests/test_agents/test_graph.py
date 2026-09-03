@@ -302,6 +302,68 @@ async def test_high_risk_guardrail_downgrades_unmapped_claim():
 
 
 @pytest.mark.asyncio
+async def test_high_risk_guardrail_keeps_grounded_paraphrase_without_raw_source_append():
+    evidence = RetrievalResult(
+        chunk_id="chunk-5-years",
+        document_id="doc-law",
+        dataset_id="release-1",
+        title="Luật bảo hiểm y tế",
+        document_number="25/2008/QH12",
+        section_title="Điều 22",
+        content=(
+            "Người bệnh có thời gian tham gia bảo hiểm y tế 5 năm liên tục và "
+            "có số tiền cùng chi trả trong năm lớn hơn 6 tháng lương cơ sở được "
+            "hưởng 100% chi phí khám bệnh, chữa bệnh, trừ trường hợp không đúng tuyến."
+        ),
+        source_start=0,
+        source_end=190,
+    )
+    response = (
+        "Khi đã tham gia BHYT đủ 5 năm liên tục và phần cùng chi trả trong năm vượt "
+        "6 tháng lương cơ sở, người bệnh được quỹ thanh toán 100% chi phí trong phạm vi hưởng."
+    )
+
+    result = await guardrail_node(
+        {
+            "query": "Quyền lợi BHYT 5 năm liên tục được tính như thế nào?",
+            "response": response,
+            "retrieved_evidence": [evidence],
+            "metadata": {"route_plan": {"verifier_policy": "strict"}},
+        }
+    )
+
+    assert result["response"] == response
+    assert result["citations"][0]["chunk_id"] == "chunk-5-years"
+    assert result["metadata"]["numeric_coverage_added"] is False
+
+
+@pytest.mark.asyncio
+async def test_guardrail_never_appends_missing_percentage_from_a_chunk():
+    evidence = RetrievalResult(
+        chunk_id="chunk-rate",
+        document_id="doc-law",
+        dataset_id="release-1",
+        title="Luật bảo hiểm y tế",
+        content="Trường hợp đủ điều kiện được hưởng 100% chi phí khám bệnh, chữa bệnh.",
+        source_start=0,
+        source_end=76,
+    )
+    response = "Người bệnh được hưởng toàn bộ chi phí khi đáp ứng đủ điều kiện trong nguồn."
+
+    result = await guardrail_node(
+        {
+            "query": "Mức hưởng BHYT là bao nhiêu phần trăm?",
+            "response": response,
+            "retrieved_evidence": [evidence],
+            "metadata": {"route_plan": {"verifier_policy": "strict"}},
+        }
+    )
+
+    assert "Mức phần trăm được nguồn xác nhận" not in result["response"]
+    assert result["metadata"]["numeric_coverage_added"] is False
+
+
+@pytest.mark.asyncio
 async def test_generation_does_not_replace_model_abstention_with_raw_chunks():
     evidence = RetrievalResult(
         chunk_id="chunk-1",
@@ -397,6 +459,30 @@ async def test_context_can_exceed_public_citation_budget(monkeypatch):
     assert "NGUỒN THỨ 12" in runtime.generate.await_args.args[1]
     assert 0 < len(result["citations"]) <= 8
     get_settings.cache_clear()
+
+
+def test_context_packer_deduplicates_same_canonical_unit_across_channels():
+    first = RetrievalResult(
+        chunk_id="chunk-semantic",
+        unit_id="unit-1",
+        document_id="doc-1",
+        title="Luật BHYT",
+        content="Một quy tắc pháp lý.",
+        channels=["semantic"],
+    )
+    duplicate = RetrievalResult(
+        chunk_id="chunk-lexical",
+        unit_id="unit-1",
+        document_id="doc-1",
+        title="Luật BHYT",
+        content="Một quy tắc pháp lý.",
+        channels=["lexical"],
+    )
+
+    context = _pack_context([first, duplicate], [], 10_000)
+
+    assert context.count("NGUỒN THỨ") == 1
+    assert context.count("Một quy tắc pháp lý.") == 1
 
 
 def test_legal_unit_formatter_is_stable_and_deduplicated():

@@ -37,7 +37,6 @@ from src.services.llm import get_llm
 from src.services.metrics import metrics
 from src.services.query_rewrite import rewrite_retrieval_query, should_rewrite_query
 from src.services.retrieval import (
-    _RETRIEVAL_STOPWORDS,
     exclude_unverified_legacy_subordinate_sources,
     extract_document_numbers,
     extract_internal_legal_references,
@@ -46,8 +45,8 @@ from src.services.retrieval import (
     extract_query_terms,
     filter_current_authority_candidates,
     filter_relations_by_query,
-    is_metadata_question,
     is_exclusion_query,
+    is_metadata_question,
     is_simple_status_metadata_question,
     normalize_identifier,
     policy_response,
@@ -1350,7 +1349,7 @@ class GraphRagRuntime:
                         phrase_ids = await repository.search_lexical_document_ids(
                             focused_phrase,
                             dataset_id=dataset_id,
-                            limit=min(64, max(32, settings.retrieval_candidate_k)),
+                            limit=min(60, max(32, settings.retrieval_candidate_k)),
                             include_local=_query_allows_local_documents(query),
                         )
                         if phrase_ids:
@@ -1363,7 +1362,7 @@ class GraphRagRuntime:
                                 leading_ids = await repository.search_lexical_document_ids(
                                     " ".join(terms[:2]),
                                     dataset_id=dataset_id,
-                                    limit=min(64, max(32, settings.retrieval_candidate_k)),
+                                    limit=min(60, max(32, settings.retrieval_candidate_k)),
                                     include_local=_query_allows_local_documents(query),
                                 )
                                 return list(dict.fromkeys([*phrase_ids, *leading_ids]))[:64]
@@ -1371,7 +1370,7 @@ class GraphRagRuntime:
                     ids = await repository.search_lexical_document_ids(
                         query,
                         dataset_id=dataset_id,
-                        limit=min(64, max(32, settings.retrieval_candidate_k)),
+                        limit=min(60, max(32, settings.retrieval_candidate_k)),
                         include_local=_query_allows_local_documents(query),
                     )
                     if ids:
@@ -1386,7 +1385,7 @@ class GraphRagRuntime:
                         return await repository.search_lexical_document_ids(
                             rescue_query,
                             dataset_id=dataset_id,
-                            limit=min(64, max(32, settings.retrieval_candidate_k)),
+                            limit=min(60, max(32, settings.retrieval_candidate_k)),
                             include_local=_query_allows_local_documents(query),
                         )
                     return []
@@ -1503,14 +1502,14 @@ class GraphRagRuntime:
                     # by the operative selector.
                     document_recall_ids = list(
                         dict.fromkeys([*document_recall_ids, *current_authority_ids])
-                    )[: min(64, max(32, settings.retrieval_candidate_k))]
+                    )[: min(60, max(32, settings.retrieval_candidate_k))]
                 if current_title_query and hasattr(repository, "search_lexical_document_ids"):
                     try:
                         current_recall_ids = await asyncio.wait_for(
                             repository.search_lexical_document_ids(
                                 current_title_query,
                                 dataset_id=dataset_id,
-                                limit=min(64, max(32, settings.retrieval_candidate_k)),
+                                limit=min(60, max(32, settings.retrieval_candidate_k)),
                                 include_local=_query_allows_local_documents(query),
                             ),
                             timeout=min(3.0, settings.retrieval_timeout_seconds / 2),
@@ -1933,7 +1932,7 @@ class GraphRagRuntime:
                                 ).search_lexical_document_ids(
                                     operative_terms[0],
                                     dataset_id=dataset_id,
-                                    limit=64,
+                                    limit=60,
                                     include_local=_query_allows_local_documents(query),
                                 )
                                 if len(query_terms) >= 2:
@@ -1942,7 +1941,7 @@ class GraphRagRuntime:
                                     ).search_lexical_document_ids(
                                         " ".join(query_terms[:2]),
                                         dataset_id=dataset_id,
-                                        limit=64,
+                                        limit=60,
                                         include_local=_query_allows_local_documents(query),
                                     )
                                     phrase_document_ids = list(
@@ -2301,8 +2300,13 @@ class GraphRagRuntime:
                 if (
                     document_candidate_ids
                     and route_plan.route != "deep"
+                    # High-risk routes already perform one pre-hydration
+                    # operative lookup and retain the final authority floor.
+                    # Running this second near-identical scan consumed 3–4s
+                    # and routinely reached the route deadline without rows.
+                    and route_plan.risk != "high"
                     and (not table_semantic_sufficient or is_table_route)
-                    and (requires_clause_expansion(query) or route_plan.risk == "high")
+                    and requires_clause_expansion(query)
                     and hasattr(hydration_repository, "search_document_operatives")
                 ):
                     _record_trace_event(
@@ -2392,7 +2396,7 @@ class GraphRagRuntime:
                                 hydration_repository.search_lexical_document_ids(
                                     phrase_seed,
                                     dataset_id=dataset_id,
-                                    limit=64,
+                                    limit=60,
                                     include_local=_query_allows_local_documents(query),
                                 ),
                                 "operative_phrase_seed",
@@ -2413,7 +2417,7 @@ class GraphRagRuntime:
                                                 hydration_repository.search_lexical_document_ids(
                                                     leading_seed,
                                                     dataset_id=dataset_id,
-                                                    limit=64,
+                                                    limit=60,
                                                     include_local=_query_allows_local_documents(query),
                                                 ),
                                                 "operative_leading_seed",
@@ -3746,6 +3750,14 @@ class GraphRagRuntime:
                         fused_evidence = authority_head + [
                             item for item in fused_evidence if item.chunk_id not in head_ids
                         ]
+                # Provider fusion and the authority floor operate on a wider
+                # candidate pool, but only the ordered context head belongs in
+                # orchestration/model state.  Returning the whole pool (59
+                # rows in production) inflated prompt tokens and citations
+                # after the decisive provision was already ranked first.
+                fused_evidence = _verified_evidence(fused_evidence)[
+                    : settings.max_llm_evidence
+                ]
                 _record_trace_event(
                     "retrieval:rerank_select",
                     phase3_started,
@@ -3800,8 +3812,11 @@ class GraphRagRuntime:
                     )
                 ),
             )
+            fused_evidence = _verified_evidence(fused_evidence)[
+                : settings.max_llm_evidence
+            ]
             return RetrievalBundle(
-                evidence=_verified_evidence(fused_evidence),
+                evidence=fused_evidence,
                 relations=graph_results,
             )
         except GraphRagUnavailableError:
