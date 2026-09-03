@@ -22,6 +22,15 @@ class GroundedAnswer(ApiModel):
     conditions: list[str] = Field(default_factory=list, max_length=8)
     exceptions: list[str] = Field(default_factory=list, max_length=8)
     uncertainty: str | None = Field(default=None, max_length=1000)
+    source_numbers: list[int] = Field(
+        ...,
+        min_length=1,
+        max_length=8,
+        description=(
+            "Các số N trong nhãn NGUỒN THỨ N thực sự hỗ trợ câu trả lời. "
+            "Chỉ chọn số nguồn có trong ngữ cảnh."
+        ),
+    )
 
     @field_validator("conditions", "exceptions")
     @classmethod
@@ -36,6 +45,14 @@ class GroundedAnswer(ApiModel):
             return None
         normalized = " ".join(value.split())
         return normalized or None
+
+    @field_validator("source_numbers")
+    @classmethod
+    def normalize_source_numbers(cls, values: list[int]) -> list[int]:
+        normalized = list(dict.fromkeys(value for value in values if value > 0))[:8]
+        if not normalized:
+            raise ValueError("source_numbers must contain at least one positive source number")
+        return normalized
 
 
 class ChatRequest(ApiModel):

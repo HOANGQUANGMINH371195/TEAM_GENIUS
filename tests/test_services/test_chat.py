@@ -309,6 +309,7 @@ async def test_generate_uses_strict_grounded_schema_and_public_renderer():
         conclusion="Được hưởng theo điều kiện của nguồn.",
         conditions=["Có đủ điều kiện được nêu trong văn bản."],
         exceptions=["Không áp dụng cho trường hợp bị loại trừ."],
+        source_numbers=[1],
     )
     structured = type("Structured", (), {})()
     structured.ainvoke = AsyncMock(return_value=expected)
@@ -321,6 +322,7 @@ async def test_generate_uses_strict_grounded_schema_and_public_renderer():
     assert answer == render_grounded_answer(expected)
     assert "Điều kiện:" in answer
     assert "Ngoại lệ:" in answer
+    assert runtime.generation_trace()["source_numbers"] == [1]
 
 
 @pytest.mark.asyncio

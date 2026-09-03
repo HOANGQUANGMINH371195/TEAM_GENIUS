@@ -384,6 +384,126 @@ async def test_high_risk_guardrail_keeps_grounded_paraphrase_without_raw_source_
 
 
 @pytest.mark.asyncio
+async def test_structured_source_contract_keeps_semantic_paraphrase_without_lexical_gate():
+    evidence = RetrievalResult(
+        chunk_id="chunk-cosmetic",
+        document_id="doc-law",
+        dataset_id="release-1",
+        title="Luật bảo hiểm y tế",
+        section_title="Điều 23",
+        content="Phẫu thuật thẩm mỹ thuộc trường hợp không được hưởng bảo hiểm y tế.",
+        source_start=0,
+        source_end=75,
+    )
+
+    result = await guardrail_node(
+        {
+            "query": "Dịch vụ làm đẹp có được quỹ chi trả không?",
+            "response": "Quỹ không thanh toán khoản làm đẹp này.",
+            "retrieved_evidence": [evidence],
+            "metadata": {
+                "context_evidence_ids": ["chunk-cosmetic"],
+                "generation_trace": {"schema_valid": True, "source_numbers": [1]},
+                "route_plan": {"verifier_policy": "strict"},
+            },
+        }
+    )
+
+    assert result["response"] == "Quỹ không thanh toán khoản làm đẹp này."
+    assert result["citations"][0]["chunk_id"] == "chunk-cosmetic"
+    assert result["claims"][0]["verification"] == "entailed"
+    assert result["metadata"]["source_contract"] == "valid"
+
+
+@pytest.mark.asyncio
+async def test_structured_source_contract_rejects_unknown_source_number():
+    evidence = RetrievalResult(
+        chunk_id="chunk-1",
+        document_id="doc-law",
+        dataset_id="release-1",
+        content="Một quy tắc pháp lý được xác nhận.",
+        source_start=0,
+        source_end=38,
+    )
+
+    result = await guardrail_node(
+        {
+            "query": "Quy tắc là gì?",
+            "response": "Quy tắc đã được xác nhận.",
+            "retrieved_evidence": [evidence],
+            "metadata": {
+                "context_evidence_ids": ["chunk-1"],
+                "generation_trace": {"schema_valid": True, "source_numbers": [2]},
+                "route_plan": {"verifier_policy": "strict"},
+            },
+        }
+    )
+
+    assert "chưa thể" in result["response"].casefold()
+    assert result["citations"] == []
+    assert result["metadata"]["source_contract"] == "invalid"
+
+
+@pytest.mark.asyncio
+async def test_structured_source_contract_still_rejects_changed_number():
+    evidence = RetrievalResult(
+        chunk_id="chunk-rate",
+        document_id="doc-law",
+        dataset_id="release-1",
+        content="Người bệnh thuộc trường hợp này được hưởng 100% chi phí khám chữa bệnh.",
+        source_start=0,
+        source_end=78,
+    )
+
+    result = await guardrail_node(
+        {
+            "query": "Được hưởng bao nhiêu phần trăm?",
+            "response": "Người bệnh được hưởng 80% chi phí.",
+            "retrieved_evidence": [evidence],
+            "metadata": {
+                "context_evidence_ids": ["chunk-rate"],
+                "generation_trace": {"schema_valid": True, "source_numbers": [1]},
+                "route_plan": {"verifier_policy": "strict"},
+            },
+        }
+    )
+
+    assert result["response"] == NO_EVIDENCE_RESPONSE
+    assert result["citations"] == []
+
+
+@pytest.mark.asyncio
+async def test_source_contract_validates_against_full_model_context_not_truncated_quote():
+    content = ("Quy định chi tiết về phạm vi áp dụng. " * 20) + (
+        "Người đủ điều kiện được hưởng 100% chi phí khám chữa bệnh."
+    )
+    evidence = RetrievalResult(
+        chunk_id="chunk-long",
+        document_id="doc-law",
+        dataset_id="release-1",
+        content=content,
+        source_start=0,
+        source_end=len(content),
+    )
+
+    result = await guardrail_node(
+        {
+            "query": "Được hưởng bao nhiêu phần trăm?",
+            "response": "Người đủ điều kiện được hưởng 100% chi phí.",
+            "retrieved_evidence": [evidence],
+            "metadata": {
+                "context_evidence_ids": ["chunk-long"],
+                "generation_trace": {"schema_valid": True, "source_numbers": [1]},
+                "route_plan": {"verifier_policy": "strict"},
+            },
+        }
+    )
+
+    assert result["response"].endswith("100% chi phí.")
+    assert result["metadata"]["source_contract"] == "valid"
+
+
+@pytest.mark.asyncio
 async def test_guardrail_never_appends_missing_percentage_from_a_chunk():
     evidence = RetrievalResult(
         chunk_id="chunk-rate",

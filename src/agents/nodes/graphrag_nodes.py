@@ -281,7 +281,7 @@ async def assemble_context_node(state: AgentState) -> dict:
     route_context_budget = route_plan.get("context_budget")
     if not isinstance(route_context_budget, int) or route_context_budget <= 0:
         route_context_budget = settings.max_context_chars
-    context = _pack_context(
+    context, context_evidence_ids = _pack_context_bundle(
         evidence,
         relations,
         min(settings.max_context_chars, route_context_budget),
@@ -294,6 +294,9 @@ async def assemble_context_node(state: AgentState) -> dict:
             "context_ms": round((time.perf_counter() - started) * 1000, 2),
             "context_chars": len(context),
             "context_tokens": _count_tokens(context, settings.model_name),
+            # Internal mapping for the model's bounded ``source_numbers``
+            # contract. Public responses never expose storage identifiers.
+            "context_evidence_ids": context_evidence_ids,
         }
     )
     return {"context": context, "metadata": metadata}
@@ -307,6 +310,24 @@ def _pack_context(
     token_budget: int | None = None,
     model: str = "",
 ) -> str:
+    context, _ = _pack_context_bundle(
+        evidence,
+        relations,
+        budget,
+        token_budget=token_budget,
+        model=model,
+    )
+    return context
+
+
+def _pack_context_bundle(
+    evidence: Sequence[RetrievalResult],
+    relations: Sequence[Relation],
+    budget: int,
+    *,
+    token_budget: int | None = None,
+    model: str = "",
+) -> tuple[str, list[str]]:
     """Pack complete evidence blocks until the context budget is exhausted.
 
     A block is either included in full or omitted (except for the bounded
@@ -314,8 +335,9 @@ def _pack_context(
     in the middle and make its source span ambiguous.
     """
     if budget <= 0:
-        return ""
+        return "", []
     parts: list[str] = []
+    evidence_ids: list[str] = []
     used = 0
     used_tokens = 0
     seen_evidence: set[tuple[str, str]] = set()
@@ -332,7 +354,6 @@ def _pack_context(
         if identity in seen_evidence:
             continue
         seen_evidence.add(identity)
-        source_index += 1
         metadata_lines = []
         if item.document_type:
             metadata_lines.append(f"LOẠI VĂN BẢN: {item.document_type}")
@@ -346,8 +367,8 @@ def _pack_context(
         if metadata:
             metadata += "\n"
         block = (
-            f"NGUỒN THỨ {source_index}\n"
-            f"ƯU TIÊN NGỮ CẢNH: {source_index}\n"
+            f"NGUỒN THỨ {source_index + 1}\n"
+            f"ƯU TIÊN NGỮ CẢNH: {source_index + 1}\n"
             f"TÊN VĂN BẢN: {item.title}\n"
             f"SỐ/KÝ HIỆU CÔNG KHAI: {item.document_number}\n"
             f"{metadata}"
@@ -362,6 +383,8 @@ def _pack_context(
         ):
             break
         parts.append(block)
+        source_index += 1
+        evidence_ids.append(item.chunk_id)
         used += len(separator) + len(block)
         used_tokens += separator_tokens + block_tokens
     for relation in relations:
@@ -376,7 +399,7 @@ def _pack_context(
         parts.append(block)
         used += len(separator) + len(block)
         used_tokens += separator_tokens + block_tokens
-    return "\n---\n".join(parts)
+    return "\n---\n".join(parts), evidence_ids
 
 
 @lru_cache(maxsize=8)
@@ -682,14 +705,21 @@ def _claim_facts_supported(claim: str, evidence: Sequence[str]) -> bool:
     return True
 
 
-def _audit_claims(response: str, citations: Sequence[Citation], query: str = "") -> list[dict]:
-    """Create a conservative claim-to-evidence audit without trusting the LLM.
+def _audit_claims(
+    response: str,
+    citations: Sequence[Citation],
+    query: str = "",
+    *,
+    model_source_ids: set[str] | None = None,
+    model_source_text: dict[str, str] | None = None,
+) -> list[dict]:
+    """Create a bounded claim-to-source audit.
 
-    This is a conservative lexical/fact entailment pre-check, not an
-    open-ended semantic proof. High-risk routes fail closed when a claim cannot
-    be tied to citation overlap or its concrete number/status conflicts with
-    evidence; a stronger model verifier can be added without changing the
-    response contract.
+    A structured synthesis must explicitly select the numbered context sources
+    it used.  That source contract allows legitimate semantic paraphrases to
+    survive without a second model call, while numeric and legal-status facts
+    are still checked deterministically. Legacy/plain-text provider output uses
+    the stricter lexical fallback because it carries no source selection.
     """
     sentences = [
         sentence.strip(" -*•\t")
@@ -700,6 +730,14 @@ def _audit_claims(response: str, citations: Sequence[Citation], query: str = "")
         citation.chunk_id: " ".join((citation.title, citation.section_title, citation.quote)).casefold()
         for citation in citations
     }
+    if model_source_text:
+        source_text.update(
+            {
+                chunk_id: value.casefold()
+                for chunk_id, value in model_source_text.items()
+                if chunk_id in source_text
+            }
+        )
     source_tokens = {citation_id: _claim_tokens(value) for citation_id, value in source_text.items()}
     claims: list[dict] = []
     for index, sentence in enumerate(sentences, start=1):
@@ -712,6 +750,16 @@ def _audit_claims(response: str, citations: Sequence[Citation], query: str = "")
             overlap = len(tokens & evidence_tokens)
             if overlap > best_overlap:
                 best_id, best_overlap = citation_id, overlap
+        if model_source_ids is not None and not best_id:
+            best_id = next(
+                (
+                    citation.chunk_id
+                    for citation in citations
+                    if citation.chunk_id in model_source_ids
+                    and _claim_facts_supported(sentence, [source_text[citation.chunk_id]])
+                ),
+                "",
+            )
         requires_official_status = any(marker in query.casefold() for marker in _OFFICIAL_STATUS_MARKERS)
         official_status_supported = any(
             citation.evidence_kind == "document_metadata" and citation.provenance_verified
@@ -723,6 +771,11 @@ def _audit_claims(response: str, citations: Sequence[Citation], query: str = "")
             verification, reason = "unsupported", "official status provenance is unavailable"
         elif not best_id or not _claim_facts_supported(sentence, [source_text[best_id]]):
             verification, reason = "unsupported", "facts are not supported by one cited source"
+        elif model_source_ids is not None and best_id in model_source_ids:
+            verification, reason = (
+                "entailed",
+                "model-selected source with deterministic numeric/status validation",
+            )
         elif best_overlap >= 2:
             verification, reason = "entailed", "lexical overlap with cited evidence"
         elif best_overlap == 1:
@@ -754,6 +807,36 @@ def _audit_claims(response: str, citations: Sequence[Citation], query: str = "")
             )
         )
     return claims
+
+
+def _model_selected_citations(
+    evidence: Sequence[RetrievalResult],
+    context_evidence_ids: Sequence[str],
+    source_numbers: Sequence[object],
+) -> tuple[list[Citation], bool]:
+    """Resolve public citations from model-selected source numbers.
+
+    Returns ``valid=False`` if the model references a source outside the exact
+    context it received. No opaque identifier is ever accepted from the model
+    or emitted publicly.
+    """
+    if not context_evidence_ids or not source_numbers:
+        return [], False
+    resolved_ids: list[str] = []
+    for value in source_numbers:
+        if not isinstance(value, int) or isinstance(value, bool):
+            return [], False
+        index = value - 1
+        if index < 0 or index >= len(context_evidence_ids):
+            return [], False
+        chunk_id = context_evidence_ids[index]
+        if chunk_id not in resolved_ids:
+            resolved_ids.append(chunk_id)
+    by_chunk = {item.chunk_id: item for item in evidence if item.chunk_id}
+    if any(chunk_id not in by_chunk for chunk_id in resolved_ids):
+        return [], False
+    selected = [by_chunk[chunk_id] for chunk_id in resolved_ids]
+    return _citations_from_evidence(selected, preserve_order=True), True
 
 
 def _retain_supported_claims(claims: Sequence[dict]) -> tuple[str, list[dict]]:
@@ -797,6 +880,7 @@ async def guardrail_node(state: AgentState) -> dict:
     response = _deduplicate_response_lines(
         _sanitize_output(_normalize_response(state.get("response", "")), evidence)
     )
+    forced_abstention = not response or response == NO_EVIDENCE_RESPONSE
     if not response:
         response = NO_EVIDENCE_RESPONSE
     # Retrieval excerpts are context, never a public answer.  If generation
@@ -806,6 +890,7 @@ async def guardrail_node(state: AgentState) -> dict:
         # normally prevents this path; this second check protects against
         # stale caches/provider regressions and fails closed.
         response = no_answer_response(state.get("query", ""), reason="unverified")
+        forced_abstention = True
     # Never append an extractive sentence to compensate for a missing number.
     # Numeric completeness belongs to retrieval + the single synthesis call;
     # copying a candidate passage here previously leaked raw chunks and could
@@ -813,12 +898,39 @@ async def guardrail_node(state: AgentState) -> dict:
     numeric_coverage_added = False
     metadata = dict(state.get("metadata") or {})
     route_plan = metadata.get("route_plan") or {}
+    generation_trace = metadata.get("generation_trace") or {}
+    schema_source_contract = bool(generation_trace.get("schema_valid"))
+    model_source_ids: set[str] | None = None
+    model_source_text: dict[str, str] | None = None
+    selected_model_citations: list[Citation] = []
+    if schema_source_contract:
+        selected_model_citations, source_contract_valid = _model_selected_citations(
+            evidence,
+            metadata.get("context_evidence_ids") or [],
+            generation_trace.get("source_numbers") or [],
+        )
+        if not source_contract_valid:
+            response = no_answer_response(state.get("query", ""), reason="unverified")
+            forced_abstention = True
+        else:
+            model_source_ids = {
+                citation.chunk_id for citation in selected_model_citations
+            }
+            model_source_text = {
+                item.chunk_id: " ".join((item.title, item.section_title, item.content[:2000]))
+                for item in evidence
+                if item.chunk_id in model_source_ids
+            }
     strict_verification = (
         route_plan.get("verifier_policy") == "strict"
         if route_plan
         else requires_evidence_verification(state.get("query", ""))
     )
-    if strict_verification:
+    if forced_abstention:
+        citations = []
+    elif model_source_ids is not None:
+        citations = selected_model_citations
+    elif strict_verification:
         # Provider/direct citations may come from an earlier shortlist and
         # omit a governing authority that is present in the final evidence.
         # Rebuild from the verified bundle and reserve one slot for the best
@@ -861,15 +973,21 @@ async def guardrail_node(state: AgentState) -> dict:
         citations = ordered[: get_settings().max_citations]
     else:
         citations = state.get("direct_citations") or _citations_from_evidence(evidence)
-    claims = _audit_claims(response, citations, state.get("query", ""))
-    if evidence and any(
+    claims = [] if forced_abstention else _audit_claims(
+        response,
+        citations,
+        state.get("query", ""),
+        model_source_ids=model_source_ids,
+        model_source_text=model_source_text,
+    )
+    if not forced_abstention and evidence and any(
         claim["verification"] != "entailed" for claim in claims
     ):
         response, claims = _retain_supported_claims(claims)
     # An abstention is a statement about the absence of sufficient support.
     # Showing a residual, unrelated citation next to it is internally
     # contradictory and makes a failed retrieval look authoritative.
-    if response == NO_EVIDENCE_RESPONSE:
+    if forced_abstention or response == NO_EVIDENCE_RESPONSE:
         citations = []
         claims = []
     supported_ids = {
@@ -878,7 +996,7 @@ async def guardrail_node(state: AgentState) -> dict:
         if claim.get("verification") == "entailed"
         for evidence_id in claim.get("evidence_ids", [])
     }
-    if evidence:
+    if evidence and model_source_ids is None:
         citations = [citation for citation in citations if citation.chunk_id in supported_ids]
     metadata.update(
         {
@@ -890,6 +1008,10 @@ async def guardrail_node(state: AgentState) -> dict:
             "guardrail_response_chars": len(response),
             "guardrail_evidence_count": len(evidence),
             "numeric_coverage_added": numeric_coverage_added,
+            "source_contract": (
+                "valid" if model_source_ids is not None
+                else ("invalid" if schema_source_contract else "legacy")
+            ),
             "guardrail_ms": round((time.perf_counter() - started) * 1000, 2),
         }
     )

@@ -3905,6 +3905,8 @@ class GraphRagRuntime:
                 content=(
                     f"Câu hỏi người dùng:\n{query}\n\n"
                     f"Nguồn pháp lý được phép sử dụng:\n{context}\n\n"
+                    "Trong source_numbers, hãy ghi đúng số N của từng nhãn "
+                    "NGUỒN THỨ N thực sự hỗ trợ kết luận; không ghi số ngoài ngữ cảnh.\n\n"
                     f"Định dạng đầu ra bắt buộc:\n{answer_instruction}"
                 )
             ),
@@ -3992,6 +3994,7 @@ class GraphRagRuntime:
         raw_result = result.get("raw") if isinstance(result, dict) and "parsed" in result else result
         parsed_result = result.get("parsed") if isinstance(result, dict) and "parsed" in result else result
         if isinstance(parsed_result, GroundedAnswer):
+            generation_trace["source_numbers"] = list(parsed_result.source_numbers)
             content = render_grounded_answer(parsed_result)
             generation_trace["schema_valid"] = True
         elif isinstance(parsed_result, dict) and "conclusion" in parsed_result:
@@ -4000,6 +4003,7 @@ class GraphRagRuntime:
             except Exception as exc:
                 generation_trace["schema_valid"] = False
                 raise ChatProviderError("Structured chat output failed validation") from exc
+            generation_trace["source_numbers"] = list(grounded.source_numbers)
             content = render_grounded_answer(grounded)
             generation_trace["schema_valid"] = True
         else:
