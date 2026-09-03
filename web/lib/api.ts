@@ -413,7 +413,10 @@ export async function sendChatMessageStream(
         turn_id: payload.turn_id,
       };
     }
-    if (payload.type === "error") throw new Error(payload.message);
+    // The backend emits the final answer before best-effort persistence and
+    // telemetry.  A late persistence failure must not erase a valid answer or
+    // turn it into the misleading "stream format" error in the browser.
+    if (payload.type === "error" && !final) throw new Error(payload.message);
   };
   while (true) {
     const chunk = await reader.read();

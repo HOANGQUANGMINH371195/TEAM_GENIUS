@@ -2999,23 +2999,31 @@ class GraphRagRuntime:
                         )
                     if fact_subjects:
                         typed_graph = self._get_graph_store()
-                        typed_walk = getattr(
-                            typed_graph, "bounded_typed_ppr", typed_graph.expand_typed_facts
-                        )
                         # Graph is an optional recall signal.  Keep its
                         # remote hop inside the same route deadline so an
                         # Aura/DNS stall cannot turn a relational request into
                         # a full-request timeout.
                         typed_timeout = max(0.05, route_deadline - time.perf_counter())
+                        if hasattr(typed_graph, "bounded_typed_ppr"):
+                            def typed_call():
+                                return typed_graph.bounded_typed_ppr(
+                                    fact_subjects,
+                                    dataset_id=dataset_id,
+                                    depth=min(max(settings.graph_hops + 1, 1), 2),
+                                    fanout=min(max(settings.graph_evidence_limit, 1), 3),
+                                )
+                        else:
+                            def typed_call():
+                                return typed_graph.expand_typed_facts(
+                                    fact_subjects,
+                                    dataset_id=dataset_id,
+                                    limit=settings.graph_evidence_limit,
+                                )
                         typed_relations = await asyncio.wait_for(
                             self._provider_call(
                                 "neo4j_typed_facts",
                                 self._neo4j_breaker,
-                                lambda: typed_walk(
-                                    fact_subjects,
-                                    dataset_id=dataset_id,
-                                    limit=settings.graph_evidence_limit,
-                                ),
+                                typed_call,
                             ),
                             timeout=typed_timeout,
                         )

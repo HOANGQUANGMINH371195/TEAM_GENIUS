@@ -131,8 +131,8 @@ def stage_facts(
         ).fetchone()
         if dataset is None:
             raise ValueError(f"dataset not found: {release_id}")
-        for fact, _ in validated:
-            row = db.execute(
+        for fact, reviewed_row in validated:
+            canonical_row = db.execute(
                 """SELECT d.content_text, u.text AS unit_text,
                           u.source_start, u.source_end
                    FROM public.documents d
@@ -142,25 +142,25 @@ def stage_facts(
                    WHERE d.dataset_id = %s AND d.id = %s""",
                 (fact.unit_id, release_id, fact.document_id),
             ).fetchone()
-            if row is None:
+            if canonical_row is None:
                 raise ValueError(f"fact {fact.fact_id} references a missing document/unit")
             if not _source_hash_matches(
                 fact,
-                document_text=str(row[0] or ""),
-                unit_text=str(row[1] or ""),
-                unit_start=int(row[2]) if row[2] is not None else None,
-                unit_end=int(row[3]) if row[3] is not None else None,
+                document_text=str(canonical_row[0] or ""),
+                unit_text=str(canonical_row[1] or ""),
+                unit_start=int(canonical_row[2]) if canonical_row[2] is not None else None,
+                unit_end=int(canonical_row[3]) if canonical_row[3] is not None else None,
             ):
                 raise ValueError(f"fact {fact.fact_id} source_sha256 does not match canonical text")
 
-            payload = dict(row.get("payload") or {})
-            reviewer = str(row.get("reviewed_by") or row.get("reviewer") or "").strip()
+            payload = dict(reviewed_row.get("payload") or {})
+            reviewer = str(reviewed_row.get("reviewed_by") or reviewed_row.get("reviewer") or "").strip()
             if reviewer:
                 payload.update(
                     {
                         "reviewed_by": reviewer,
-                        "review_note": str(row.get("review_note") or row.get("decision_note") or "").strip(),
-                        "reviewed_at": str(row.get("reviewed_at") or ""),
+                        "review_note": str(reviewed_row.get("review_note") or reviewed_row.get("decision_note") or "").strip(),
+                        "reviewed_at": str(reviewed_row.get("reviewed_at") or ""),
                     }
                 )
             record = fact.as_record()

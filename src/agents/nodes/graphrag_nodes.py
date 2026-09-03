@@ -1030,12 +1030,8 @@ async def guardrail_node(state: AgentState) -> dict:
     )
     if not response:
         response = NO_EVIDENCE_RESPONSE
-    if response == NO_EVIDENCE_RESPONSE and evidence:
-        # Keep a source-derived excerpt when a provider/model emits the
-        # generic empty-result sentence after successful retrieval.
-        fallback = _source_backed_fallback(state.get("query", ""), evidence)
-        if fallback:
-            response = fallback
+    # Retrieval excerpts are context, never a public answer.  If generation
+    # abstains, keep the safe abstention instead of copying a source chunk.
     if _looks_like_raw_evidence(response, evidence):
         # Never expose an un-synthesized retrieval chunk.  The generation node
         # normally prevents this path; this second check protects against
@@ -1049,7 +1045,10 @@ async def guardrail_node(state: AgentState) -> dict:
     # anchor and causes the claim auditor to discard the correct sentence
     # during the guardrail pass. Rebuild citations from the same evidence for
     # source-derived output; reserve direct citations for provider answers.
-    deterministic_response = response.startswith("-") or response.startswith("Các điều/khoản")
+    # Provider formatting (for example a leading bullet) is not proof that a
+    # response is extractive.  Only an explicitly marked route may bypass the
+    # normal claim-entailment audit.
+    deterministic_response = bool((state.get("metadata") or {}).get("deterministic_response"))
     if requires_evidence_verification(state.get("query", "")):
         # Provider/direct citations may come from an earlier shortlist and
         # omit a governing authority that is present in the final evidence.
@@ -1107,54 +1106,6 @@ async def guardrail_node(state: AgentState) -> dict:
     }
     if evidence and not deterministic_response:
         citations = [citation for citation in citations if citation.chunk_id in supported_ids]
-    # The support filter above is claim-oriented and can remove a valid
-    # authority citation when the model paraphrases rather than quotes the
-    # operative clause. Re-attach one verified, public-numbered source after
-    # that filter so high-risk answers never lose their governing authority.
-    if requires_evidence_verification(state.get("query", "")) and evidence:
-        cited_ids = {citation.chunk_id for citation in citations}
-        authority_evidence = [
-            item for item in evidence
-            if item.chunk_id not in cited_ids
-            and item.document_number
-            and item.source_start is not None
-            and item.source_end is not None
-        ]
-        if authority_evidence:
-            authority_evidence.sort(
-                key=lambda item: (
-                    bool(item.legal_status_verified),
-                    any(marker in f"{item.document_type} {item.title}".casefold()
-                        for marker in ("luật", "nghị định", "văn bản hợp nhất")),
-                    float(item.score),
-                ),
-                reverse=True,
-            )
-            citations.extend(_citations_from_evidence(authority_evidence[:1], preserve_order=True))
-    # High-risk legal answers must retain at least one source citation even
-    # when the claim auditor cannot align every generated sentence to a
-    # citation.  Select dynamically from the verified evidence (authority
-    # type/currentness/score), never from a question-to-document mapping.
-    if requires_evidence_verification(state.get("query", "")) and evidence:
-        cited_ids = {citation.chunk_id for citation in citations}
-        authority_evidence = [
-            item for item in evidence
-            if item.chunk_id not in cited_ids
-            and item.source_start is not None
-            and item.source_end is not None
-            and item.document_number
-        ]
-        if authority_evidence:
-            authority_evidence.sort(
-                key=lambda item: (
-                    bool(item.legal_status_verified),
-                    any(marker in f"{item.document_type} {item.title}".casefold()
-                        for marker in ("luật", "nghị định", "văn bản hợp nhất")),
-                    float(item.score),
-                ),
-                reverse=True,
-            )
-            citations.append(_citations_from_evidence(authority_evidence[:1], preserve_order=True)[0])
     metadata = dict(state.get("metadata") or {})
     metadata.update(
         {

@@ -991,7 +991,7 @@ class GraphRepository:
                                max(ci.seed_score)
                            ) AS score
                     FROM candidate_ids ci
-                    JOIN chunks c ON c.chunk_id = ci.chunk_id
+                    JOIN chunks c ON c.dataset_id = :dataset_id AND c.chunk_id = ci.chunk_id
                     JOIN documents d ON d.dataset_id = c.dataset_id AND d.id = c.document_id
                     GROUP BY c.chunk_id, c.document_id, c.text, c.section_title, c.unit_id,
                              c.source_start, c.source_end, c.text_sha256, c.embedding_input_sha256,
