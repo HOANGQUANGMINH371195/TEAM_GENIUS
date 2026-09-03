@@ -21,7 +21,6 @@ from src.services.planner import evidence_gap_plan, followup_queries
 from src.services.request_router import classify_request, input_guardrail
 from src.services.retrieval import (
     decompose_query,
-    is_exclusion_query,
     no_answer_response,
     requires_evidence_verification,
     rerank_legal_candidates,
@@ -221,7 +220,7 @@ async def retrieve_vectors_node(state: AgentState) -> dict:
     metadata = dict(state.get("metadata") or {})
     metadata.update(
         {
-            "route_intent": retrieval_intent(query),
+            "route_intent": route_plan.get("route") or retrieval_intent(query),
             "subquery_count": len(subqueries),
             "retrieval_ms": round((time.perf_counter() - started) * 1000, 2),
             "candidate_count": len(evidence),
@@ -517,113 +516,18 @@ async def generate_node(state: AgentState) -> dict:
     evidence: list[RetrievalResult] = state.get("retrieved_evidence", [])
     if not evidence:
         return result(no_answer_response(state.get("query", "")))
-    source_response = _deterministic_source_rule_response(state.get("query", ""), evidence)
-    # A deterministic extractive shortcut is safe only when one canonical
-    # legal unit is available.  With multiple passages, forcing source text
-    # directly into the response produces duplicated bullets/raw chunks;
-    # let the configured model synthesize the bounded context instead.
-    if source_response and len(evidence) == 1:
-        return result(source_response)
-    # Numeric/entitlement passages need synthesis: the source extractor is
-    # intentionally not used as a public answer because even one long legal
-    # unit can look like an unprocessed chunk.  The model receives the same
-    # verified context and the guardrail still fails closed on unsupported
-    # claims.
-    # Legal-unit enumeration is extractive: render canonical labelled units
-    # directly instead of spending an LLM call (and risking reordering or
-    # inventing a missing item).  The guardrail still audits the resulting
-    # claims and emits the same citation contract.
-    if (
-        retrieval_intent(state.get("query", "")) == "legal_unit"
-        and not requires_evidence_verification(state.get("query", ""))
-    ):
-        return result(_deterministic_legal_unit_response(evidence))
+    # Every evidence-backed legal answer goes through the same bounded model
+    # synthesis.  Earlier single-passage/exclusion shortcuts selected wording
+    # from query phrases and could echo a legal unit instead of answering a
+    # paraphrase. Metadata-only lookups are still allowed to return the
+    # repository's typed direct response before this node.
     response = await get_runtime().generate(
         state.get("query", ""),
         state.get("context", ""),
         timeout_seconds=generation_timeout,
+        route_plan_override=route_plan,
     )
     return result(response)
-
-
-def _deterministic_source_rule_response(
-    query: str, evidence: Sequence[RetrievalResult]
-) -> str:
-    """Render an unambiguous exclusion rule directly from a legal unit.
-
-    Some statutes encode an exclusion as a labelled child unit whose own text
-    is only the label.  When the parent heading explicitly says the units are
-    not covered and the user asks about that exact unit, an LLM adds latency
-    without adding interpretation.  The wording is assembled solely from
-    the retrieved source; no document or answer mapping is encoded here.
-    """
-    normalized_query = " ".join(query.casefold().split())
-    exclusion_intent = (
-        "không được" in normalized_query
-        or "không hưởng" in normalized_query
-        or ("dịch vụ" in normalized_query and "chi trả" in normalized_query)
-    )
-    if not exclusion_intent:
-        return ""
-    query_tokens = {
-        token.casefold()
-        for token in _CLAIM_TOKEN.findall(query)
-        if len(token) > 2 and token.casefold() not in _CLAIM_STOPWORDS
-    }
-    for item in evidence:
-        source = " ".join((item.title, item.section_title, item.content)).strip()
-        lowered = source.casefold()
-        if "không được hưởng" not in lowered:
-            continue
-        source_tokens = {
-            token.casefold()
-            for token in _CLAIM_TOKEN.findall(source)
-            if len(token) > 2 and token.casefold() not in _CLAIM_STOPWORDS
-        }
-        if len(query_tokens & source_tokens) < 2:
-            continue
-        label = " ".join((item.section_title or item.content).split())
-        if not label:
-            continue
-        article = re.search(r"\bĐiều\s+\d+[a-zđ]?", source, flags=re.IGNORECASE)
-        unit = re.match(r"\s*(\d+)[.)]", label)
-        legal_pointer = ""
-        if article and unit:
-            legal_pointer = f" Căn cứ {article.group(0)} khoản {unit.group(1)}."
-        return f"Theo nguồn pháp lý được cung cấp, {label} thuộc trường hợp không được hưởng BHYT.{legal_pointer}"
-    return ""
-
-
-def _deterministic_legal_unit_response(evidence: Sequence[RetrievalResult]) -> str:
-    """Format enumerated legal units without an LLM round trip.
-
-    Only source-backed text is rendered, with stable ordering and a hard
-    output bound.  Duplicate units are removed by unit/chunk identity.
-    """
-    lines: list[str] = []
-    seen: set[str] = set()
-    for index, item in enumerate(evidence, start=1):
-        identity = item.unit_id or item.chunk_id
-        if not identity or identity in seen:
-            continue
-        text = " ".join(item.content.split())
-        if not text:
-            continue
-        seen.add(identity)
-        label = " ".join((item.section_title or "").split())
-        if not label:
-            label = f"Nội dung {index}"
-        # Keep extractive lookup answers readable without echoing a full
-        # passage.  Prefer complete sentences and cap each unit independently.
-        if len(text) > 320:
-            match = re.match(r"(.{80,320}?[.!?。！？])(?:\s|$)", text)
-            text = match.group(1) if match else text[:320].rstrip() + "…"
-        lines.append(f"- {label}: {text}")
-        if len(lines) >= 8:
-            break
-    if not lines:
-        return no_answer_response(reason="no_evidence")
-    return "Các điều/khoản được nguồn pháp lý xác nhận:\n" + "\n".join(lines)
 
 
 def _sanitize_output(value: str, evidence: Sequence[RetrievalResult] = ()) -> str:
@@ -734,72 +638,6 @@ def _citations_from_evidence(
         if len(citations) >= get_settings().max_citations:
             break
     return citations
-
-
-def _select_supported_citations(
-    citations: Sequence[Citation], response: str, query: str, *, limit: int = 6
-) -> list[Citation]:
-    """Keep a compact citation set that actually overlaps the answer.
-
-    Deterministic extractive responses used to attach the whole retrieval
-    bundle (often 12 citations), including unrelated neighbouring documents.
-    This is a query/answer-derived precision filter: it scores overlap with
-    the rendered response and the user's terms, preserves source order for
-    ties, and never invents or rewrites a citation.
-    """
-    if not citations or limit <= 0:
-        return []
-    response_sequence = _CLAIM_TOKEN.findall(response.casefold())
-    response_tokens = set(response_sequence)
-    response_triples = set(
-        zip(response_sequence, response_sequence[1:], response_sequence[2:])
-    )
-    query_tokens = set(_CLAIM_TOKEN.findall(query.casefold()))
-    scored: list[tuple[float, int, Citation]] = []
-    for index, citation in enumerate(citations):
-        source = " ".join(
-            (citation.title, citation.section_title, citation.quote)
-        ).casefold()
-        source_sequence = _CLAIM_TOKEN.findall(source)
-        source_tokens = set(source_sequence)
-        source_triples = set(
-            zip(source_sequence, source_sequence[1:], source_sequence[2:])
-        )
-        answer_overlap = len(response_tokens & source_tokens)
-        # A citation must support what was actually rendered. Query overlap
-        # alone is insufficient because broad legal terms (for example
-        # “thanh toán” or “BHYT”) occur in many unrelated provisions. Requiring
-        # two answer tokens removes neighbouring retrieval noise while keeping
-        # extractive source responses citeable.
-        triple_overlap = len(response_triples & source_triples)
-        query_overlap = len(query_tokens & source_tokens)
-        if (
-            triple_overlap
-            or answer_overlap >= 4
-            or (is_exclusion_query(query) and query_overlap >= 2)
-            or (
-                is_exclusion_query(query)
-                and citation.evidence_kind == "legal_unit"
-                and query_overlap >= 1
-            )
-            or (
-                requires_evidence_verification(query)
-                and citation.evidence_kind == "legal_unit"
-                and query_overlap >= 2
-            )
-        ):
-            score = float(
-                3 * triple_overlap
-                + answer_overlap
-                + (query_overlap * 2.0 if is_exclusion_query(query) else 0)
-                + (2.0 if is_exclusion_query(query) and citation.evidence_kind == "legal_unit" else 0)
-            )
-            scored.append((score, index, citation))
-    if not scored:
-        return []
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    selected = [citation for _, _, citation in scored[:limit]]
-    return selected[:limit]
 
 
 def _claim_tokens(value: str) -> set[str]:
@@ -973,15 +811,6 @@ async def guardrail_node(state: AgentState) -> dict:
     # copying a candidate passage here previously leaked raw chunks and could
     # turn a ranking mistake into a confident legal answer.
     numeric_coverage_added = False
-    # Extractive/deterministic responses are built from the final evidence
-    # list. A direct-citation shortcut may belong to an earlier document
-    # anchor and causes the claim auditor to discard the correct sentence
-    # during the guardrail pass. Rebuild citations from the same evidence for
-    # source-derived output; reserve direct citations for provider answers.
-    # Provider formatting (for example a leading bullet) is not proof that a
-    # response is extractive.  Only an explicitly marked route may bypass the
-    # normal claim-entailment audit.
-    deterministic_response = bool((state.get("metadata") or {}).get("deterministic_response"))
     metadata = dict(state.get("metadata") or {})
     route_plan = metadata.get("route_plan") or {}
     strict_verification = (
@@ -994,7 +823,23 @@ async def guardrail_node(state: AgentState) -> dict:
         # omit a governing authority that is present in the final evidence.
         # Rebuild from the verified bundle and reserve one slot for the best
         # primary/current source before applying the citation cap.
-        ordered = _citations_from_evidence(evidence, preserve_order=True)
+        verified_direct = [
+            citation
+            for citation in state.get("direct_citations", [])
+            if citation.evidence_kind == "document_metadata"
+            and citation.provenance_verified
+        ]
+        ordered = [
+            *verified_direct,
+            *_citations_from_evidence(evidence, preserve_order=True),
+        ]
+        seen_citations: set[str] = set()
+        ordered = [
+            citation
+            for citation in ordered
+            if citation.chunk_id not in seen_citations
+            and not seen_citations.add(citation.chunk_id)
+        ]
         authority_items = [
             item for item in evidence
             if item.document_number and item.source_start is not None and item.source_end is not None
@@ -1015,20 +860,9 @@ async def guardrail_node(state: AgentState) -> dict:
                 ordered = authority_citation + [item for item in ordered if item.chunk_id != authority_id]
         citations = ordered[: get_settings().max_citations]
     else:
-        citations = (
-            _citations_from_evidence(evidence, preserve_order=deterministic_response)
-            if deterministic_response
-            else state.get("direct_citations") or _citations_from_evidence(evidence)
-        )
-    if deterministic_response:
-        citations = _select_supported_citations(
-            citations,
-            response,
-            state.get("query", ""),
-            limit=min(6, get_settings().max_citations),
-        )
+        citations = state.get("direct_citations") or _citations_from_evidence(evidence)
     claims = _audit_claims(response, citations, state.get("query", ""))
-    if evidence and not deterministic_response and any(
+    if evidence and any(
         claim["verification"] != "entailed" for claim in claims
     ):
         response, claims = _retain_supported_claims(claims)
@@ -1044,7 +878,7 @@ async def guardrail_node(state: AgentState) -> dict:
         if claim.get("verification") == "entailed"
         for evidence_id in claim.get("evidence_ids", [])
     }
-    if evidence and not deterministic_response:
+    if evidence:
         citations = [citation for citation in citations if citation.chunk_id in supported_ids]
     metadata.update(
         {

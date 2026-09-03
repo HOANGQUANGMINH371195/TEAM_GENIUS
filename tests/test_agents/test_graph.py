@@ -7,11 +7,9 @@ from src.agents.nodes.graphrag_nodes import (
     _audit_claims,
     _claim_facts_supported,
     _deduplicate_response_lines,
-    _deterministic_legal_unit_response,
     _looks_like_raw_evidence,
     _pack_context,
     _sanitize_output,
-    _select_supported_citations,
     generate_node,
     guardrail_node,
     intake_node,
@@ -81,31 +79,6 @@ def test_claim_audit_does_not_stitch_numeric_facts_across_sources():
 
     assert claims[0]["verification"] == "unsupported"
     assert claims[0]["evidence_ids"] == []
-
-
-def test_supported_citations_drop_query_only_neighbours():
-    citations = [
-        Citation(
-            document_id="doc-core",
-            chunk_id="chunk-core",
-            title="Luật bảo hiểm y tế",
-            quote="Người bệnh được hưởng 100% chi phí khám bệnh, chữa bệnh.",
-        ),
-        Citation(
-            document_id="doc-noise",
-            chunk_id="chunk-noise",
-            title="Hướng dẫn thanh toán BHYT",
-            quote="Thanh toán chi phí theo quy định chung.",
-        ),
-    ]
-
-    selected = _select_supported_citations(
-        citations,
-        "- Người bệnh được hưởng 100% chi phí khám bệnh, chữa bệnh.",
-        "BHYT thanh toán bao nhiêu?",
-    )
-
-    assert [item.chunk_id for item in selected] == ["chunk-core"]
 
 
 def test_model_context_and_output_never_expose_storage_identifiers():
@@ -186,6 +159,52 @@ async def test_agent_basic_flow():
     assert result["response"] == "Mức hưởng BHYT được quy định tại Điều 22."
     assert result["citations"][0]["chunk_id"] == "chunk-1"
     assert result["claims"][0]["claim_type"] == "entitlement"
+
+
+@pytest.mark.asyncio
+async def test_one_intake_route_contract_reaches_retrieval_and_generation(monkeypatch):
+    from src.services.request_router import RouteDecision
+
+    router = AsyncMock(
+        return_value=(
+            RouteDecision(
+                route="table",
+                risk="high",
+                needs_table=True,
+                confidence=0.95,
+            ),
+            "model",
+        )
+    )
+    monkeypatch.setattr("src.agents.nodes.graphrag_nodes.classify_request", router)
+    evidence = RetrievalResult(
+        chunk_id="chunk-route",
+        document_id="doc-route",
+        dataset_id="release-route",
+        title="Luật BHYT",
+        content="Người bệnh đủ điều kiện được hưởng 100% chi phí khám bệnh, chữa bệnh.",
+        source_start=0,
+        source_end=78,
+        channels=["lexical"],
+    )
+    with patch("src.agents.nodes.graphrag_nodes.get_runtime") as runtime_factory:
+        runtime = runtime_factory.return_value
+        runtime.retrieve_bundle = AsyncMock(return_value=RetrievalBundle([evidence], []))
+        runtime.generate = AsyncMock(
+            return_value="Người bệnh đủ điều kiện được hưởng 100% chi phí khám bệnh, chữa bệnh."
+        )
+        from src.agents.graph import build_graph
+
+        result = await build_graph().ainvoke(
+            {"query": "Trường hợp này được BHYT thanh toán bao nhiêu?"}
+        )
+
+    retrieval_route = runtime.retrieve_bundle.await_args.kwargs["route_plan_override"]
+    generation_route = runtime.generate.await_args.kwargs["route_plan_override"]
+    assert router.await_count == 1
+    assert retrieval_route["route"] == generation_route["route"] == "table"
+    assert retrieval_route["verifier_policy"] == generation_route["verifier_policy"] == "strict"
+    assert result["response"].startswith("Người bệnh đủ điều kiện")
 
 
 @pytest.mark.asyncio
@@ -276,6 +295,33 @@ async def test_official_status_metadata_can_pass_status_gate():
         }
     )
     assert result["verification_failed"] is False
+
+
+@pytest.mark.asyncio
+async def test_strict_output_guardrail_preserves_verified_metadata_citation():
+    citation = Citation(
+        document_id="doc-1",
+        chunk_id="metadata:doc-1",
+        dataset_id="release-1",
+        title="Luật BHYT",
+        quote="Luật BHYT còn hiệu lực.",
+        evidence_kind="document_metadata",
+        provenance_verified=True,
+        source_url="https://vbpl.vn/example",
+    )
+
+    result = await guardrail_node(
+        {
+            "query": "Luật BHYT còn hiệu lực không?",
+            "response": "Luật BHYT còn hiệu lực.",
+            "retrieved_evidence": [],
+            "direct_citations": [citation],
+            "metadata": {"route_plan": {"verifier_policy": "strict"}},
+        }
+    )
+
+    assert result["citations"] == [citation.model_dump()]
+    assert result["claims"][0]["verification"] == "entailed"
 
 
 @pytest.mark.asyncio
@@ -421,6 +467,39 @@ async def test_high_risk_multi_passage_query_uses_synthesis_instead_of_raw_chunk
     runtime_factory.return_value.generate.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_single_exclusion_passage_uses_model_and_propagates_route_contract():
+    evidence = RetrievalResult(
+        chunk_id="chunk-exclusion",
+        document_id="doc-law",
+        dataset_id="release-1",
+        title="Luật BHYT",
+        section_title="Điều 23",
+        content="Dịch vụ thẩm mỹ thuộc trường hợp không được hưởng bảo hiểm y tế.",
+    )
+    route_plan = {
+        "route": "topical",
+        "risk": "high",
+        "verifier_policy": "strict",
+        "generation_budget_ms": 10_000,
+    }
+    with patch("src.agents.nodes.graphrag_nodes.get_runtime") as runtime_factory:
+        runtime_factory.return_value.generate = AsyncMock(
+            return_value="BHYT không chi trả dịch vụ thẩm mỹ theo nguồn được cung cấp."
+        )
+        result = await generate_node(
+            {
+                "query": "BHYT có chi trả dịch vụ thẩm mỹ không?",
+                "context": "NGUỒN THỨ 1\n...",
+                "retrieved_evidence": [evidence],
+                "metadata": {"route_plan": route_plan},
+            }
+        )
+
+    assert result["response"].startswith("BHYT không chi trả")
+    assert runtime_factory.return_value.generate.await_args.kwargs["route_plan_override"] == route_plan
+
+
 def test_raw_chunk_detector_catches_long_extractive_bullet():
     content = " ".join(["Nguồn pháp lý quy định điều kiện thanh toán BHYT."] * 20)
     evidence = [RetrievalResult(chunk_id="chunk-1", document_id="doc-1", content=content)]
@@ -483,25 +562,3 @@ def test_context_packer_deduplicates_same_canonical_unit_across_channels():
 
     assert context.count("NGUỒN THỨ") == 1
     assert context.count("Một quy tắc pháp lý.") == 1
-
-
-def test_legal_unit_formatter_is_stable_and_deduplicated():
-    evidence = [
-        RetrievalResult(
-            chunk_id="chunk-1", document_id="doc-1", unit_id="unit-1", section_title="a)",
-            content="Điều kiện thứ nhất.",
-        ),
-        RetrievalResult(
-            chunk_id="chunk-2", document_id="doc-1", unit_id="unit-1", section_title="a)",
-            content="Bản trùng không được lặp.",
-        ),
-        RetrievalResult(
-            chunk_id="chunk-3", document_id="doc-1", unit_id="unit-2", section_title="b)",
-            content="Điều kiện thứ hai.",
-        ),
-    ]
-    formatted = _deterministic_legal_unit_response(evidence)
-    assert formatted.count("a):") == 1
-    assert "Điều kiện thứ nhất" in formatted
-    assert "Điều kiện thứ hai" in formatted
-    assert "Bản trùng" not in formatted

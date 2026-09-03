@@ -3848,7 +3848,12 @@ class GraphRagRuntime:
             return RetrievalBundle(evidence=_verified_evidence(list(unique.values())), relations=[])
 
     async def generate(
-        self, query: str, context: str, *, timeout_seconds: float | None = None
+        self,
+        query: str,
+        context: str,
+        *,
+        timeout_seconds: float | None = None,
+        route_plan_override: dict[str, Any] | None = None,
     ) -> str:
         started = time.perf_counter()
         settings = get_settings()
@@ -3877,10 +3882,13 @@ class GraphRagRuntime:
             settings.llm_temperature,
             settings.llm_max_output_tokens,
             _RETRIEVAL_POLICY_VERSION,
+            _generation_route_cache_key(route_plan_override),
         )
         context_digest = hashlib.sha256(context.encode("utf-8")).hexdigest()
         answer_key = (answer_namespace, f"{normalized_query}\n{context_digest}")
-        cache_allowed = _answer_cache_allowed(query)
+        cache_allowed = _answer_cache_allowed(
+            query, route_plan_override=route_plan_override
+        )
         cached = self._answer_cache.get(answer_key) if current_release and context and cache_allowed else None
         if cached and time.monotonic() - cached[1] < 60:
             generation_trace["outcome"] = "cache"
@@ -3888,7 +3896,9 @@ class GraphRagRuntime:
             metrics.inc("generation_requests_total", outcome="cache")
             metrics.observe("generation_duration_seconds", time.perf_counter() - started, outcome="cache")
             return cached[0]
-        answer_instruction = _answer_format_instruction(query)
+        answer_instruction = _answer_format_instruction(
+            query, route_plan_override=route_plan_override
+        )
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(
@@ -4390,14 +4400,35 @@ def _format_metadata_answer(
     return " ".join(values)
 
 
-def _answer_format_instruction(query: str) -> str:
-    """Keep generation concise and deterministic by retrieval intent."""
+def _generation_route_cache_key(route_plan_override: dict[str, Any] | None) -> tuple[object, ...]:
+    """Return the small route subset that can change generated prose."""
+    if not route_plan_override:
+        return ()
+    return (
+        str(route_plan_override.get("route") or ""),
+        str(route_plan_override.get("risk") or ""),
+        str(route_plan_override.get("verifier_policy") or ""),
+        bool(route_plan_override.get("needs_table")),
+        bool(route_plan_override.get("needs_current_law")),
+    )
+
+
+def _answer_format_instruction(
+    query: str, *, route_plan_override: dict[str, Any] | None = None
+) -> str:
+    """Keep generation concise using the route already chosen at intake."""
     synthesis_rule = (
         "Không chép nguyên văn nguồn dài, không lặp lại cùng một ý, "
         "không trả tiêu đề/đoạn văn như chunk; hãy tổng hợp ý nghĩa pháp lý. "
     )
-    intent = retrieval_intent(query)
-    route = build_route_plan(query, settings=get_settings()).route
+    route = str((route_plan_override or {}).get("route") or "")
+    if not route:
+        route = build_route_plan(query, settings=get_settings()).route
+    intent = {
+        "exact": "lookup",
+        "temporal": "temporal",
+        "relational": "relational",
+    }.get(route, retrieval_intent(query))
     if intent in {"lookup", "legal_unit"}:
         return synthesis_rule + "Trả lời tối đa 5 gạch đầu dòng, nêu đúng điều/khoản và không suy diễn."
     if intent == "temporal":
@@ -4440,14 +4471,26 @@ def render_grounded_answer(answer: GroundedAnswer) -> str:
     return "\n\n".join(section for section in sections if section).strip()
 
 
-def _answer_cache_allowed(query: str) -> bool:
+def _answer_cache_allowed(
+    query: str, *, route_plan_override: dict[str, Any] | None = None
+) -> bool:
     """Only cache low-risk public answers after release-scoped verification.
 
     Temporal, status/payment and other evidence-verification intents must
     execute the verifier/provider path on every request until an external
     invalidation contract is proven.
     """
-    return retrieval_intent(query) not in {"temporal", "relational"} and not requires_evidence_verification(query)
+    if route_plan_override:
+        return (
+            str(route_plan_override.get("route") or "")
+            not in {"temporal", "relational"}
+            and str(route_plan_override.get("risk") or "") != "high"
+            and str(route_plan_override.get("verifier_policy") or "") != "strict"
+        )
+    return (
+        retrieval_intent(query) not in {"temporal", "relational"}
+        and not requires_evidence_verification(query)
+    )
 
 
 def _verified_evidence(evidence: Sequence[RetrievalResult]) -> list[RetrievalResult]:

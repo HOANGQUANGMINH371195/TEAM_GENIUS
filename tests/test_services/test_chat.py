@@ -14,6 +14,7 @@ from src.services.chat import (
     GraphRagRuntime,
     RetrievalBundle,
     _answer_cache_allowed,
+    _answer_format_instruction,
     _apply_document_ranking_metadata,
     _filter_document_scope,
     _format_metadata_answer,
@@ -213,6 +214,24 @@ def test_answer_cache_excludes_temporal_and_high_risk_intents():
     assert not _answer_cache_allowed("Quyền lợi BHYT là gì?")
     assert not _answer_cache_allowed("Văn bản này còn hiệu lực không?")
     assert not _answer_cache_allowed("Mức chi trả là bao nhiêu?")
+
+
+def test_generation_uses_intake_route_for_format_and_cache_policy():
+    strict_table = {
+        "route": "table",
+        "risk": "high",
+        "verifier_policy": "strict",
+        "needs_table": True,
+    }
+
+    instruction = _answer_format_instruction(
+        "Giải thích trường hợp này", route_plan_override=strict_table
+    )
+
+    assert "tỷ lệ, số tiền hoặc thời hạn" in instruction
+    assert not _answer_cache_allowed(
+        "Giải thích trường hợp này", route_plan_override=strict_table
+    )
 
 
 @pytest.mark.asyncio
