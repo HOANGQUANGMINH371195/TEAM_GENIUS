@@ -37,7 +37,13 @@ _INTERNAL_CONTEXT_FIELD = re.compile(
     flags=re.IGNORECASE,
 )
 _CLAIM_TOKEN = re.compile(r"[0-9A-Za-zÀ-ỹĐđ]+", flags=re.IGNORECASE)
-_FACT_NUMBER = re.compile(r"\d+(?:[./%-]\d+)*", re.IGNORECASE)
+_MEASURED_FACT = re.compile(
+    r"(?P<number>\d+(?:[.,/]\d+)*)\s*(?P<unit>%|lần|tháng|năm|ngày|tuổi|đồng|triệu|tỷ)"
+    r"(?=$|\s|[.,;:!?])"
+    r"|(?P<date>\b\d{1,2}[./-]\d{1,2}[./-](?:19|20)\d{2}\b)"
+    r"|(?P<year>\b(?:19|20)\d{2}\b)",
+    re.IGNORECASE,
+)
 _STATUS_POLARITIES = (
     ("hết hiệu lực", "còn hiệu lực"),
     ("không còn hiệu lực", "còn hiệu lực"),
@@ -589,24 +595,34 @@ def _looks_like_raw_evidence(value: str, evidence: Sequence[RetrievalResult]) ->
     """
     if len(value) < 360 or not evidence:
         return False
-    response_tokens = set(_CLAIM_TOKEN.findall(value.casefold()))
-    if len(response_tokens) < 8:
+    response_tokens = _CLAIM_TOKEN.findall(value.casefold())
+    if len(response_tokens) < 20:
         return False
     lines = [line.strip(" -*") for line in value.splitlines() if line.strip()]
+
+    def copy_ratio(candidate: Sequence[str], source: Sequence[str], size: int = 6) -> float:
+        if len(candidate) < size or len(source) < size:
+            return 0.0
+        candidate_ngrams = list(zip(*(candidate[offset:] for offset in range(size))))
+        source_ngrams = set(zip(*(source[offset:] for offset in range(size))))
+        return sum(ngram in source_ngrams for ngram in candidate_ngrams) / len(candidate_ngrams)
+
     for item in evidence:
-        source_tokens = set(
-            _CLAIM_TOKEN.findall(f"{item.section_title} {item.content}".casefold())
+        source_tokens = _CLAIM_TOKEN.findall(
+            f"{item.section_title} {item.content}".casefold()
         )
         if not source_tokens:
             continue
-        overlap = len(response_tokens & source_tokens) / len(response_tokens)
-        if overlap >= 0.90:
+        # Vocabulary overlap is expected in legal summaries and cannot prove a
+        # chunk was copied. Consecutive six-token overlap detects actual pasted
+        # prose while allowing concise paraphrases that use the same legal terms.
+        if copy_ratio(response_tokens, source_tokens) >= 0.78:
             return True
         for line in lines:
             if len(line) < 240:
                 continue
-            line_tokens = set(_CLAIM_TOKEN.findall(line.casefold()))
-            if len(line_tokens) >= 20 and len(line_tokens & source_tokens) / len(line_tokens) >= 0.88:
+            line_tokens = _CLAIM_TOKEN.findall(line.casefold())
+            if len(line_tokens) >= 20 and copy_ratio(line_tokens, source_tokens) >= 0.82:
                 return True
     return False
 
@@ -684,16 +700,22 @@ def _claim_facts_supported(claim: str, evidence: Sequence[str]) -> bool:
     evidence_text = " ".join(evidence).casefold()
     def normalized_numbers(value: str) -> set[str]:
         normalized: set[str] = set()
-        for number in _FACT_NUMBER.findall(value):
-            # Legal text frequently alternates between ``5``/``05`` and
-            # ``6``/``06``.  Compare numeric identity, not presentation, while
-            # preserving compound tokens such as dates and percentages.
-            normalized.add(
-                ".".join(
-                    part.lstrip("0") or "0"
-                    for part in re.split(r"(?=[./%-])|(?<=[./%-])", number)
-                )
+        for match in _MEASURED_FACT.finditer(value):
+            raw_date = match.group("date")
+            raw_year = match.group("year")
+            if raw_date:
+                parts = re.split(r"[./-]", raw_date)
+                normalized.add("date:" + "/".join(part.lstrip("0") or "0" for part in parts))
+                continue
+            if raw_year:
+                normalized.add("year:" + raw_year)
+                continue
+            number = (match.group("number") or "").replace(",", ".")
+            unit = (match.group("unit") or "").casefold()
+            normalized_number = ".".join(
+                part.lstrip("0") or "0" for part in number.split(".")
             )
+            normalized.add(f"measure:{normalized_number}:{unit}")
         return normalized
 
     if not normalized_numbers(claim_text).issubset(normalized_numbers(evidence_text)):

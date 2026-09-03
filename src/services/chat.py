@@ -4424,7 +4424,10 @@ def _answer_format_instruction(
         "Trường conclusion phải mở đầu bằng câu trả lời trực tiếp, không được "
         "chỉ ghi 'Kết luận', 'Điều kiện' hoặc dẫn sang danh sách. Khi nguồn nêu "
         "trực tiếp kết quả định lượng cho trọng tâm câu hỏi, conclusion phải nêu "
-        "kết quả đó. "
+        "kết quả đó. Nếu người dùng không hỏi lịch sử, không trình bày ngưỡng cũ "
+        "song song với ngưỡng hiện hành; ưu tiên quy tắc hiện hành trực tiếp trong "
+        "nguồn có hiệu lực và thẩm quyền cao hơn. Không tự đếm số điều kiện nếu "
+        "nguồn không phát biểu con số đó. "
     )
     answer_requirements = [
         str(value)
