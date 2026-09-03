@@ -52,3 +52,4 @@ async def test_model_router_is_clamped_to_baseline_safety(monkeypatch):
     assert source == "model"
     assert decision.route == "global"
     assert not decision.needs_graph
+    assert decision.answer_requirements == ["direct_conclusion"]

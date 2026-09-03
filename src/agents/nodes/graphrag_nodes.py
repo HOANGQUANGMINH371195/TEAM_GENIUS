@@ -124,6 +124,7 @@ async def intake_node(state: AgentState) -> dict:
         "needs_calculator": decision.needs_calculator,
         "needs_graph": decision.needs_graph,
         "needs_current_law": decision.needs_current_law,
+        "answer_requirements": decision.answer_requirements,
     }
     if decision.route == "policy" and decision.direct_response:
         return {"query": guard.query, "response": decision.direct_response, "metadata": metadata}
@@ -739,24 +740,36 @@ def _audit_claims(
             }
         )
     source_tokens = {citation_id: _claim_tokens(value) for citation_id, value in source_text.items()}
+    selected_source_text = [
+        source_text[citation_id]
+        for citation_id in (model_source_ids or set())
+        if citation_id in source_text
+    ]
     claims: list[dict] = []
     for index, sentence in enumerate(sentences, start=1):
         tokens = _claim_tokens(sentence)
         best_id = ""
         best_overlap = 0
+        facts_supported_by_contract = bool(
+            model_source_ids is not None
+            and selected_source_text
+            and _claim_facts_supported(sentence, selected_source_text)
+        )
         for citation_id, evidence_tokens in source_tokens.items():
-            if not _claim_facts_supported(sentence, [source_text[citation_id]]):
+            if (
+                model_source_ids is None
+                and not _claim_facts_supported(sentence, [source_text[citation_id]])
+            ):
                 continue
             overlap = len(tokens & evidence_tokens)
             if overlap > best_overlap:
                 best_id, best_overlap = citation_id, overlap
-        if model_source_ids is not None and not best_id:
+        if model_source_ids is not None and facts_supported_by_contract and not best_id:
             best_id = next(
                 (
                     citation.chunk_id
                     for citation in citations
                     if citation.chunk_id in model_source_ids
-                    and _claim_facts_supported(sentence, [source_text[citation.chunk_id]])
                 ),
                 "",
             )
@@ -769,7 +782,12 @@ def _audit_claims(
             verification, reason = "unsupported", "claim has no verifiable content"
         elif requires_official_status and not official_status_supported:
             verification, reason = "unsupported", "official status provenance is unavailable"
-        elif not best_id or not _claim_facts_supported(sentence, [source_text[best_id]]):
+        elif model_source_ids is not None and not facts_supported_by_contract:
+            verification, reason = "unsupported", "numeric/status facts conflict with selected sources"
+        elif not best_id or (
+            model_source_ids is None
+            and not _claim_facts_supported(sentence, [source_text[best_id]])
+        ):
             verification, reason = "unsupported", "facts are not supported by one cited source"
         elif model_source_ids is not None and best_id in model_source_ids:
             verification, reason = (
@@ -788,7 +806,10 @@ def _audit_claims(
         )
         token_denominator = max(1, len(tokens))
         faithfulness = min(1.0, best_overlap / token_denominator)
-        factuality = 1.0 if best_id and _claim_facts_supported(sentence, [source_text[best_id]]) else 0.0
+        factuality = 1.0 if (
+            facts_supported_by_contract
+            or (best_id and _claim_facts_supported(sentence, [source_text[best_id]]))
+        ) else 0.0
         if best_citation is not None and not best_citation.provenance_verified:
             factuality *= 0.75
         completeness = min(1.0, best_overlap / max(1, len(_claim_tokens(query)))) if query else faithfulness

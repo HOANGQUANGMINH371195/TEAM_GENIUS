@@ -137,20 +137,32 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
     settings = get_settings()
     database_url = _database_url()
     retries = settings.db_connect_retries
-    resolved_hosts = await _resolve_ipv4_hosts(database_url)
-    candidates: tuple[str | None, ...] = resolved_hosts or (None,)
+    # Resolve managed-DB hosts only when constructing/reconstructing the pool.
+    # Doing DNS work before every short repository session multiplied latency
+    # across the retrieval DAG even though all sessions shared one engine.
+    if _engine is None:
+        resolved_hosts = await _resolve_ipv4_hosts(database_url)
+        candidates: tuple[str | None, ...] = resolved_hosts or (None,)
+    else:
+        candidates = (_engine_host,)
 
     for attempt in range(retries):
         session: AsyncSession | None = None
         # Keep an existing healthy pool. A failed attempt disposes it and the
         # next attempt rotates to another resolved IPv4 candidate.
         host = _engine_host if _engine is not None else candidates[attempt % len(candidates)]
+        verify_new_pool = _engine is None
         try:
             _ensure_engine(database_url, host)
             assert _session_factory is not None
             session = _session_factory()
-            async with asyncio.timeout(settings.db_connect_timeout):
-                await session.execute(text("SELECT 1"))
+            # ``pool_pre_ping`` validates every physical checkout. The explicit
+            # probe is needed only once when a pool is first created so host
+            # rotation/retry remains bounded without adding an extra SQL RTT to
+            # every repository operation.
+            if verify_new_pool:
+                async with asyncio.timeout(settings.db_connect_timeout):
+                    await session.execute(text("SELECT 1"))
         except Exception:
             await _dispose_after_connect_failure(session)
             if attempt + 1 < retries:
@@ -187,8 +199,6 @@ async def check_database() -> bool:
         return True
     except Exception:
         return False
-    finally:
-        await dispose_database()
 
 
 async def dispose_database() -> None:

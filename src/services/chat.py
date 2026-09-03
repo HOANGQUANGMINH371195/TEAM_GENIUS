@@ -22,7 +22,7 @@ from sqlalchemy import text
 from src.agents.prompts import NO_EVIDENCE_RESPONSE, SYSTEM_PROMPT
 from src.config import get_settings
 from src.db.repositories import GraphRepository
-from src.db.session import dispose_database, session_scope
+from src.db.session import session_scope
 from src.domain.route_plan import apply_model_route, build_route_plan
 from src.integrations.embeddings import EmbeddingModel, get_embedding_model
 from src.integrations.langfuse import llm_invoke_config, resolve_prompt, trace_span
@@ -355,12 +355,6 @@ class GraphRagRuntime:
             return_exceptions=True,
         )
         valid = [item for item in (original, expanded) if isinstance(item, RetrievalBundle)]
-        if len(valid) < 2:
-            # A cancelled asyncpg operation can leave a pooled connection in
-            # an uncertain transaction state. Reset the local pool only after
-            # both adaptive branches have finished, so a timed-out branch
-            # cannot poison the next benchmark/request.
-            await dispose_database()
         if not valid:
             first_error = original if isinstance(original, BaseException) else expanded
             raise first_error
@@ -567,7 +561,6 @@ class GraphRagRuntime:
             except TimeoutError as exc:
                 metrics.inc("retrieval_requests_total", mode="provider", outcome="timeout")
                 metrics.observe("retrieval_duration_seconds", time.perf_counter() - started, mode="provider")
-                await dispose_database()
                 raise GraphRagUnavailableError("Retrieval deadline exceeded") from exc
             except Exception:
                 metrics.inc("retrieval_requests_total", mode="provider", outcome="error")
@@ -4414,6 +4407,10 @@ def _generation_route_cache_key(route_plan_override: dict[str, Any] | None) -> t
         str(route_plan_override.get("verifier_policy") or ""),
         bool(route_plan_override.get("needs_table")),
         bool(route_plan_override.get("needs_current_law")),
+        tuple(
+            str(value)
+            for value in (route_plan_override.get("answer_requirements") or [])
+        ),
     )
 
 
@@ -4424,7 +4421,22 @@ def _answer_format_instruction(
     synthesis_rule = (
         "Không chép nguyên văn nguồn dài, không lặp lại cùng một ý, "
         "không trả tiêu đề/đoạn văn như chunk; hãy tổng hợp ý nghĩa pháp lý. "
+        "Trường conclusion phải mở đầu bằng câu trả lời trực tiếp, không được "
+        "chỉ ghi 'Kết luận', 'Điều kiện' hoặc dẫn sang danh sách. Khi nguồn nêu "
+        "trực tiếp kết quả định lượng cho trọng tâm câu hỏi, conclusion phải nêu "
+        "kết quả đó. "
     )
+    answer_requirements = [
+        str(value)
+        for value in ((route_plan_override or {}).get("answer_requirements") or [])
+        if str(value)
+    ]
+    if answer_requirements:
+        synthesis_rule += (
+            "Các thành phần bắt buộc do router xác định: "
+            + ", ".join(answer_requirements)
+            + ". "
+        )
     route = str((route_plan_override or {}).get("route") or "")
     if not route:
         route = build_route_plan(query, settings=get_settings()).route

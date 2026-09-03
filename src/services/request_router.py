@@ -31,6 +31,19 @@ class RouteDecision(BaseModel):
     needs_calculator: bool = False
     needs_graph: bool = False
     needs_current_law: bool = False
+    answer_requirements: list[
+        Literal[
+            "direct_conclusion",
+            "rate",
+            "amount",
+            "conditions",
+            "exceptions",
+            "authority",
+            "effective_time",
+            "procedure_steps",
+            "comparison",
+        ]
+    ] = Field(default_factory=list, max_length=6)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     direct_response: str | None = Field(default=None, max_length=240)
 
@@ -78,6 +91,7 @@ def _baseline_decision(plan: RoutePlan) -> RouteDecision:
         needs_calculator=plan.route == "table" and any(token in plan.required_facts for token in ("conditions", "authority")),
         needs_graph="neo4j" in plan.providers,
         needs_current_law=plan.risk == "high",
+        answer_requirements=["direct_conclusion"],
         confidence=0.5,
     )
 
@@ -108,6 +122,15 @@ def _clamp_decision(decision: RouteDecision, baseline: RouteDecision) -> RouteDe
                 if route == "policy" and decision.direct_response
                 else None
             ),
+            "answer_requirements": (
+                []
+                if route == "policy"
+                else list(
+                    dict.fromkeys(
+                        ["direct_conclusion", *decision.answer_requirements]
+                    )
+                )[:6]
+            ),
         }
     )
 
@@ -130,7 +153,12 @@ thời gian tham gia phải đánh dấu risk=high để buộc kiểm chứng n
 không được hạ xuống low chỉ vì route là topical. needs_graph chỉ bật cho temporal/relational. needs_calculator chỉ bật khi cần
 phép tính từ giá trị người dùng hoặc giá trị đã truy hồi. Với greeting, cảm ơn
 hoặc câu hỏi ngoài phạm vi BHYT, route=policy và điền direct_response là một câu
-tiếng Việt lịch sự, tối đa 25 từ; các route khác phải để direct_response=null."""
+tiếng Việt lịch sự, tối đa 25 từ; các route khác phải để direct_response=null.
+Với mọi route pháp lý, answer_requirements phải có direct_conclusion. Chọn thêm:
+rate khi trọng tâm là mức/quyền lợi thanh toán theo tỷ lệ; amount khi cần số tiền;
+conditions/exceptions khi kết quả phụ thuộc điều kiện/ngoại lệ; authority khi hỏi
+căn cứ; effective_time khi hỏi thời điểm/hiệu lực; procedure_steps khi hỏi thủ
+tục; comparison khi đối chiếu. Chỉ chọn yêu cầu thật sự cần để trả lời câu hỏi."""
 
 
 async def classify_request(query: str, *, settings) -> tuple[RouteDecision, str]:

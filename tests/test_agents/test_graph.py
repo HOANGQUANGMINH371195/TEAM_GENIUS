@@ -81,6 +81,31 @@ def test_claim_audit_does_not_stitch_numeric_facts_across_sources():
     assert claims[0]["evidence_ids"] == []
 
 
+def test_structured_source_contract_can_synthesize_across_selected_sources():
+    citations = [
+        Citation(
+            document_id="doc-a",
+            chunk_id="chunk-a",
+            title="Nguồn A",
+            quote="Người bệnh tham gia BHYT 5 năm liên tục.",
+        ),
+        Citation(
+            document_id="doc-b",
+            chunk_id="chunk-b",
+            title="Nguồn B",
+            quote="Người đủ điều kiện được hưởng 100% chi phí khám chữa bệnh.",
+        ),
+    ]
+
+    claims = _audit_claims(
+        "Người tham gia đủ 5 năm liên tục và đáp ứng điều kiện được hưởng 100% chi phí.",
+        citations,
+        model_source_ids={"chunk-a", "chunk-b"},
+    )
+
+    assert claims[0]["verification"] == "entailed"
+
+
 def test_model_context_and_output_never_expose_storage_identifiers():
     evidence = RetrievalResult(
         chunk_id="chunk-private-123",

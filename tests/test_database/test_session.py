@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -80,3 +81,46 @@ async def test_session_scope_rolls_back_caller_failure():
 
     fake_session.rollback.assert_awaited_once()
     fake_session.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_session_scope_reuses_pool_without_dns_or_duplicate_probe(monkeypatch):
+    settings = Settings(
+        database_url="postgresql+asyncpg://user:pass@localhost:5432/db",
+        db_connect_retries=1,
+        db_connect_timeout=1,
+    )
+    fake_session = AsyncMock()
+    fake_factory = type("Factory", (), {"__call__": lambda self: fake_session})()
+    monkeypatch.setattr(db_session, "_engine", object())
+    monkeypatch.setattr(db_session, "_engine_host", "127.0.0.1")
+    monkeypatch.setattr(db_session, "_session_factory", fake_factory)
+
+    with (
+        patch.object(db_session, "get_settings", return_value=settings),
+        patch.object(db_session, "_resolve_ipv4_hosts", new_callable=AsyncMock) as resolve,
+    ):
+        async with db_session.session_scope() as session:
+            assert session is fake_session
+
+    resolve.assert_not_awaited()
+    fake_session.execute.assert_not_awaited()
+    fake_session.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_readiness_probe_keeps_shared_pool_alive():
+    fake_session = AsyncMock()
+
+    @asynccontextmanager
+    async def fake_scope():
+        yield fake_session
+
+    with (
+        patch.object(db_session, "session_scope", fake_scope),
+        patch.object(db_session, "dispose_database", new_callable=AsyncMock) as dispose,
+    ):
+        assert await db_session.check_database()
+
+    fake_session.execute.assert_awaited_once()
+    dispose.assert_not_awaited()

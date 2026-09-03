@@ -18,7 +18,17 @@ class GroundedAnswer(ApiModel):
     document identifiers or citations from becoming part of the public API.
     """
 
-    conclusion: str = Field(..., min_length=1, max_length=4000)
+    conclusion: str = Field(
+        ...,
+        min_length=1,
+        max_length=4000,
+        description=(
+            "Một hoặc hai câu trả lời trực tiếp cho điều người dùng hỏi. Không dùng "
+            "tiêu đề như 'Kết luận' hoặc 'Điều kiện' thay cho câu trả lời. Nếu nguồn "
+            "nêu trực tiếp tỷ lệ, số tiền, thời hạn hoặc kết quả quyền lợi thì phải "
+            "đưa giá trị đó vào kết luận."
+        ),
+    )
     conditions: list[str] = Field(default_factory=list, max_length=8)
     exceptions: list[str] = Field(default_factory=list, max_length=8)
     uncertainty: str | None = Field(default=None, max_length=1000)

@@ -222,6 +222,7 @@ def test_generation_uses_intake_route_for_format_and_cache_policy():
         "risk": "high",
         "verifier_policy": "strict",
         "needs_table": True,
+        "answer_requirements": ["direct_conclusion", "rate", "conditions"],
     }
 
     instruction = _answer_format_instruction(
@@ -229,6 +230,7 @@ def test_generation_uses_intake_route_for_format_and_cache_policy():
     )
 
     assert "tỷ lệ, số tiền hoặc thời hạn" in instruction
+    assert "direct_conclusion, rate, conditions" in instruction
     assert not _answer_cache_allowed(
         "Giải thích trường hợp này", route_plan_override=strict_table
     )
