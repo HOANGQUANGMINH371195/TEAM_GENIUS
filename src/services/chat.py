@@ -1346,19 +1346,13 @@ class GraphRagRuntime:
                             include_local=_query_allows_local_documents(query),
                         )
                         if phrase_ids:
-                            # Also probe the leading substantive bigram. This
-                            # recovers clauses whose legal wording shortens a
-                            # longer user phrase ("cấp cứu" vs "cấp cứu nội
-                            # trú") without maintaining domain synonyms.
-                            terms = extract_query_terms(query, limit=8)
-                            if len(terms) >= 2:
-                                leading_ids = await repository.search_lexical_document_ids(
-                                    " ".join(terms[:2]),
-                                    dataset_id=dataset_id,
-                                    limit=min(60, max(32, settings.retrieval_candidate_k)),
-                                    include_local=_query_allows_local_documents(query),
-                                )
-                                return list(dict.fromkeys([*phrase_ids, *leading_ids]))[:64]
+                            # A selective contiguous phrase already found a
+                            # bounded document head. A second corpus query for
+                            # the leading bigram used to add one full managed
+                            # PostgreSQL round trip to every successful lookup,
+                            # while the independent current-authority channel
+                            # already supplies source diversity. Only fall back
+                            # to broader terms when the phrase probe is empty.
                             return phrase_ids
                     ids = await repository.search_lexical_document_ids(
                         query,
